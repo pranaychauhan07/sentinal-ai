@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cdc
+      POSTGRES_PASSWORD: cdc
+      POSTGRES_DB: cyber_defense_copilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cdc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  chromadb:
+    image: chromadb/chroma:0.5.5
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  web:
+    build: .
+    command: streamlit run apps/web/Home.py --server.address=0.0.0.0
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cdc:cdc@postgres:5432/cyber_defense_copilot
+      CHROMA_HOST: chromadb
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+      - ./data/reports_out:/app/data/reports_out
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+
+  api:
+    build: .
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cdc:cdc@postgres:5432/cyber_defense_copilot
+      CHROMA_HOST: chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    profiles: ["api"]   # opt-in: `docker compose --profile api up`
+
+volumes:
+  postgres_data:
+  chroma_data:

@@ -1,0 +1,13 @@
+EventID,TimeCreated,Computer,Account,SourceIP,LogonType,Message
+4625,2026-07-18T02:11:02Z,DC01,Administrator,203.0.113.44,3,An account failed to log on
+4625,2026-07-18T02:11:05Z,DC01,Administrator,203.0.113.44,3,An account failed to log on
+4625,2026-07-18T02:11:08Z,DC01,Administrator,203.0.113.44,3,An account failed to log on
+4625,2026-07-18T02:11:11Z,DC01,Guest,203.0.113.44,3,An account failed to log on
+4625,2026-07-18T02:11:14Z,DC01,svc_backup,203.0.113.44,3,An account failed to log on
+4624,2026-07-18T02:11:20Z,DC01,Administrator,203.0.113.44,3,An account was successfully logged on
+4672,2026-07-18T02:11:21Z,DC01,Administrator,203.0.113.44,3,Special privileges assigned to new logon
+4688,2026-07-18T02:11:40Z,DC01,Administrator,203.0.113.44,-,"New process created: C:\Windows\System32\whoami.exe"
+4688,2026-07-18T02:11:52Z,DC01,Administrator,203.0.113.44,-,"New process created: C:\Windows\System32\net.exe (net user hacker P@ssw0rd123! /add)"
+4720,2026-07-18T02:11:53Z,DC01,Administrator,203.0.113.44,-,A user account was created (hacker)
+4732,2026-07-18T02:11:55Z,DC01,Administrator,203.0.113.44,-,A member was added to security-enabled local group (Administrators)
+4624,2026-07-18T09:00:03Z,DC01,svc_backup,10.0.0.15,5,An account was successfully logged on

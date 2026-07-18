@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: mypy (core/)
+        run: mypy core
+
+      - name: Enforce core/ dependency rules
+        run: python scripts/check_dependency_rules.py
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cdc
+          POSTGRES_PASSWORD: cdc
+          POSTGRES_DB: cyber_defense_copilot
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cdc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://cdc:cdc@localhost:5432/cyber_defense_copilot
+      LLM_PROVIDER: ollama   # CI never calls a real LLM; unit tests mock providers
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit -m unit --cov=core --cov-report=term-missing
+
+      - name: Run integration tests
+        run: pytest tests/integration -m integration

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sample Nmap XML output, hand-crafted for parser fixtures/tests.
+     Not from a real scan of a real host. -->
+<nmaprun scanner="nmap" args="nmap -sV -O -oX nmap_scan.xml 198.51.100.23" start="1752800000" version="7.94">
+  <host starttime="1752800000" endtime="1752800042">
+    <status state="up" reason="syn-ack"/>
+    <address addr="198.51.100.23" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="legacy-app.example.internal" type="PTR"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open" reason="syn-ack"/>
+        <service name="ssh" product="OpenSSH" version="6.6.1p1" extrainfo="Ubuntu Linux; protocol 2.0"/>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack"/>
+        <service name="http" product="Apache httpd" version="2.2.22"/>
+      </port>
+      <port protocol="tcp" portid="443">
+        <state state="open" reason="syn-ack"/>
+        <service name="https" product="Apache httpd" version="2.2.22" tunnel="ssl"/>
+      </port>
+      <port protocol="tcp" portid="3306">
+        <state state="open" reason="syn-ack"/>
+        <service name="mysql" product="MySQL" version="5.5.62"/>
+      </port>
+      <port protocol="tcp" portid="21">
+        <state state="open" reason="syn-ack"/>
+        <service name="ftp" product="vsftpd" version="2.3.4"/>
+      </port>
+    </ports>
+    <os>
+      <osmatch name="Linux 3.2 - 4.9" accuracy="93"/>
+    </os>
+  </host>
+</nmaprun>

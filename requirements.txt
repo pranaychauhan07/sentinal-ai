@@ -1,0 +1,47 @@
+# Core web/app framework
+streamlit>=1.38
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# Agentic AI stack
+langgraph>=0.2
+langchain>=0.3
+langchain-openai>=0.2
+langchain-google-genai>=2.0
+langchain-community>=0.3
+
+# Data validation & settings
+pydantic>=2.9
+pydantic-settings>=2.5
+
+# Persistence
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
+aiosqlite>=0.20          # fallback driver per ADR-0004
+alembic>=1.13
+chromadb>=0.5
+
+# Parsing
+beautifulsoup4>=4.12
+tldextract>=5.1
+xmltodict>=0.13
+python-docx>=1.1
+pyyaml>=6.0
+eml-parser>=1.17
+
+# Reporting
+reportlab>=4.2
+jinja2>=3.1
+plotly>=5.24
+pandas>=2.2
+
+# Security
+detoxify>=0.5            # optional toxicity scoring, used by prompt_guard
+
+# Observability
+structlog>=24.4
+
+# Config / env
+python-dotenv>=1.0
+
+# --- Dev / test dependencies are in requirements-dev.txt ---

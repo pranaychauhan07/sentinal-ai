@@ -1,0 +1,10 @@
+# Default owner for everything not matched below.
+# Replace @OWNER with the actual GitHub handle/team once the repo is created.
+*                           @OWNER
+
+# Architecture-significant paths get extra scrutiny.
+/context/                  @OWNER
+/docs/adr/                 @OWNER
+/core/security/            @OWNER
+/core/db/                  @OWNER
+/.github/                  @OWNER

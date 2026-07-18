@@ -1,0 +1,18 @@
+# Normalize line endings everywhere regardless of contributor OS/editor
+* text=auto eol=lf
+
+# Never diff/merge generated binary report artifacts
+*.pdf -diff -merge
+*.png binary
+*.jpg binary
+*.jpeg binary
+
+# Treat sample evidence as text for readable diffs even though extensions vary
+data/sample_evidence/**/*.log text
+data/sample_evidence/**/*.eml text
+data/sample_evidence/**/*.xml text
+data/sample_evidence/**/*.csv text
+
+# Mark generated/vendored files so GitHub's linguist doesn't count them as
+# hand-written source in language statistics
+core/db/migrations/* linguist-generated=true

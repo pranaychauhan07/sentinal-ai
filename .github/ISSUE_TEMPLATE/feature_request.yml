@@ -1,0 +1,44 @@
+name: Feature Request
+description: Propose a new capability, agent, or module
+labels: ["type: enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What can't the current system do that this would enable?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: >
+        If this touches architecture (a new layer, a new external service, a
+        new agent boundary), check docs/adr/ first — it may need a new ADR
+        rather than a direct implementation. Reference docs/dependency-rules.md
+        if it affects which layers talk to which.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - New evidence type / parser
+        - New specialist agent
+        - New tool (deterministic function)
+        - Reporting / UX
+        - Infrastructure / deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: milestone
+    attributes:
+      label: Relevant milestone
+      description: Does this fit an existing milestone in docs/roadmap.md, or is it a new one?

@@ -1,0 +1,53 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Database ---
+*.db
+*.sqlite3
+core/db/*.db
+
+# --- Vector store (ChromaDB local persistence) ---
+.chroma/
+chroma_data/
+
+# --- Runtime artifacts (directories kept via .gitkeep, contents ignored) ---
+logs/*
+!logs/.gitkeep
+!logs/README.md
+data/reports_out/*
+!data/reports_out/.gitkeep
+!data/reports_out/README.md
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Streamlit ---
+.streamlit/secrets.toml

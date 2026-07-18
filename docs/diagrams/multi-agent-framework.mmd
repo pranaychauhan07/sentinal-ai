@@ -1,0 +1,42 @@
+%% Multi-Agent Framework — agent communication, execution flow, state flow,
+%% and workflow lifecycle (docs/adr/0009-multi-agent-framework-shape.md).
+%% Render with `mmdc -i multi-agent-framework.mmd -o multi-agent-framework.png`.
+%% No specialist agent exists yet — "SpecialistAgent(s)" below is what
+%% Milestone M1+ adds by registering into AgentRegistry and
+%% core/graph/investigation_graph.py; nothing else on this diagram changes.
+
+sequenceDiagram
+    participant Caller as core/services (future)
+    participant Engine as WorkflowEngine
+    participant Coord as CoordinatorAgent
+    participant Plan as PlanningAgent
+    participant Router as router.route_from_coordinator
+    participant Spec as SpecialistAgent(s)
+    participant State as CaseInvestigationState
+
+    Caller->>Engine: run(state)
+    Engine->>State: execution_scope(case_id, run_id)
+    Engine->>Coord: coordinator node (state)
+    Coord->>Plan: direct call, not a graph edge
+    Plan->>State: read metadata.required_capabilities
+    Plan->>State: write execution_plan (ExecutionPlan)
+    Plan-->>Coord: state (mutated)
+    Coord-->>Engine: state (mutated), diffed against pre-node snapshot
+    Engine->>Router: route_from_coordinator(state)
+    Router-->>Engine: [specialist_a, specialist_b] or [END]
+
+    par fan-out (one LangGraph superstep)
+        Engine->>Spec: specialist_a node (private deep copy of state)
+        Spec->>State: append findings / thoughts (on its own copy)
+        Spec-->>Engine: diff vs. original state
+    and
+        Engine->>Spec: specialist_b node (private deep copy of state)
+        Spec->>State: append findings / thoughts (on its own copy)
+        Spec-->>Engine: diff vs. original state
+    end
+
+    Engine->>State: merge diffs via Annotated reducers (operator.add / dict-merge)
+    Engine-->>Caller: final CaseInvestigationState
+
+    Note over Engine,State: Every node invocation also publishes<br/>AGENT_STARTED/COMPLETED/FAILED events<br/>(core/graph/events.py) consumed by<br/>MetricsCollector and structlog_listener.
+    Note over Engine: On an unhandled exception escaping<br/>a node, RetryPolicy retries transient<br/>failures; FailureRecoveryPolicy converts<br/>an exhausted failure into requires_manual_triage<br/>rather than crashing the run.

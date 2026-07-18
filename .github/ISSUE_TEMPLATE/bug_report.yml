@@ -1,0 +1,67 @@
+name: Bug Report
+description: Something in Cyber Defense Copilot isn't working as expected
+labels: ["type: bug", "triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the evidence type/module involved if applicable (e.g. "uploading a .eml to the Phishing module").
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Affected layer
+      description: See docs/architecture.md
+      options:
+        - apps/web (Streamlit)
+        - apps/api (FastAPI)
+        - core/agents
+        - core/tools
+        - core/parsers
+        - core/db
+        - core/reporting
+        - core/security
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - OS:
+        - Python version:
+        - LLM_PROVIDER:
+        - Docker Compose or local run:
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste from `logs/` — redact any API keys or PII first.
+      render: shell

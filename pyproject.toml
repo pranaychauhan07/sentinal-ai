@@ -1,0 +1,57 @@
+[project]
+name = "cyber-defense-copilot"
+version = "0.1.0"
+description = "AI-native, case-centric SOC analyst workbench (Capstone Project 9: Cyber Defense Copilot)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+[tool.setuptools.packages.find]
+include = ["core*", "apps*"]
+
+# ---------------------------------------------------------------------------
+# Ruff — linting + import-order. Configured in docs/engineering-standards.md.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["core", "apps", "tests", "scripts"]
+extend-exclude = ["data/sample_evidence"]  # intentionally-vulnerable fixtures, never linted
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "apps"]
+
+# ---------------------------------------------------------------------------
+# mypy — strict typing on core/, relaxed on apps/ presentation glue.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "core.*"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = "apps.*"
+disallow_untyped_defs = false
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "unit: fast, pure-function tests (default tier)",
+  "integration: full LangGraph investigation runs against sample evidence",
+  "golden: report snapshot comparison tests",
+]

@@ -1,0 +1,8 @@
+type=USER_AUTH msg=audit(1752810601.221:5011): pid=2210 uid=0 auid=1000 ses=42 msg='op=PAM:authentication grantors=? acct="deploy" exe="/usr/sbin/sshd" hostname=198.51.100.9 addr=198.51.100.9 terminal=ssh res=success'
+type=USER_ACCT msg=audit(1752810601.225:5012): pid=2210 uid=0 auid=1000 ses=42 msg='op=PAM:accounting grantors=pam_unix acct="deploy" exe="/usr/sbin/sshd" hostname=198.51.100.9 addr=198.51.100.9 terminal=ssh res=success'
+type=SYSCALL msg=audit(1752810900.010:5030): arch=c000003e syscall=59 success=yes exit=0 a0=7f a1=7f a2=7f a3=7f items=2 ppid=2210 pid=2311 auid=1000 uid=1001 gid=1001 euid=1001 comm="sudo" exe="/usr/bin/sudo" key="privileged-command"
+type=EXECVE msg=audit(1752810900.010:5030): argc=3 a0="sudo" a1="chmod" a2="777" a3="/var/www/html/upload/shell.php"
+type=SYSCALL msg=audit(1752810912.442:5031): arch=c000003e syscall=2 success=yes exit=3 a0=7ffee items=1 ppid=2311 pid=2402 auid=1000 uid=0 gid=0 euid=0 comm="cat" exe="/bin/cat" key="sensitive-file-access"
+type=EXECVE msg=audit(1752810912.442:5031): argc=2 a0="cat" a1="/etc/shadow"
+type=USER_CMD msg=audit(1752810912.500:5032): pid=2402 uid=1001 auid=1000 msg='cwd="/home/deploy" cmd=6361742022... exe="/bin/bash" terminal=pts/0 res=success'
+type=SYSCALL msg=audit(1752811005.100:5040): arch=c000003e syscall=57 success=yes exit=2415 a0=0 items=0 ppid=1 pid=2415 auid=4294967295 uid=0 gid=0 euid=0 comm="cron" exe="/usr/sbin/cron" key=""
