@@ -71,6 +71,23 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
 - [ ] **M6 — Memory + Threat Timeline + UX polish.** ChromaDB long-term
       memory, Threat Timeline cross-evidence view, MITRE ATT&CK heatmap,
       case-scoped AI Analyst Chat.
+      **Built ahead of schedule** (`docs/adr/0010-memory-knowledge-layer-shape.md`):
+      the full reusable Memory & Knowledge Layer — `MemoryManager`/
+      `MemoryRegistry`, concrete `SessionMemory`/`SQLiteCaseMemory`/
+      `InMemoryConversationMemory`/`LongTermMemoryManager` implementations of
+      every memory Protocol, SQLite persistence (`core/memory/db_models.py`,
+      `repository.py`), a real (non-Chroma) `InMemoryVectorStore` +
+      deterministic `HashingTextEmbedder`, TTL lifecycle/cleanup
+      (`lifecycle.py`), context assembly/serialization
+      (`context_builder.py`/`context_serializer.py`), memory-layer metrics,
+      and the parallel Knowledge Layer abstraction (`core/knowledge`:
+      `KnowledgeSource`/`KnowledgeRetriever` Protocols, `KnowledgeSourceRegistry`,
+      a deterministic `KeywordKnowledgeRetriever`) — is implemented and tested
+      (70 new tests) with zero cybersecurity data populated and no concrete
+      specialist agent depending on it yet. Still not checked off: the
+      milestone's own demo criterion (a real ChromaDB backend, populated
+      MITRE/OWASP knowledge, and the Threat Timeline/AI Analyst Chat UI)
+      needs M1/M2's concrete agents and real knowledge data first.
       *Demo: full Investigation Workspace as described in `docs/user-guide.md`.*
 
 - [ ] **M7 — Hardening, tests, docs, GitHub polish.** Full test coverage pass

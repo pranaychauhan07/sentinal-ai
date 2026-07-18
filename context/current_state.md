@@ -10,47 +10,35 @@
 
 ## Completed Features
 
-**Still nothing cybersecurity-related exists — no domain models, no parsers, no concrete specialist agent.** What is now complete, beyond the M0 engineering foundation, is the **Multi-Agent Framework**: the reusable agent/tool/workflow infrastructure every future specialist agent will be built on top of. Built ahead of the milestone schedule (normally M3) at explicit user direction — framework-first, validated by its own tests, before any domain-specific agent exists. Full design rationale: `docs/adr/0009-multi-agent-framework-shape.md`.
+**Still nothing cybersecurity-related exists — no domain models, no parsers, no concrete specialist agent.** What is now complete, beyond the M0 engineering foundation and the M3 Multi-Agent Framework, is the **Memory & Knowledge Layer**: the reusable memory/context/knowledge infrastructure every future specialist agent and the future Memory Agent will be built on top of. Built ahead of the milestone schedule (normally M6) at explicit user direction — framework-first, before any domain-specific agent exists, mirroring the precedent set by the Multi-Agent Framework session. Full design rationale: `docs/adr/0010-memory-knowledge-layer-shape.md`.
 
-### M0 foundation (unchanged from prior session)
+### M0 foundation + Multi-Agent Framework (unchanged from prior session)
 
-- **Configuration** — `core/config/`: pydantic-settings `Settings`, `Environment`/`LLMProvider` enums, cached `get_settings()`.
-- **Structured logging** — `core/logging/`: structlog + stdlib integration, context-variable binding helpers (request/case/agent/correlation IDs), `log_execution_time` decorator.
-- **Shared contracts** — `core/exceptions.py`, `core/schemas.py`, `core/interfaces.py` (root-level leaves, importable by every layer).
-- **Database foundation** — `core/db/`: `Base`, `Entity` (UUID surrogate PK), `Database`, `BaseRepository`, Alembic scaffolding. No domain models yet.
-- **FastAPI application** — `apps/api/`: app factory, middleware, exception handlers, dependencies, `/health` `/ready` `/version`, empty `/api/v1` router.
-- **Developer experience / governance** — full directory skeleton, root engineering files, Docker, `.github/`, full `docs/` set, ADRs 0001–0008, sample evidence fixtures.
+- **Configuration, logging, shared contracts, DB foundation, FastAPI app, governance** — unchanged, see prior session detail in git history / `docs/adr/0001-0009`.
+- **`core/agents/`, `core/tools/`, `core/graph/`** — `BaseAgent`/`BaseTool`, `AgentRegistry`/`ToolRegistry`, `CoordinatorAgent`/`PlanningAgent`, `WorkflowEngine` (real compiled LangGraph `StateGraph`), `routing.py`, `events.py`/`retry.py`/`failure_recovery.py`/`metrics.py`/`execution_context.py`. 158 tests as of the prior session.
 
-### Multi-Agent Framework (new this session)
+### Memory & Knowledge Layer (new this session)
 
-- **`core/agents/`**:
-  - `confidence.py` — `ConfidenceLevel` (CERTAIN/HIGH/MEDIUM/LOW/UNKNOWN), `ConfidenceScore` (frozen Pydantic value object), `classify_confidence()`, `.deterministic()`/`.llm_fallback()` constructors matching constitution §4.6's thresholds exactly.
-  - `contracts.py` — `ExecutionStatus`, `ExecutionMetadata`, `AgentCapability`, `AgentIdentity`, `PlannedStep`, `ExecutionPlan` (with `entry_steps`/`is_empty`), `AgentExecutionResult`. Zero domain content — pure framework data shapes.
-  - `base.py` — `BaseAgent`: template-method base. Subclasses implement only `execute()`; `__call__` (final, matches constitution §4.1 exactly) owns logging-context binding, timing, catch-all error handling (converts any exception from `execute()` into a degraded/failed `AgentExecutionResult` — never escapes), and folds the result onto `CaseInvestigationState` (`thoughts`, `agent_outputs`, `confidence_scores`, `execution_history`, `errors`). `use_tool(name, args)` enforces the agent's declared `tools_used`. Optional `tool_registry`/`case_memory` constructor dependencies.
-  - `registry.py` — `AgentRegistry` (explicit, injectable; `register`/`get`/`has`/`find_by_capability`/`list_identities`), `default_agent_registry()` (`lru_cache` process-wide singleton, matching `core.config.get_settings()`'s pattern).
-  - `coordinator.py` — `CoordinatorAgent(BaseAgent)`: routes empty/uncapable cases to manual triage; otherwise calls `PlanningAgent` directly (a plain Python call, not a graph edge) and writes the resulting `ExecutionPlan` onto state. **Never executes agents itself** — that's the graph's job.
-  - `planning_agent.py` — `PlanningAgent(BaseAgent)`: matches `state.metadata["required_capabilities"]` (generic string tags) against every registered agent's declared `AgentCapability`, builds an `ExecutionPlan`, degrades confidence on partial matches, excludes the Coordinator/Planner themselves from being matched as plan targets (`RESERVED_FRAMEWORK_AGENT_NAMES`).
-- **`core/tools/`**:
-  - `base.py` — `BaseTool`: template-method base. `run()` is the only method subclasses implement; `__call__` owns validation, permission checks (`requires_approval`), timeout enforcement (`ThreadPoolExecutor`-based, only for `is_io_bound` tools), bounded retry (I/O-bound only — deterministic tools never retry, per constitution §5/§4.8), an opt-in in-process cache, and logging/`ToolExecutionMetadata`.
-  - `registry.py` — `ToolRegistry`, `default_tool_registry()`.
-- **`core/memory/interfaces.py`** — `ShortTermMemory`/`CaseMemory`/`LongTermMemory`/`VectorMemory` `Protocol`s. **Abstraction only** — no implementation, per this milestone's explicit scope. `short_term.py`/`long_term.py` (concrete) remain Milestone M6.
-- **`core/graph/`**:
-  - `state.py` (extended) — `CaseInvestigationState` gained `execution_plan`, `agent_outputs`, `confidence_scores`, `intermediate_results`, `metadata`, `extensions`, `execution_history`, `errors` (new `ErrorRecord` model), `extracted_indicators`. List/dict fields use `Annotated[..., reducer]` (`operator.add` for lists, a local `_merge_dicts` for dicts) so independent agents can write concurrently in the same LangGraph superstep without `InvalidUpdateError`.
-  - `workflow_engine.py` — `WorkflowEngine`: compiles registered `BaseAgent`s into a real `langgraph.graph.StateGraph`. `add_agent_node`/`set_entry`/`add_conditional_edges` (deferred — path_map resolved lazily at `compile()` so nodes can be added after routing is registered)/`add_edge`/`compile`/`run`. Every node is wrapped to run the agent against a **private deep copy** of state (never the shared input — see the concurrency bug below) and diff the result into a minimal reducer-safe partial update; wraps with `RetryPolicy`, `FailureRecoveryPolicy`, and `EventBus` publication uniformly.
-  - `routing.py` (named to match blueprint §6, not `router.py`) — `route_from_coordinator`: reads `state.execution_plan`/`requires_manual_triage`, returns the next node name(s) or `END`.
-  - `investigation_graph.py` — `build_investigation_graph()`/`run_investigation()`. Today wires **only the Coordinator** as a graph node (Planner is called directly by the Coordinator, not a graph node). Left uncompiled on return so callers/future milestones can add specialist nodes before running.
-  - `events.py` — `EventType`, `WorkflowEvent`, `EventBus` (explicit pub/sub, `default_event_bus()` singleton with `structlog_listener` subscribed by default).
-  - `retry.py` — `RetryPolicy`, `run_with_retry()` (sync, exponential backoff, only retries `policy.retryable_exceptions`).
-  - `failure_recovery.py` — `RecoveryAction` (CONTINUE_DEGRADED/MANUAL_TRIAGE/ABORT_WORKFLOW), `FailureRecoveryPolicy`, `recover()`.
-  - `metrics.py` — `AgentMetrics`, `WorkflowMetrics`, `MetricsCollector` (subscribes to `EventBus`, never touches nodes directly).
-  - `execution_context.py` — `ExecutionContext`, `execution_scope()` (binds/clears case_id/investigation_run_id logging context for one full workflow run).
-- **Testing** — 86 new tests (158 total, up from 72), covering confidence/contracts/state, `BaseAgent`/`BaseTool` lifecycle and error handling, both registries, `CoordinatorAgent`/`PlanningAgent`, every `core/graph` module, and an integration test running the **real compiled `StateGraph`** end-to-end (manual triage path, single-node path, parallel fan-out with fake non-domain specialist agents, partial-capability-match path). mypy (strict on `core/`), ruff, `ruff format`, and `scripts/check_dependency_rules.py` all pass.
+- **`core/memory/models.py`** — `MemoryScope` (SESSION/CASE/CONVERSATION/LONG_TERM), `MemoryPriority`, `MemoryRecord` (frozen, with `is_expired()`), `MemoryQuery`, `MemoryQueryResult`, `ConversationRole`/`ConversationTurn`.
+- **`core/memory/db_models.py` + `repository.py`** — `MemoryRecordRow` (SQLAlchemy `Entity` subclass, indexed on `(scope, case_id)`) and `MemoryRepository` (subclasses `core.db.BaseRepository`; adds `save` (merge-upsert), `find` (scope/case/text/tag filtering), `delete_expired`, `get_record`). This is the layer's only Pydantic↔ORM translation point (constitution §7).
+- **Concrete implementations of every memory Protocol** (`core/memory/interfaces.py`'s Protocols were previously abstraction-only; this session gave each a real backing):
+  - `session_memory.py` — `SessionMemory` (`ShortTermMemory`): in-process per-session dict.
+  - `case_memory.py` — `SQLiteCaseMemory` (`CaseMemory`): persisted case notes via `MemoryRepository`. **This is the first real value `BaseAgent`'s existing `case_memory: CaseMemory | None` constructor parameter can be given** — no change to `BaseAgent` itself.
+  - `conversation_memory.py` — new `ConversationMemory` Protocol + `InMemoryConversationMemory`: case-scoped chat turn history for the future AI Analyst Chat (blueprint §13), bounded by `max_turns_per_case`.
+  - `vector_store.py` — `InMemoryVectorStore` (`VectorMemory`): a genuinely working, brute-force O(n) cosine-similarity store — not a stub. `NullVectorStore`: documented no-op fallback. `HashingTextEmbedder` (`TextEmbedder` Protocol): deterministic feature-hashing embedder (uses `hashlib`, not the salted builtin `hash()`, so results are stable across process restarts) — exercises the vector store end-to-end with zero LLM-provider dependency. ChromaDB itself remains unbuilt, exactly as ADR-0005/0006 scoped it for Milestone M6.
+  - `long_term.py` — `LongTermMemoryManager` (`LongTermMemory`): wraps an injected `VectorMemory` + `TextEmbedder`; every method catches backend failures and degrades to empty/no-op rather than raising (ADR-0006's "always advisory" contract enforced here, not just documented).
+- **`core/memory/lifecycle.py`** — `MemoryLifecycleManager`: per-`MemoryScope` default TTLs (`DEFAULT_RETENTION`), `cleanup_expired()` (the reusable unit a future scheduled job calls), `default_expiry_for()`.
+- **`core/memory/context_builder.py` + `context_serializer.py`** — `ContextBuilder`: `filter_active` → `deduplicate` → `rank` (priority, then recency) → `truncate_to_budget` (character-budget proxy for a token budget) → `assemble()` (`AssembledContext`). `ContextSerializer`: `to_prompt_text()` / `to_dict()`.
+- **`core/memory/metrics.py`** — `MemoryMetricsCollector`: hit/miss/write/eviction counters, `time_retrieval()` context manager for timing. Deliberately self-contained (no `core.graph.events.EventBus` dependency — `core/memory` is a leaf layer that must never import `core/graph`).
+- **`core/memory/registry.py` + `manager.py`** — `MemoryRegistry[BackendT]` (generic named-backend lookup, mirroring `AgentRegistry`/`ToolRegistry`'s pattern) + `default_memory_registry()`. `MemoryManager`: the single facade wiring session/case/conversation/long-term memory + context builder + serializer + metrics; every dependency optional and injected, degrading to advisory no-ops (never raising) when a piece isn't configured.
+- **`core/knowledge/`** (previously empty, README-only):
+  - `models.py` — `KnowledgeSourceType` (MITRE_ATTACK/OWASP_TOP10/THREAT_INTELLIGENCE/SECURITY_PLAYBOOK/DETECTION_RULE/INVESTIGATION_TEMPLATE — **no data populated**), `KnowledgeDocument`, `KnowledgeQuery`, `KnowledgeSearchResult`.
+  - `interfaces.py` — `KnowledgeSource`/`KnowledgeRetriever` Protocols (abstraction only).
+  - `registry.py` — `KnowledgeSourceRegistry` + `default_knowledge_registry()`, empty until a concrete source registers itself (a later milestone).
+  - `retrieval.py` — `KeywordKnowledgeRetriever`: deterministic keyword/substring scoring across every registered source (constitution Principle 9) — explicitly not semantic/RAG retrieval; that's a documented future swap behind the same `KnowledgeRetriever` Protocol.
+- **Testing** — 70 new tests (228 total, up from 158): every new module has a dedicated `tests/unit/test_*.py` file, including SQLite-persistence tests (`test_memory_repository.py`, `test_memory_case_memory.py`, `test_memory_lifecycle.py`, `test_memory_manager.py`) following `tests/unit/test_base_repository.py`'s real-SQLite-via-`test_settings`-fixture pattern, Protocol-conformance tests for every new concrete implementation, and advisory-degradation tests (a failing fake `VectorMemory` proving `LongTermMemoryManager`/`MemoryManager` never raise). mypy (strict on `core/`), `ruff check`, `ruff format`, and `scripts/check_dependency_rules.py` all pass; manual `grep` across `core/memory` and `core/knowledge` confirms no import of `core/agents`/`core/graph` (the two layers dependency rules forbid a leaf from calling up to).
 
-**Verified with a live, non-pytest end-to-end run**, not just green test output: a scratch script (`build_investigation_graph()` + fake, non-domain specialist agents) exercised (1) empty-case → manual triage, (2) mixed evidence → two specialists fanning out in the *same* LangGraph superstep with findings merging correctly and no duplication, (3) a simulated transient failure being retried once by `RetryPolicy` and recovering (`requires_manual_triage` stayed `False`), and (4) a partial capability match degrading plan confidence to `0.5` while still running the matched agent. All four scenarios printed real structlog output and passed their assertions.
-
-**A real concurrency bug was found and fixed during this session, not assumed away:** LangGraph shares the same input object across sibling nodes scheduled in one superstep. Since `BaseAgent` mutates `CaseInvestigationState` in place, two parallel specialist nodes both mutating the same shared object caused duplicated `findings` entries (verified with a scratch reproduction before it reached the checked-in test suite). Fixed in `workflow_engine.py`: every node now runs the agent against its own `state.model_copy(deep=True)` and diffs against the *original*, never-mutated `state` parameter. Documented in ADR-0009 point 5.
-
-**Explicitly NOT built:** any domain DB model (`Case`/`Evidence`/`Finding`/etc.), any parser, any concrete specialist agent (SOC Analyst, Threat Hunting, Phishing, Vulnerability, OWASP, Linux Security, Incident Response, MITRE, Report Generator, Memory), any tool implementation (CVSS calculator, risk scoring, etc.), any memory *implementation* (interfaces only), `core/security/*`, `core/reporting/*`, any `apps/web` code, any `/api/v1` domain route. No git repository exists.
+**Explicitly NOT built, by this milestone's stated scope:** any domain DB model (`Case`/`Evidence`/`Finding`/etc.), any parser, any concrete specialist agent, any tool implementation, `core/security/*`, `core/reporting/*`, any `apps/web` code, any `/api/v1` domain route, the real ChromaDB backend (M6's actual production vector store — `InMemoryVectorStore` is a working reference implementation of the same Protocol, not a replacement for it), and any populated MITRE/OWASP/threat-intel/playbook/detection-rule/investigation-template knowledge data.
 
 ---
 
@@ -59,136 +47,134 @@
 ```
 apps/
   api/            FastAPI app (unchanged)                          [implemented]
-  web/            Streamlit frontend                                [README only]
+  web/             Streamlit frontend                               [README only]
 core/
   config/         (unchanged)                                       [implemented]
   logging/        (unchanged)                                       [implemented]
   exceptions.py, schemas.py, interfaces.py                          [implemented]
-  agents/         base.py, registry.py, confidence.py, contracts.py,
-                   coordinator.py, planning_agent.py                 [implemented — framework only]
-  tools/          base.py, registry.py                               [implemented — framework only]
-  memory/         interfaces.py                                      [implemented — abstraction only]
-  graph/          state.py (extended), workflow_engine.py, routing.py,
-                   investigation_graph.py, events.py, retry.py,
-                   failure_recovery.py, metrics.py, execution_context.py
-                                                                       [implemented — framework only]
+  agents/         (unchanged — framework only)                      [implemented — framework only]
+  tools/          (unchanged — framework only)                      [implemented — framework only]
+  memory/         interfaces.py (unchanged Protocols) + models.py,
+                   db_models.py, repository.py, session_memory.py,
+                   case_memory.py, conversation_memory.py,
+                   vector_store.py, long_term.py, lifecycle.py,
+                   context_builder.py, context_serializer.py,
+                   metrics.py, registry.py, manager.py               [implemented — memory layer]
+  knowledge/      models.py, interfaces.py, registry.py, retrieval.py
+                   (no data populated)                               [implemented — abstraction + one deterministic retriever]
+  graph/          (unchanged — framework only)                       [implemented — framework only]
   db/             (unchanged, no domain models)                      [implemented, no domain models]
   parsers/        (empty — README only)                              [not started]
-  knowledge/      (empty — README only)                              [not started]
   security/       (empty — README only)                              [not started]
   reporting/      (empty — README only)                              [not started]
   services/       (empty — README only)                              [not started]
 data/             (unchanged)
 tests/
-  unit/           26 test modules (~110 tests)
-  integration/    4 test modules (~48 tests, including
+  unit/           44 test modules (228 tests)
+  integration/    4 test modules (17 tests, including
                    test_investigation_graph.py — real compiled StateGraph)
   golden/         (empty — no report generation exists yet)
-docs/             15 markdown docs + docs/adr/ (10 ADR files incl. template)
-                   + docs/diagrams/multi-agent-framework.mmd (new)
+docs/             15 markdown docs + docs/adr/ (11 ADR files incl. template)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 scripts/          (unchanged)
 .github/          (unchanged)
 ```
 
-~180 tracked files total (up from 150). Root config/governance files unchanged and current, except `pyproject.toml` (mypy override note removed — see Key Decisions) and `requirements.txt`/`CHANGELOG.md`/`docs/roadmap.md`/`README.md` updated this session.
+186 files committed as of `eae4fb8` (the M0 + Multi-Agent Framework commit); this session added roughly 35 more (18 `core/` modules, 17 test files, 1 ADR) plus edits to 5 existing files, all currently uncommitted (see "Current Git Status" below). Root config/governance files unchanged and current, except `docs/roadmap.md` (M6 note added) and `CHANGELOG.md`, both updated this session.
 
-**Naming note carried forward:** `context/02_repository.md` and `context/03_constitution.md` still do not exist. The actual files remain `context/01_blueprint.md` and `context/03_engineering_constitution.md`. A prompt this session referenced both non-existent filenames again — flagged and worked around identically to the prior session's note.
+**Naming note carried forward:** `context/02_repository.md` and `context/03_constitution.md` still do not exist. The actual files remain `context/01_blueprint.md` and `context/03_engineering_constitution.md`. A prompt this session again referenced both non-existent filenames — flagged and worked around identically to prior sessions' notes.
 
 ---
 
 ## Architecture Status
 
-Fully aligned with `context/01_blueprint.md`, with one new documented clarification (not a redesign) beyond the two carried forward from M0:
+Fully aligned with `context/01_blueprint.md`, extending (not reversing) ADR-0005/ADR-0006 per ADR-0010's explicit scoping:
 
 1. (Carried forward) `core/logging/` fills a blueprint §4 gap with no assigned folder in §6.
 2. (Carried forward) Three root-level `core/` modules (`exceptions.py`, `schemas.py`, `interfaces.py`) are shared leaves with no assigned home.
-3. **(New) `core/graph/state.py` is a shared leaf contract `core/agents` may import**, distinct from `core/graph/investigation_graph.py`/`routing.py`/`workflow_engine.py` which remain off-limits to `core/agents`. This was a pre-existing gap in `docs/dependency-rules.md` (rule 4 never listed `core/graph/state.py` even though constitution §4.1's literal agent signature requires importing it) — closed explicitly in `docs/dependency-rules.md` and recorded in `docs/adr/0009-multi-agent-framework-shape.md` point 7, rather than left as a silent, unenforced exception.
+3. (Carried forward) `core/graph/state.py` is a shared leaf contract `core/agents` may import, distinct from the rest of `core/graph`.
+4. **(New) `core/memory` and `core/knowledge` own their own persistence/registration the same way `core/db` owns the domain schema** — `core/memory/db_models.py`/`repository.py` reuse `core.db.BaseRepository` rather than inventing a second persistence pattern, and neither layer imports `core/agents`/`core/graph` (verified by manual `grep`, since `scripts/check_dependency_rules.py` only mechanically checks the streamlit/fastapi-import rule — same known gap noted in the prior session).
 
-The dependency direction rule is still mechanically enforced by `scripts/check_dependency_rules.py` (streamlit/fastapi import scan only — it does not check sibling-`core/`-layer violations; those were verified manually this session via `grep` across `core/tools`, `core/memory`, `core/agents`).
-
-No approved architectural decision has been reversed. `docs/roadmap.md`'s M3 checkbox remains unchecked — the framework is implemented, but M3's own demo criterion (real mixed evidence routing to real specialist agents) needs M1/M2's concrete agents first.
+No approved architectural decision has been reversed. `docs/roadmap.md`'s M6 checkbox remains unchecked — the memory/knowledge framework is implemented, but M6's own demo criterion (a real ChromaDB backend, populated knowledge data, the Threat Timeline/AI Analyst Chat UI) needs M1/M2's concrete agents and real domain/knowledge data first.
 
 ---
 
 ## Key Decisions
 
-*(Carried forward from M0 — still true, unchanged: UUID surrogate PKs via `Entity`; `Tool` Protocol variance; `Service` is not a Protocol; ruff format only, no Black; FastAPI `Annotated[Type, Depends(...)]` dependency style; cursor pagination ordered by UUID `id`; `scripts/run_migrations.sh`/`seed_sample_data.py` are honest no-op stubs.)*
+*(Carried forward from prior sessions — still true, unchanged: UUID surrogate PKs via `Entity`; `Tool`/`Agent` Protocol variance; `Service` is not a Protocol; ruff format only; FastAPI `Annotated[Type, Depends(...)]` style; cursor pagination by UUID `id`; the Coordinator delegates planning and never executes agents itself; two-tier error handling in `BaseAgent`/`workflow_engine.py`; reducer-based `CaseInvestigationState`; `core/graph/routing.py` not `router.py`; numpy currently uninstalled — watch for reintroduction when `chromadb` lands in M6.)*
 
 **New this session:**
 
-- **The Coordinator delegates planning; it never executes agents itself.** `CoordinatorAgent.execute()` calls `PlanningAgent` as a plain Python function and writes an `ExecutionPlan` onto state — the LangGraph edges (`routing.py`) do the actual fan-out/execution. Considered and rejected: the Coordinator imperatively looping over planned agents itself, which would make it a second, competing execution engine parallel to LangGraph's own (defeats ADR-0003's reason for choosing LangGraph). See ADR-0009 point 3.
-- **Two-tier error handling, deliberately.** `BaseAgent` catches everything a concrete agent's `execute()` can raise (documented fallback tier, constitution §4.7). `workflow_engine.py` separately wraps every node with its own retry/failure-recovery for exceptions escaping `BaseAgent.__call__` itself — a framework-bug tier, constitution §9. Not redundant: they cover genuinely different failure classes. See ADR-0009 point 4.
-- **Reducer-based state, verified empirically before relying on it.** `CaseInvestigationState`'s list/dict fields are `Annotated` with merge reducers because LangGraph rejects concurrent same-field writes otherwise (confirmed with a scratch script against the installed `langgraph` package, not assumed from docs). See ADR-0009 point 5 and the concurrency-bug note above.
-- **`add_conditional_edges`'s path_map is resolved lazily at `compile()`, not at call time.** An earlier version resolved it eagerly (at the `add_conditional_edges` call), which silently broke routing to any node added afterward — caught by an integration test failing with a LangGraph `KeyError`, not assumed correct.
-- **`core/graph/routing.py`, not `router.py`.** Initially implemented as `router.py`; renamed to match blueprint §6's explicit filename after cross-checking the blueprint text, before this became yet another undocumented naming drift.
-- **`numpy` was uninstalled from the environment.** Installing `langgraph` transitively pulled in a numpy version (2.5.0) whose bundled type stubs use Python-3.12-only syntax, which broke `mypy core` (a hard parse error, not suppressible via per-module `ignore_errors` since it fails before override application). `pip show numpy` confirmed nothing in the installed environment actually required it (`Required-by:` was empty) — uninstalling it was the correct fix, not a workaround. **Risk carried forward:** a future milestone that installs `chromadb` (Milestone M6) will reintroduce numpy as a real dependency; whoever does that should re-check `mypy core` and, if the same stub-syntax issue recurs, pin a numpy version compatible with the project's `python_version = "3.11"` mypy target rather than raising that target (which would permit 3.12+-only syntax in project code, contradicting `requires-python = ">=3.11"`).
-- **One `# type: ignore[call-overload]`, precisely scoped and documented, on `WorkflowEngine.add_agent_node`'s `self._graph.add_node(...)` call.** LangGraph's `add_node` overloads are generic over its own TypedDict/dataclass/BaseModel node-input protocols in a way mypy can't unify with a plain `(CaseInvestigationState) -> dict[str, Any]` node function, despite this being the exact dict-partial-update shape LangGraph documents and despite runtime behavior being verified via the integration test. Not a workaround for our own bug — verified as a LangGraph stub-precision limitation before suppressing it.
+- **`core/memory`/`core/knowledge` own their own SQLite persistence rather than waiting for domain models.** `MemoryRecordRow.case_id` is a plain UUID column, not a foreign key, because `Case`/`Evidence`/`Finding` don't exist yet (Milestone M1) and this layer must not block on them. Considered and rejected: deferring all memory persistence until M1's domain models land — rejected because it would force the first concrete specialist agent (M1) to *also* build its own memory persistence ad hoc, exactly the retrofit problem ADR-0009 already avoided for the agent framework. See ADR-0010.
+- **ChromaDB stays exactly where ADR-0005 put it (M6, unbuilt).** `vector_store.py` ships `InMemoryVectorStore` as a genuinely functional reference implementation of the same `VectorMemory` Protocol, explicitly documented (module docstring, README, ADR-0010 "Consequences") as not a production substitute, so a future reviewer can't mistake "the Protocol is implemented" for "the production backend is implemented."
+- **The deterministic text embedder uses `hashlib`, not Python's builtin `hash()`.** `hash()` on `str` is salted per-process (`PYTHONHASHSEED`) for security/DoS-resistance; using it would have made a "deterministic" embedder silently non-deterministic across process restarts — caught before it became a subtle test-flakiness bug, not assumed correct from the pattern's name.
+- **`core/memory/metrics.py` does not subscribe to `core.graph.events.EventBus`,** unlike `core/graph/metrics.py`'s `MetricsCollector`. `core/memory` is a leaf layer per `docs/dependency-rules.md` and must never import `core/graph` — the memory-layer metrics collector is a small, self-contained, explicitly-constructed class instead, deliberately not reusing the graph layer's event-bus pattern even though the shape rhymes.
+- **`MemoryRegistry` is generic (`MemoryRegistry[BackendT]`), unlike `AgentRegistry`/`ToolRegistry`.** Memory backends don't share one common base class the way agents/tools do (a `VectorMemory` and a `ConversationMemory` are structurally unrelated Protocols) — genericity avoids forcing an artificial shared interface just to reuse the registry pattern.
+- **`sqlalchemy.CursorResult` is asserted (not just cast) in `MemoryRepository.delete_expired`.** `AsyncSession.execute()`'s static return type (`Result[Any]`) doesn't expose `.rowcount` even though a `DELETE`/`UPDATE` statement always returns a `CursorResult` at runtime — an `assert isinstance(...)` closes the mypy gap without a blind `# type: ignore`, verified against the real SQLAlchemy behavior via the passing `test_memory_repository.py`/`test_memory_lifecycle.py` tests, not assumed from the type stub alone.
 
 ---
 
 ## Public Interfaces
 
-*(M0 interfaces — `core.config`, `core.logging`, `core.exceptions`, `core.schemas`, `core.interfaces`, `core.db`, `apps.api.*` — unchanged from prior session, see below for the new surface.)*
+*(M0/M3 interfaces — `core.config`, `core.logging`, `core.exceptions`, `core.schemas`, `core.interfaces`, `core.db`, `core.agents.*`, `core.tools.*`, `core.graph.*`, `apps.api.*` — unchanged from prior sessions.)*
 
-**Confidence:** `core.agents.confidence.{ConfidenceLevel, ConfidenceScore, classify_confidence, DETERMINISTIC_CONFIDENCE, LLM_FALLBACK_CONFIDENCE_CEILING}`.
+**Memory contracts:** `core.memory.interfaces.{ShortTermMemory, CaseMemory, LongTermMemory, VectorMemory, SimilarResult}` (unchanged Protocols) plus `core.memory.models.{MemoryScope, MemoryPriority, MemoryRecord, MemoryQuery, MemoryQueryResult, ConversationRole, ConversationTurn}`.
 
-**Agent contracts:** `core.agents.contracts.{ExecutionStatus, ExecutionMetadata, AgentCapability, AgentIdentity, PlannedStep, ExecutionPlan, AgentExecutionResult}`.
+**Memory persistence:** `core.memory.db_models.MemoryRecordRow`, `core.memory.repository.MemoryRepository`.
 
-**Agents:** `core.agents.base.BaseAgent`, `core.agents.registry.{AgentRegistry, default_agent_registry}`, `core.agents.coordinator.CoordinatorAgent`, `core.agents.planning_agent.{PlanningAgent, RESERVED_FRAMEWORK_AGENT_NAMES}`.
+**Memory implementations:** `core.memory.session_memory.SessionMemory`, `core.memory.case_memory.SQLiteCaseMemory`, `core.memory.conversation_memory.{ConversationMemory, InMemoryConversationMemory}`, `core.memory.vector_store.{TextEmbedder, HashingTextEmbedder, InMemoryVectorStore, NullVectorStore}`, `core.memory.long_term.LongTermMemoryManager`.
 
-**Tools:** `core.tools.base.{BaseTool, ToolExecutionStatus, ToolExecutionMetadata, ToolPermissionDeniedError, ToolTimeoutError}`, `core.tools.registry.{ToolRegistry, default_tool_registry}`.
+**Memory infrastructure:** `core.memory.lifecycle.{DEFAULT_RETENTION, CleanupReport, MemoryLifecycleManager}`, `core.memory.context_builder.{AssembledContext, ContextBuilder, DEFAULT_MAX_CHARS}`, `core.memory.context_serializer.ContextSerializer`, `core.memory.metrics.{MemoryMetrics, MemoryMetricsCollector}`, `core.memory.registry.{MemoryRegistry, default_memory_registry}`, `core.memory.manager.MemoryManager`.
 
-**Memory:** `core.memory.interfaces.{ShortTermMemory, CaseMemory, LongTermMemory, VectorMemory, SimilarResult}` — Protocols only, no implementation.
+**Knowledge contracts:** `core.knowledge.models.{KnowledgeSourceType, KnowledgeDocument, KnowledgeQuery, KnowledgeSearchResult}`, `core.knowledge.interfaces.{KnowledgeSource, KnowledgeRetriever}`, `core.knowledge.registry.{KnowledgeSourceRegistry, default_knowledge_registry}`, `core.knowledge.retrieval.KeywordKnowledgeRetriever`.
 
-**Graph state:** `core.graph.state.{CaseInvestigationState, AgentThought, ErrorRecord}` — `CaseInvestigationState` now carries `execution_plan`, `agent_outputs`, `confidence_scores`, `intermediate_results`, `metadata`, `extensions`, `execution_history`, `errors`, `extracted_indicators` in addition to the M0 fields.
-
-**Graph/workflow:** `core.graph.workflow_engine.WorkflowEngine`, `core.graph.routing.route_from_coordinator`, `core.graph.investigation_graph.{build_investigation_graph, run_investigation}`, `core.graph.events.{EventType, WorkflowEvent, EventBus, default_event_bus, structlog_listener}`, `core.graph.retry.{RetryPolicy, run_with_retry}`, `core.graph.failure_recovery.{RecoveryAction, FailureRecoveryPolicy, recover}`, `core.graph.metrics.{AgentMetrics, WorkflowMetrics, MetricsCollector}`, `core.graph.execution_context.{ExecutionContext, execution_scope}`.
-
-No domain (Case/Evidence/Finding) models/schemas, parsers, concrete specialist agents, or concrete tools exist as public interfaces yet.
+No domain (Case/Evidence/Finding) models/schemas, parsers, concrete specialist agents, concrete tools, ChromaDB backend, or populated knowledge data exist as public interfaces yet.
 
 ---
 
 ## Remaining Work
 
-Unchanged in substance from the prior session's plan (see `docs/roadmap.md`), except M3's framework piece is now done:
+Unchanged in substance from the prior session's plan (see `docs/roadmap.md`), except M6's framework piece is now done:
 
-1. **M1 — First real module, single agent, no orchestration.** `core/db/models.py` (`Case`, `Evidence`, `Finding`, `MitreTechnique`, `TimelineEvent`, `Report`) + first Alembic migration; `core/parsers/syslog_parser.py`; `core/tools/scoring.py` (subclassing the now-implemented `BaseTool`); `core/agents/soc_analyst_agent.py` (subclassing the now-implemented `BaseAgent`, registered via `AgentRegistry`, added to `investigation_graph.py` per the pattern `docs/agent-design.md` now documents); first real `/api/v1` route + `core/services/case_service.py` (which becomes the real caller of `run_investigation()`).
-2. **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE Agent; Phishing Investigation Agent + email parser + `core/security/prompt_guard.py`.
-3. **M3 — remaining piece: wire real agents through the now-implemented framework.** The framework itself (Coordinator, Planner, `WorkflowEngine`, registries) is done; what's left is registering M1/M2's real agents and confirming the mixed-evidence fan-out demo works end-to-end with real (not fake/test-double) specialist agents.
-4. **M4 — Remaining specialist modules.** Vulnerability Assessment Agent, OWASP Security Agent, Linux Security Agent, Threat Hunting Agent.
+1. **M1 — First real module, single agent, no orchestration.** `core/db/models.py` (`Case`, `Evidence`, `Finding`, `MitreTechnique`, `TimelineEvent`, `Report`) + first Alembic migration; `core/parsers/syslog_parser.py`; `core/tools/scoring.py`; `core/agents/soc_analyst_agent.py` (registered via `AgentRegistry`, added to `investigation_graph.py`); first real `/api/v1` route + `core/services/case_service.py`. This agent should be constructed with a real `core.memory.case_memory.SQLiteCaseMemory` — the first concrete use of this session's memory layer.
+2. **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE Agent (the first concrete `core.knowledge.interfaces.KnowledgeSource`, registered into `KnowledgeSourceRegistry`); Phishing Investigation Agent + email parser + `core/security/prompt_guard.py`.
+3. **M3 — remaining piece: wire real agents through the now-implemented framework.** Unchanged from the prior session's note.
+4. **M4 — Remaining specialist modules.**
 5. **M5 — Incident Response synthesis + Reporting.**
-6. **M6 — Memory implementation + Threat Timeline + UX polish.** Concrete `core/memory/short_term.py`/`long_term.py` implementing this session's `Protocol`s; watch for the numpy/mypy interaction noted above when `chromadb` is installed.
+6. **M6 — remaining piece: swap `InMemoryVectorStore` for a real ChromaDB backend** (same `VectorMemory` Protocol, no caller changes), populate real MITRE/OWASP/threat-intel/playbook/detection-rule/investigation-template knowledge sources, Threat Timeline cross-evidence view, MITRE ATT&CK matrix heatmap, wire the AI Analyst Chat UI to `MemoryManager.get_conversation`/`add_conversation_turn`. Watch for the numpy/mypy interaction noted in the prior session when `chromadb` is installed.
 7. **M7 — Hardening, tests, docs, GitHub polish.**
 
 ---
 
 ## Known Issues
 
-*(Carried forward, still true: no git repository exists; `context/02_repository.md`/`03_constitution.md` don't exist; `make migrate`/`make seed` are no-ops; `apps/web` has no code; harmless Starlette deprecation warning in test output; no performance/load testing; no CI has ever actually run on GitHub.)*
+*(Carried forward, still true: `context/02_repository.md`/`03_constitution.md` don't exist; `make migrate`/`make seed` are no-ops; `apps/web` has no code; harmless Starlette deprecation warnings in test output; no performance/load testing; no CI has ever actually run on GitHub; `scripts/check_dependency_rules.py` only checks the streamlit/fastapi-import rule, not the full sibling-layer matrix — this session's `core/memory`/`core/knowledge` layering was verified manually via `grep`; numpy is not currently installed.)*
 
-- **`scripts/check_dependency_rules.py` only checks the streamlit/fastapi-import rule** — it does not mechanically verify sibling-`core/`-layer violations (e.g. "does `core/tools` import `core/agents`"). This session's layering was verified manually via `grep` across `core/tools/*.py`, `core/memory/*.py`, `core/agents/*.py`; a future session extending this script to check the full matrix in `docs/dependency-rules.md` (not just rule 1) would remove the need for that manual step.
-- **`numpy` is not currently installed**, having been removed this session to unblock `mypy core` (see Key Decisions). This is fine today (nothing imports it), but will matter again once `chromadb` (Milestone M6) is installed.
+- **`InMemoryVectorStore` is O(n) brute-force cosine similarity.** Fine for tests/local dev/small case volumes; will not scale to a real multi-case corpus the way ChromaDB's indexing would. This is by design (a testable reference implementation, not a production backend) but a future engineer should not extend its use past that scope without re-reading ADR-0010.
+- **`HashingTextEmbedder` is not a semantic embedder.** Two paraphrased sentences with different words will not score as similar — documented in its own docstring. A real semantic embedder (LLM-provider-backed) is the intended production swap behind the same `TextEmbedder` Protocol.
 
 ---
 
 ## Dependencies
 
-Runtime (`requirements.txt`): unchanged list from M0, but **`langgraph` is now an actively-imported, exercised dependency** (previously pinned but unused). `langchain`, `langchain-openai`, `langchain-google-genai`, `langchain-community`, `chromadb`, `streamlit`, and all parser/reporting libraries remain pinned for future milestones but not yet imported anywhere.
+Runtime (`requirements.txt`): unchanged list from the prior session — no new third-party dependency was introduced this session (SQLite persistence reuses the already-installed `sqlalchemy`/`aiosqlite`; the embedder uses only the stdlib `hashlib`/`math`). `chromadb`, `streamlit`, and all parser/reporting libraries remain pinned for future milestones but not yet imported anywhere.
 
-Dev (`requirements-dev.txt`): unchanged from M0.
-
-Installed-but-not-in-requirements.txt: `langchain-core`, `langgraph-checkpoint`, `langgraph-prebuilt`, `langgraph-sdk`, `langsmith`, and their transitive dependencies — all pulled in automatically by `pip install langgraph`; none are imported directly by this project's code.
+Dev (`requirements-dev.txt`): unchanged.
 
 ---
 
 ## Current Git Status
 
-No git repository exists in this project directory. A commit was requested and then interrupted before `git init` ran — still no repository, no commits, nothing staged. If/when one is initialized, everything under the project root except the paths listed in `.gitignore` should be added and committed as the initial commit — there are no partial/in-progress edits to selectively stage; the working tree is in a complete, self-consistent, fully-tested, and live-verified state as described above.
+A git repository exists (`main` branch: `main`; working branch: `master`), with one prior commit: `eae4fb8 feat: initial commit — engineering foundation + multi-agent framework` (M0 + the Multi-Agent Framework). This session's Memory & Knowledge Layer work is **uncommitted**:
+
+- Modified: `CHANGELOG.md`, `context/current_state.md`, `core/knowledge/README.md`, `core/memory/README.md`, `docs/roadmap.md`.
+- Untracked (new): `docs/adr/0010-memory-knowledge-layer-shape.md`, all of `core/knowledge/{models,interfaces,registry,retrieval}.py`, all of `core/memory/{models,db_models,repository,session_memory,case_memory,conversation_memory,vector_store,long_term,lifecycle,context_builder,context_serializer,metrics,registry,manager}.py`, and 17 new `tests/unit/test_{memory,knowledge}_*.py` files.
+
+The working tree is in a complete, self-consistent, fully-tested state (245 tests passing — 228 unit + 17 integration — mypy/ruff/dependency-rules clean) but has not yet been committed; commit only when the user explicitly asks.
 
 ---
 
 ## Next Recommended Prompt
 
-> Implement Milestone M1 exactly as scoped in `docs/roadmap.md` and this file's "Remaining Work" section: add `core/db/models.py` defining `Case`, `Evidence`, `Finding`, `MitreTechnique`, `TimelineEvent`, and `Report` (each inheriting `core.db.Entity`, per `context/01_blueprint.md` §8 and `context/03_engineering_constitution.md` §7), generate the first real Alembic migration against them, implement `core/parsers/syslog_parser.py` (a deterministic syslog/firewall-log parser producing a typed `NormalizedEvidence` model, tested against `data/sample_evidence/ssh_auth.log` and at least one malformed-input fixture), implement `core/tools/scoring.py` as a concrete `BaseTool` subclass (the now-implemented `core/tools/base.py` framework — do not reinvent validation/timeout/logging), and implement `core/agents/soc_analyst_agent.py` as a concrete `BaseAgent` subclass (the now-implemented `core/agents/base.py` framework — do not reinvent the lifecycle), registered into `AgentRegistry` and wired into `core/graph/investigation_graph.py` following the pattern documented in `docs/agent-design.md`'s "Adding a new agent" section. Wire it through `core/services/case_service.py` (which should call `core.graph.investigation_graph.run_investigation`) and one real `/api/v1` route (`apps/api/routers/cases.py`). Do not build the OWASP/Vulnerability/Phishing/etc. agents yet — those are later milestones. Preserve every existing file and architectural decision described in this document, including the Multi-Agent Framework built this session; only extend it.
+> Implement Milestone M1 exactly as scoped in `docs/roadmap.md` and this file's "Remaining Work" section: add `core/db/models.py` defining `Case`, `Evidence`, `Finding`, `MitreTechnique`, `TimelineEvent`, and `Report` (each inheriting `core.db.Entity`, per `context/01_blueprint.md` §8 and `context/03_engineering_constitution.md` §7), generate the first real Alembic migration against them, implement `core/parsers/syslog_parser.py` (a deterministic syslog/firewall-log parser producing a typed `NormalizedEvidence` model, tested against `data/sample_evidence/ssh_auth.log` and at least one malformed-input fixture), implement `core/tools/scoring.py` as a concrete `BaseTool` subclass, and implement `core/agents/soc_analyst_agent.py` as a concrete `BaseAgent` subclass — constructed with a real `core.memory.case_memory.SQLiteCaseMemory` (this session's memory layer) rather than `None`, registered into `AgentRegistry` and wired into `core/graph/investigation_graph.py` following `docs/agent-design.md`'s "Adding a new agent" section. Wire it through `core/services/case_service.py` (which should call `core.graph.investigation_graph.run_investigation`) and one real `/api/v1` route (`apps/api/routers/cases.py`). Do not build the OWASP/Vulnerability/Phishing/etc. agents yet, and do not populate any MITRE/OWASP knowledge data yet — those are later milestones. Preserve every existing file and architectural decision described in this document, including the Multi-Agent Framework and the Memory & Knowledge Layer built in prior sessions; only extend them.

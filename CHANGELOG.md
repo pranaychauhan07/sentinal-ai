@@ -76,6 +76,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     graph business logic) — a pre-existing gap between the constitution's
     literal agent-signature requirement and the dependency matrix, closed
     explicitly rather than left implicit.
+- Memory & Knowledge Layer (`docs/adr/0010-memory-knowledge-layer-shape.md`)
+  — built ahead of the milestone schedule (normally M6) as pure
+  infrastructure, with zero cybersecurity domain logic and no populated
+  knowledge data:
+  - `core/memory/models.py`: `MemoryScope`/`MemoryPriority`/`MemoryRecord`/
+    `MemoryQuery`/`MemoryQueryResult`/`ConversationTurn` typed contracts.
+  - `core/memory/db_models.py` + `repository.py`: SQLite persistence for
+    memory records via `core.db.BaseRepository`, indexed on
+    `(scope, case_id)`, with scope/case/text/tag filtering and
+    expiry-based bulk deletion.
+  - Concrete implementations of every existing memory Protocol:
+    `SessionMemory` (`ShortTermMemory`), `SQLiteCaseMemory` (`CaseMemory`,
+    the first real backing for `BaseAgent`'s existing
+    `case_memory` constructor parameter), `InMemoryVectorStore` +
+    `NullVectorStore` (`VectorMemory` — a genuinely working brute-force
+    cosine-similarity store plus a documented no-op fallback; ChromaDB
+    itself remains M6, unbuilt, per ADR-0005/0006), `LongTermMemoryManager`
+    (`LongTermMemory`, always-advisory per ADR-0006), and a new
+    `ConversationMemory` Protocol + `InMemoryConversationMemory`
+    implementation for case-scoped chat history.
+  - `core/memory/vector_store.py` also ships a deterministic,
+    dependency-free `HashingTextEmbedder` (`TextEmbedder` Protocol) so the
+    vector store is exercisable end-to-end without an LLM provider call.
+  - `core/memory/lifecycle.py`: `MemoryLifecycleManager` — per-scope TTL
+    defaults and a `cleanup_expired()` pass, the reusable unit a future
+    scheduled job calls.
+  - `core/memory/context_builder.py` + `context_serializer.py`: filter →
+    deduplicate → rank (priority, then recency) → truncate-to-budget
+    context assembly, rendered to prompt text or a structured dict.
+  - `core/memory/metrics.py`: self-contained `MemoryMetricsCollector`
+    (hit/miss/write/eviction counters, retrieval timing) — deliberately
+    independent of `core.graph.events.EventBus` since `core/memory` is a
+    leaf layer that must never import `core/graph`.
+  - `core/memory/registry.py` + `manager.py`: `MemoryRegistry` (generic
+    named-backend lookup) and `MemoryManager` (the single facade wiring
+    session/case/conversation/long-term memory, context assembly, and
+    metrics together — every dependency optional and injected, degrading
+    to advisory no-ops with nothing configured).
+  - `core/knowledge/models.py`, `interfaces.py`, `registry.py`,
+    `retrieval.py`: `KnowledgeSourceType` (MITRE/OWASP/threat-intel/
+    playbook/detection-rule/investigation-template — no data populated),
+    `KnowledgeSource`/`KnowledgeRetriever` Protocols,
+    `KnowledgeSourceRegistry`, and a deterministic
+    `KeywordKnowledgeRetriever`.
+  - 70 new tests (228 total), full mypy/ruff/dependency-rule pass.
 
 <!--
 Template for future entries:
