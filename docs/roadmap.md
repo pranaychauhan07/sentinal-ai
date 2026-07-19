@@ -108,18 +108,40 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       `data/mitre/README.md`); a MITRE Agent still doesn't exist.
       *Demo: two independent working modules, each producing a mapped/scored finding.*
 
-- [ ] **M3 — Multi-agent orchestration.** Coordinator + Planning Agent + full
+      **2026-07-20 addendum** (`docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`):
+      closed the milestone's remaining named piece — `core/parsers/email_parser.py`
+      (stdlib `email` package, no new dependency; `EvidenceType.EMAIL` added
+      additively), `core/security/prompt_guard.py` (the first concrete
+      `core/security` implementation: deterministic instruction-override/
+      role-override/exfiltration/obfuscation pattern detection, no LLM call),
+      and `core/agents/phishing_agent.py` (`PhishingAgent`, capability
+      `email_triage`, + `core/tools/phishing_tools.py`'s
+      `PhishingScoringTool`) — the second concrete specialist agent, wired
+      into `core/graph/investigation_graph.py` with the same two-line
+      pattern `SocAnalystAgent` established. `core/services/case_service.py`'s
+      per-upload capability routing was generalized from a SOC-only hardcode
+      to an `EvidenceType`-driven table, so an `.eml` upload now
+      automatically fans out to `PhishingAgent` instead — this also closes
+      **M3's own demo criterion** (see M3 below). Still not done: a concrete
+      MITRE Mapping Agent (`core/knowledge/mitre`'s lookup engine has no
+      agent wrapper yet) — M2 stays unchecked until that exists.
+
+- [x] **M3 — Multi-agent orchestration.** Coordinator + Planning Agent + full
       LangGraph StateGraph wiring; automatic evidence-type routing.
       **Built ahead of schedule** (`docs/adr/0009-multi-agent-framework-shape.md`):
       the full reusable framework — `BaseAgent`/`BaseTool`, `AgentRegistry`/
       `ToolRegistry`, `CoordinatorAgent`/`PlanningAgent`, `WorkflowEngine`
       (real compiled LangGraph `StateGraph` with retry/failure-recovery/
-      events/metrics), `routing.py`, memory interfaces — is implemented and
-      tested (86 tests) with zero domain logic and no concrete specialist
-      agent. Still not checked off: the milestone's own demo criterion
-      (upload mixed *real* evidence, e.g. a log + an email, and watch the
-      Coordinator fan out to *real* SOC Analyst/Phishing agents) needs M1's
-      and M2's concrete agents/parsers first, which don't exist yet.
+      events/metrics), `routing.py`, memory interfaces — implemented and
+      tested (86 tests) with zero domain logic, before any concrete
+      specialist agent existed.
+      **2026-07-20** (`docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`):
+      closed the milestone's own demo criterion — `core/services/
+      case_service.py`'s per-upload capability routing now selects
+      `email_triage` for `.eml` evidence and `log_analysis` for every
+      log-shaped format, so a log upload and an email upload to the same
+      Case each automatically fan out to the correct real specialist
+      (`SocAnalystAgent`/`PhishingAgent`), not test doubles.
       *Demo: upload mixed evidence (log + email) to one Case; Coordinator fans out automatically.*
 
 - [ ] **M4 — Remaining specialist modules.** Vulnerability Assessment Agent

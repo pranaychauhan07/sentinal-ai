@@ -30,10 +30,25 @@ summarize each `NormalizedEvidence` artifact's event volume, severity
 distribution, and flag suspected brute-force patterns from source
 concentration. Its `SocFinding[]` output lives on
 `CaseInvestigationState.findings` (the in-memory ReAct trail), not the
-persisted `findings` DB table — see the ADR for why. No other specialist
-agent (Phishing, Vulnerability, OWASP, Linux Security, Threat Hunting,
-Incident Response, ...) exists yet — see `docs/agent-design.md` for how to
-add one on top of this framework.
+persisted `findings` DB table — see the ADR for why.
+
+**Implemented (Milestone M2, `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`):**
+`phishing_agent.py` — the second concrete specialist agent (`PhishingAgent`),
+declaring capability `email_triage`. Screens email subject/body through
+`core.security.prompt_guard.scan_text` before using that text for anything
+else (the first agent consuming attacker-controlled text), then calls
+`core.tools.phishing_tools.PhishingScoringTool` (never re-extracting IOCs or
+recomputing threat scores itself) to produce a `PhishingVerdict[]`, appended
+to `CaseInvestigationState.findings` the same way `SocFinding[]` is. Reads
+already-scored, already-attributed URL/domain/email IOCs from
+`CaseInvestigationState.extracted_indicators` as plain
+`dict[str, object]` entries — deliberately *not* a typed
+`core.threat_intel.models.ScoredIOC` import, since `docs/dependency-rules.md`
+rule 4 grants `core/agents` no import edge onto `core/threat_intel`.
+
+No other specialist agent (Vulnerability, OWASP, Linux Security, Threat
+Hunting, Incident Response, ...) exists yet — see `docs/agent-design.md` for
+how to add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

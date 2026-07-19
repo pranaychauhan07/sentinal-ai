@@ -136,6 +136,11 @@ class EvidenceUploadResponse(ApiSchema):
     merged_finding_ids: list[uuid.UUID]
     soc_risk_score: float | None
     soc_risk_label: str | None
+    #: Populated only when this upload routed to `PhishingAgent` (an `.eml`
+    #: artifact) rather than `SocAnalystAgent` — additive fields, per
+    #: constitution §13's versioning rule (non-breaking, no `/api/v2` needed).
+    phishing_risk_score: float | None = None
+    phishing_risk_label: str | None = None
 
 
 # --- IOC --------------------------------------------------------------------

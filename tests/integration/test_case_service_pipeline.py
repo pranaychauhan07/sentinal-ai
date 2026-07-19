@@ -25,6 +25,8 @@ from core.services.case_events import CaseEvent, CaseEventPublisher, CaseEventTy
 pytestmark = pytest.mark.integration
 
 _SSH_AUTH_LOG = Path("data/sample_evidence/ssh_auth.log")
+_PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
+_LEGITIMATE_EMAIL = Path("data/sample_evidence/legitimate_sample_01.eml")
 
 
 @pytest.fixture
@@ -81,6 +83,72 @@ async def test_full_pipeline_from_case_creation_to_soc_analysis(
         assert TimelineEventType.IOC_EXTRACTED in event_types
         assert TimelineEventType.AGENT_ANALYSIS in event_types
         assert TimelineEventType.CASE_STATUS_CHANGED in event_types
+
+
+async def test_phishing_email_upload_routes_to_phishing_agent_not_soc(
+    database: Database, test_settings: Settings
+) -> None:
+    """M2/M3 demo criterion: a `.eml` upload's evidence-type-based capability
+    routing (`case_service._required_capability_for`) fans out to
+    `PhishingAgent`, not `SocAnalystAgent` — and the IOCs already extracted
+    from the email (sender/URL) are attributed and scored into the verdict."""
+    content = _PHISHING_EMAIL.read_bytes()
+
+    async with database.session_factory() as session:
+        case = await case_service.create_case(
+            session, title="Suspicious email report", analyst_id="local-analyst"
+        )
+        await session.commit()
+
+    async with database.session_factory() as session:
+        result = await case_service.investigate_new_evidence(
+            session,
+            case_id=case.id,
+            filename="phishing_sample_01.eml",
+            content=content,
+            settings=test_settings,
+            ingested_by="local-analyst",
+        )
+        await session.commit()
+
+    assert result.case_id == case.id
+    assert result.ioc_count > 0
+    assert result.soc_risk_score is None
+    assert result.soc_risk_label is None
+    assert result.phishing_risk_score is not None
+    assert result.phishing_risk_label in {"medium", "high", "critical"}
+
+    async with database.session_factory() as session:
+        timeline = await case_service.list_timeline_for_case(session, case.id)
+        event_types = {event.event_type for event in timeline}
+        assert TimelineEventType.EVIDENCE_INGESTED in event_types
+        assert TimelineEventType.IOC_EXTRACTED in event_types
+        assert TimelineEventType.AGENT_ANALYSIS in event_types
+
+
+async def test_legitimate_email_upload_scores_low_risk(
+    database: Database, test_settings: Settings
+) -> None:
+    content = _LEGITIMATE_EMAIL.read_bytes()
+
+    async with database.session_factory() as session:
+        case = await case_service.create_case(
+            session, title="Routine notification email", analyst_id="local-analyst"
+        )
+        await session.commit()
+
+        result = await case_service.investigate_new_evidence(
+            session,
+            case_id=case.id,
+            filename="legitimate_sample_01.eml",
+            content=content,
+            settings=test_settings,
+            ingested_by="local-analyst",
+        )
+        await session.commit()
+
+    assert result.phishing_risk_score is not None
+    assert result.phishing_risk_label in {"info", "low"}
 
 
 async def test_second_upload_does_not_revert_case_status(

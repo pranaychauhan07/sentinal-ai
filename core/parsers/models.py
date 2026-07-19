@@ -44,6 +44,7 @@ class EvidenceType(StrEnum):
     CSV = "csv"
     NMAP_XML = "nmap_xml"
     PLAIN_TEXT = "plain_text"
+    EMAIL = "email"
     UNKNOWN = "unknown"
 
 

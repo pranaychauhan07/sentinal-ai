@@ -74,7 +74,7 @@ class Settings(BaseSettings):
         default=25 * 1024 * 1024, alias="EVIDENCE_MAX_UPLOAD_BYTES"
     )
     evidence_allowed_extensions: str = Field(
-        default=".log,.txt,.csv,.json,.xml,.evtx",
+        default=".log,.txt,.csv,.json,.xml,.evtx,.eml",
         alias="EVIDENCE_ALLOWED_EXTENSIONS",
     )
     evidence_storage_dir: Path = Field(

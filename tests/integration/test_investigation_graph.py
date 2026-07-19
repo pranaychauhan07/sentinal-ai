@@ -62,12 +62,13 @@ def test_case_with_no_evidence_routes_straight_to_manual_triage() -> None:
     assert result.findings == []
 
 
-def test_default_graph_has_coordinator_and_soc_analyst_as_nodes() -> None:
-    """`SocAnalystAgent` (Milestone M1) is auto-registered and wired as a
-    node by `build_investigation_graph` — see
-    `core/agents/soc_analyst_agent.py`/docs/adr/0014."""
+def test_default_graph_has_coordinator_and_both_specialists_as_nodes() -> None:
+    """`SocAnalystAgent` (Milestone M1) and `PhishingAgent` (Milestone M2)
+    are both auto-registered and wired as nodes by
+    `build_investigation_graph` — see `core/agents/soc_analyst_agent.py`/
+    `core/agents/phishing_agent.py`."""
     engine = build_investigation_graph(agent_registry=AgentRegistry())
-    assert set(engine.node_names) == {"coordinator", "soc_analyst"}
+    assert set(engine.node_names) == {"coordinator", "soc_analyst", "phishing_agent"}
 
 
 def test_mixed_evidence_fans_out_to_both_registered_specialists() -> None:

@@ -55,6 +55,8 @@ async def upload_evidence(
         merged_finding_ids=list(result.merged_finding_ids),
         soc_risk_score=result.soc_risk_score,
         soc_risk_label=result.soc_risk_label,
+        phishing_risk_score=result.phishing_risk_score,
+        phishing_risk_label=result.phishing_risk_label,
     )
 
 

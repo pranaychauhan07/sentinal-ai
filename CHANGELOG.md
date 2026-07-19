@@ -437,6 +437,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     duplicate-case rejection, the note create/edit/delete audit trail, and
     the new API routes' success/404/409 paths. mypy (strict on `core/`),
     `ruff check`/`format`, and `scripts/check_dependency_rules.py` all pass.
+- Phishing Investigation Agent, Email Parser, Prompt Guard
+  (`docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`) — closes
+  Milestone M2's remaining named piece and M3's own demo criterion:
+  - `core/parsers/email_parser.py` (`EmailParser`) — stdlib `email` package
+    only, no new dependency; new additive `EvidenceType.EMAIL`. Decodes
+    header/body structure into `EvidenceRecord`s whose `raw_line` carries
+    sender/reply-to/subject/body as plain text, so the existing
+    `IOCExtractionEngine` extracts sender/URL/domain IOCs with zero new
+    extraction code. Registered in `default_parser_registry()`; `.eml`
+    uploads dispatch automatically, no router changes needed.
+  - `core/security/prompt_guard.py` (`scan_text`, `PromptGuardResult`) — the
+    first concrete `core/security` implementation: deterministic,
+    pattern-based instruction-override/role-override/exfiltration/
+    obfuscation injection detection (never an LLM call). No outbound
+    `core/` dependency except `core/config` (operator-supplied
+    `PROMPT_GUARD_EXTRA_PATTERNS` overrides).
+  - `core/tools/phishing_tools.py` (`PhishingScoringTool`,
+    `PhishingScoringWeights`) — deterministic sender/reply-to domain
+    mismatch, urgency/social-engineering phrase density, and high-risk
+    attachment-extension heuristics, combined with the case's already-scored
+    attributed URL/domain/email IOC composite scores on an independent 0-100
+    scale (never re-extracting an IOC or recomputing a threat score).
+  - `core/agents/phishing_agent.py` (`PhishingAgent`, capability
+    `email_triage`) — the second concrete specialist agent, screening email
+    subject/body through `prompt_guard.scan_text` before use, then producing
+    a `PhishingVerdict[]` via `PhishingScoringTool`. Reads
+    `CaseInvestigationState.extracted_indicators` as plain
+    `dict[str, object]` entries (not a typed `ScoredIOC` import — `core/agents`
+    has no dependency-rules.md edge onto `core/threat_intel`). Wired into
+    `core/graph/investigation_graph.py` with the same two-line pattern
+    `SocAnalystAgent` established.
+  - `core/services/case_service.py`: `_run_soc_analysis` generalized to
+    `_run_specialist_agents`, registering both specialist agents and
+    computing `required_capabilities` from the newly-ingested artifact's
+    `EvidenceType` (`EMAIL` -> `email_triage`, else -> `log_analysis`,
+    preserving prior behavior for every existing log-shaped format); new
+    `_hydrate_attributed_iocs` reads the case's persisted `IOC` rows and
+    reduces each to a plain dict before hydrating
+    `CaseInvestigationState.extracted_indicators`.
+  - `apps/api/schemas.py`'s `EvidenceUploadResponse` gained
+    `phishing_risk_score`/`phishing_risk_label` (both `None`-defaulted,
+    purely additive — no `/api/v2` cutover).
+  - 45 new tests (821 total): parser/prompt-guard/tool/agent unit tests
+    (including adversarial prompt-injection fixtures, malformed-email
+    degradation, and attachment-risk cases), an integration test proving an
+    `.eml` upload routes to `PhishingAgent` (not `SocAnalystAgent`) with its
+    IOCs correctly attributed, a regression test proving the pre-existing
+    SOC-only log-upload path is unchanged, and an API `TestClient` test
+    proving the single `POST /evidence` endpoint dispatches `.eml` uploads
+    with zero router changes. mypy (strict on `core/`), `ruff check`/
+    `format`, and `scripts/check_dependency_rules.py` all pass.
 
 ### Fixed
 - Re-verification pass over the Evidence Ingestion & Parser Framework

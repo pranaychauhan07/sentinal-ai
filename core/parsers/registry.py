@@ -191,6 +191,7 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     from core.parsers.apache_access_parser import ApacheAccessParser
     from core.parsers.apache_error_parser import ApacheErrorParser
     from core.parsers.csv_evidence_parser import CsvEvidenceParser
+    from core.parsers.email_parser import EmailParser
     from core.parsers.json_evidence_parser import JsonEvidenceParser
     from core.parsers.nmap_parser import NmapXmlParser
     from core.parsers.plaintext_parser import PlainTextParser
@@ -204,6 +205,7 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     registry.register(ApacheAccessParser(), aliases=("apache_combined",), priority=10)
     registry.register(ApacheErrorParser(), priority=10)
     registry.register(SyslogParser(), priority=5)
+    registry.register(EmailParser(), aliases=("eml",), priority=10)
     registry.register(WindowsEventParser(), aliases=("evtx", "windows_security"), priority=10)
     registry.register(JsonEvidenceParser(), priority=5)
     registry.register(CsvEvidenceParser(), priority=1)

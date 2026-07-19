@@ -101,12 +101,13 @@ def test_load_plugins_with_missing_group_is_a_noop() -> None:
 
 
 @pytest.mark.unit
-def test_default_parser_registry_registers_all_nine_builtins() -> None:
+def test_default_parser_registry_registers_all_ten_builtins() -> None:
     registry = default_parser_registry()
     assert registry.list_names() == (
         "apache_access",
         "apache_error",
         "csv_evidence",
+        "email",
         "json_evidence",
         "nmap_xml",
         "plain_text",

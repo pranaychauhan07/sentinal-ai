@@ -6,15 +6,20 @@ fingerprinting, metrics, events, audit logging. Converts raw uploaded
 artifacts into the one canonical contract, `core.parsers.models.
 NormalizedEvidence` (see `docs/adr/0011-evidence-ingestion-pipeline-shape.md`).
 
-**Implemented parsers (nine, per the current milestone's scope):**
+**Implemented parsers (ten, per the current milestone's scope):**
 `ssh_auth_parser.py`, `apache_access_parser.py`, `apache_error_parser.py`,
 `syslog_parser.py` (generic RFC3164-ish fallback), `windows_event_parser.py`
 (a CSV/XML **EVTX abstraction** — binary `.evtx` parsing is a documented
 future extension, not implemented here), `json_evidence_parser.py`,
 `csv_evidence_parser.py`, `nmap_parser.py` (via `defusedxml`, XXE-safe),
-`plaintext_parser.py` (deterministic last-resort fallback). Every parser
-subclasses `base.py::BaseParser` and reports a confidence score plus an
-explicit `unparsed_fragments` list rather than silently dropping data
+`plaintext_parser.py` (deterministic last-resort fallback), `email_parser.py`
+(Milestone M2, `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md` —
+stdlib `email` package only, no new dependency; extracts header/body
+structure for `core.agents.phishing_agent.PhishingAgent` to triage, never
+extracting IOCs or rendering a verdict itself — the existing
+`IOCExtractionEngine` already regex-scans its `raw_line` output). Every
+parser subclasses `base.py::BaseParser` and reports a confidence score plus
+an explicit `unparsed_fragments` list rather than silently dropping data
 (constitution §1.7).
 
 **Framework modules:** `registry.py` (plugin-capable `ParserRegistry` —
@@ -33,8 +38,8 @@ kick in when nothing in this framework matches — not implemented this
 milestone (no agent/investigation logic, per explicit scope).
 
 **Not yet built** (blueprint-scoped, future milestones):
-`email_parser.py`, `nessus_parser.py`, `openvas_parser.py`,
-`source_code_parser.py`, `incident_parser.py`.
+`nessus_parser.py`, `openvas_parser.py`, `source_code_parser.py`,
+`incident_parser.py`.
 
 **Future expansion:** New evidence formats get a new `BaseParser` subclass
 registered in `registry.py`, or — without touching this codebase at all — an

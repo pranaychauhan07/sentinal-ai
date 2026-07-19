@@ -10,28 +10,124 @@
 
 ## Completed Features
 
-**Milestone M1 remains closed** (unchanged from last session). This session did **not** open a new milestone — it hardened/extended the M1 `Case` subsystem per an explicit, ADR-gated request: **ADR-0015, Case Management Extension** (`docs/adr/0015-case-management-extension.md`). The request initially asked for a "complete Case Management System" designed from a green-field starting point; that framing was flagged as a conflict (Case/CaseRepository/case_service/`/api/v1/cases` are production, ADR-0014-governed, and a structurally identical "build a new entity" request was already declined in a prior session for the same reason) and the work was reframed and approved as an **additive extension**, not a redesign.
+This session closed **Milestone M2's remaining named piece** (email parser,
+prompt-injection guard, Phishing Investigation Agent) and, as a direct
+consequence, **Milestone M3's own demo criterion** (real Coordinator fan-out
+to two real specialist agents) — per an explicit ADR: **ADR-0016, Phishing
+Investigation Agent, Email Parser, Prompt Guard**
+(`docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`). A prior
+request in this same session asked for a ground-up "complete SOC Analyst
+Agent" implementation; that request was flagged as a conflict before any code
+was written — `SocAnalystAgent` is production, M1-closed, scoped narrowly per
+blueprint §7 ("the generalist log analyst"), and the requested case-wide
+IOC/threat-intel/finding-review-with-recommendation-and-escalation-engine
+scope belongs to the Incident Response Agent (M5), not the SOC Analyst Agent
+— and was also internally self-contradictory (it asked for escalation/
+containment recommendations while explicitly excluding the Incident Response
+Agent). The user confirmed: do not touch `SocAnalystAgent`; implement the
+next actually-queued roadmap item instead.
 
-### M0/M1/M2/M3/M4/M6 frameworks (unchanged from prior sessions)
+### M0/M1/M2(MITRE)/M3(framework)/M4(threat-intel)/M6 frameworks (unchanged from prior sessions)
 
-- Configuration, logging, shared contracts, DB foundation, FastAPI app, governance, `core/agents`/`core/tools`/`core/graph` framework, `core/memory`/`core/knowledge` framework, `core/parsers` framework (9 parsers), `core/threat_intel` framework (20 IOC types), `core/findings`/`core/knowledge/mitre` (Finding & MITRE Engine), `Case`/`Evidence`/`Finding`/`TimelineEvent`/`Report` domain models, `SocAnalystAgent`, `core/services/case_service.py`'s `investigate_new_evidence()` orchestrator, and the first `/api/v1` routes — all unchanged, see prior sessions' detail in git history / `docs/adr/0001-0014`.
+Configuration, logging, shared contracts, DB foundation, FastAPI app,
+governance, `core/agents`/`core/tools`/`core/graph` framework,
+`core/memory`/`core/knowledge` framework, `core/threat_intel` framework (20
+IOC types), `core/findings`/`core/knowledge/mitre` (Finding & MITRE Engine),
+`Case`/`Evidence`/`Finding`/`TimelineEvent`/`Report` domain models,
+`SocAnalystAgent`, `core/services/case_service.py`'s (now-generalized)
+`investigate_new_evidence()` orchestrator, the first `/api/v1` routes, and
+the full Case lifecycle/ownership/tags/notes/events/metrics extension
+(ADR-0015) — all unchanged except where explicitly noted below.
 
-### Case Management Extension (new this session, ADR-0015)
+### Phishing Investigation Agent, Email Parser, Prompt Guard (new this session, ADR-0016)
 
-- **`CaseStatus` extended additively** — `ESCALATED`, `ON_HOLD`, `CONTAINED`, `RESOLVED`, `ARCHIVED` appended; the original `open`/`investigating`/`closed` persisted values are **unchanged** (no rename, no breaking `/api/v1` contract change). New `CasePriority` enum (low/medium/high/critical). `Case` (`core/db/models/case.py`) gained `priority`, `risk_score` (nullable float, a rollup — never written directly by a router/agent), `owner_id`/`assignee_id` (placeholder string columns matching `analyst_id`'s shape), and `labels` (freeform, unindexed, JSON-serialized `Text` column — distinct from the indexed `case_tags` table).
-- **`core/db/models/case_note.py`** — `CaseNote`, a new, separate, *editable* entity distinct from `TimelineEvent.MANUAL_NOTE` (which stays exactly what it was: an immutable audit record). Every `CaseNote` create/update/delete records a paired `TimelineEvent(MANUAL_NOTE)`.
-- **`core/db/models/case_tag.py`** — `CaseTag`, an indexed, unique-constrained `(case_id, tag)` join table (deliberately not a Postgres-only `ARRAY` column or an unindexed JSON blob — this project supports both PostgreSQL and SQLite). New `TimelineEventType.CASE_ASSIGNED`.
-- **Two new migrations**, verified end-to-end (upgrade → downgrade → re-upgrade against a throwaway SQLite DB, schema inspected via `sqlite_master`): `031e35cdb9e7` (dialect-branching `CaseStatus` enum extension — `ALTER TYPE ... ADD VALUE` on PostgreSQL, `batch_alter_table` column rebuild on SQLite — plus the four new `Case` columns) and `e20964e060ee` (`case_notes`/`case_tags` table creation).
-- **`core/services/case_lifecycle.py`** (new) — a pure, exhaustively-tested `CaseStatus` transition table (`validate_transition`/`allowed_next_statuses`). `core/services/case_service.py::update_case_status` now calls this **before** `CaseRepository.update_status`, raising the *existing* `core.exceptions.BusinessRuleError` (already documented with "closing an already-closed case" as its canonical example — no new exception class introduced) on an illegal transition. `CaseRepository.update_status` itself stays unconditional CRUD — transition validation cannot live in `core/db`, which must never import `core/services` (would be an upward, circular dependency). `ARCHIVED` is a true terminal state (no outgoing transitions).
-- **`core/services/case_events.py`** (new) — `CaseEvent`/`CaseEventType` (eight types: `CASE_CREATED/_UPDATED/_ASSIGNED/_ESCALATED/_RESOLVED/_CLOSED`, `EVIDENCE_ATTACHED`, `FINDING_ATTACHED`) and `CaseEventPublisher` (injectable pub-sub, subscriber-failure-isolated, structlog-logged) — mirrors `core.findings.events.FindingEventPublisher`'s shape exactly. Distinct from `TimelineEvent`: `CaseEvent` is an in-process signal for future subscribers (a Report/Memory Agent), `TimelineEvent` is the persisted UI-facing audit narrative. Every `case_service.py` call site publishing a `CaseEvent` also records the paired `TimelineEvent` in the same function.
-- **`core/services/case_metrics.py`** (new) — `CaseMetricsCollector` (status/priority counters, escalation rate, average resolution time) and `compute_case_risk_score` (the case-level risk rollup: the **maximum** `Finding.risk_score` among a case's currently-open Findings — reuses the Finding & MITRE Engine's already-persisted numbers via `FindingRepository`, never re-derives severity/risk math). Both mirror `core.findings.metrics.FindingsMetricsCollector`'s shape. Neither module — nor `case_events.py` — lives in a new `core/cases/` leaf package: `Case` has no multi-stage deterministic engine of its own (unlike Evidence/IOC/Finding), so its logic stays in `core/services`, where it already belonged. **No new `docs/dependency-rules.md` exception was needed.**
-- **`core/services/case_service.py`** (extended) — new functions: `update_case_details`, `update_case_assignment`, `update_case_priority`, `update_case_labels`, `recompute_case_risk_score`, `add_case_note`/`update_case_note`/`delete_case_note`/`list_case_notes`/`get_case_note`, `add_case_tag`/`remove_case_tag`/`list_case_tags`. `create_case` gained a `priority` parameter, defaults `owner_id` to the creating analyst, and now rejects an exact `(title, analyst_id)` duplicate against a still-active case (`BusinessRuleError`, narrow/exact-match — not semantic dedup, which stays `core/memory`'s advisory-only job). `investigate_new_evidence()` now publishes `EVIDENCE_ATTACHED`/`FINDING_ATTACHED` `CaseEvent`s and recomputes `Case.risk_score` at the end of the pipeline.
-- **`core/db/case_repository.py`** (extended) — `find_open_by_title_and_analyst` (the duplicate-case lookup), `update_ownership`, `update_priority`, `update_risk_score`, `update_labels_json`. `update_status` is now explicitly documented as unconditional CRUD (no behavior change to the method itself — the validation moved to `case_service`, one layer up).
-- **`core/db/case_note_repository.py`**, **`core/db/case_tag_repository.py`** (new) — standard repository shape (CRUD + `find_by_case`), mirroring `CaseRepository`/`TimelineEventRepository`.
-- **`apps/api/schemas.py`/`apps/api/routers/cases.py`** (extended) — `CaseResponse` gained `priority`/`risk_score`/`owner_id`/`assignee_id`. Ten new routes under `/api/v1/cases/{id}/...`: `PATCH .../details`, `PATCH .../assignment`, `PATCH .../priority`, `PATCH .../labels`, `GET`/`POST /.../tags`, `DELETE /.../tags/{tag}`, `GET`/`POST /.../notes`, `PATCH`/`DELETE /.../notes/{note_id}`. **The existing `PATCH /cases/{id}` (status) endpoint now returns `409` (`BUSINESS_RULE_VIOLATION`) on an illegal lifecycle transition** instead of unconditionally succeeding — a genuine behavior change to a shipped M1 endpoint, not a schema/contract break (verified against the pre-existing legal-transition path with a dedicated regression test).
-- **Testing** — 114 new tests (776 total, up from 662): exhaustive `CaseStatus` transition-table coverage (every legal *and* illegal pair, not sampled), repository unit tests for all five new/changed repository methods plus `CaseNoteRepository`/`CaseTagRepository` (including the `case_tags` unique-constraint violation), `CaseEventPublisher`/`CaseMetricsCollector`/`compute_case_risk_score` unit tests, and integration tests covering the full `OPEN → INVESTIGATING → ESCALATED → CONTAINED → RESOLVED → CLOSED` lifecycle (asserting both `TimelineEvent`s and `CaseEvent`s fire), illegal-transition rejection without mutation, duplicate-case rejection, the note create/edit/delete audit trail, tag/priority/assignment updates, case-level risk-score recomputation after evidence upload, and the ten new API routes' success/404/409 paths (including a regression test proving the note-hijack-via-wrong-`case_id` path 404s *before* any mutation). mypy (`--strict` on `core/`), `ruff check`/`format`, `scripts/check_dependency_rules.py`, and the full pytest suite all pass.
+- **`core/parsers/email_parser.py`** (new) — `EmailParser`, using only the
+  stdlib `email` package (`message_from_string` + `policy.default`; no new
+  dependency). Decodes an RFC 5322 message into a header `EvidenceRecord`
+  (sender/reply-to/subject/to as plain text in `raw_line`, so the existing
+  `IOCExtractionEngine` regex-scan finds sender/URL/domain IOCs with zero new
+  extraction code) and a body `EvidenceRecord`. Extracts attachment
+  filenames/content-types into `NormalizedEvidence.metadata`. Never extracts
+  IOCs or renders a verdict itself. New additive `EvidenceType.EMAIL`;
+  registered in `default_parser_registry()`; `.eml` added to
+  `Settings.evidence_allowed_extensions`/`.env.example`; a lightweight
+  `sniff_evidence_type` heuristic added to `core/parsers/detection.py` for
+  content-sniff fallback.
+- **`core/security/prompt_guard.py`** (new) — the first concrete
+  `core/security` implementation. `scan_text()`: deterministic,
+  pattern-based detection across four categories (instruction-override,
+  role-override, exfiltration, obfuscation), never an LLM call. Zero
+  outbound `core/` dependency except `core/config` (uses the already-
+  scaffolded, previously-unused `Settings.prompt_guard_extra_pattern_list`
+  for operator-supplied additions). Documented as a heuristic layer, not a
+  guarantee.
+- **`core/tools/phishing_tools.py`** (new) — `PhishingScoringTool` +
+  `PhishingScoringWeights`. Deterministic sender/reply-to domain-mismatch
+  check, urgency/social-engineering phrase-density scan, high-risk
+  attachment-extension check, combined with the case's already-scored
+  attributed URL/domain/email IOC composite scores (never re-extracted or
+  re-scored) into an independent 0-100 risk scale + `Severity` label,
+  distinct from `core.tools.scoring.RiskScoringTool`'s raw-log scale.
+- **`core/agents/phishing_agent.py`** (new) — `PhishingAgent`, the second
+  concrete specialist agent, capability `email_triage`. Screens email
+  subject/body through `prompt_guard.scan_text` *before* using that text for
+  anything else (the first agent in the codebase consuming attacker-
+  controlled text). Reads `CaseInvestigationState.extracted_indicators` as
+  plain `dict[str, object]` entries, deliberately not a typed
+  `core.threat_intel.models.ScoredIOC` import (`docs/dependency-rules.md`
+  rule 4 grants `core/agents` no import edge onto `core/threat_intel`).
+  Produces `PhishingVerdict[]`, appended to `CaseInvestigationState.findings`
+  — not persisted to the `findings` DB table, matching ADR-0014 point 4's
+  identical scoping decision for `SocFinding`.
+- **`core/graph/investigation_graph.py`** (modified) — `PhishingAgent`
+  registered/wired with the same two-line pattern (`add_agent_node`/
+  `add_edge(..., END)`) `SocAnalystAgent` established; a new
+  `_ensure_phishing_agent_registered` mirrors `_ensure_soc_analyst_registered`.
+- **`core/services/case_service.py`** (modified) — `_run_soc_analysis`
+  generalized to `_run_specialist_agents`: registers both concrete specialist
+  agents in the fresh per-run `AgentRegistry` and computes
+  `required_capabilities` from the newly-ingested artifact's `EvidenceType`
+  via a new `_required_capability_for` table (`EMAIL` -> `email_triage`,
+  everything else -> `log_analysis`, preserving prior behavior for every
+  existing log-shaped format — a real, regression-tested behavior change to
+  an already-shipped internal function, not just an addition). New
+  `_hydrate_attributed_iocs` reads the case's persisted `IOC` rows
+  (`core.db.ioc_repository.IOCRepository.find_by_evidence`, a normal
+  services-\>db edge needing no new dependency-rule exception) and reduces
+  each to a plain dict before hydrating `CaseInvestigationState.
+  extracted_indicators`. `CaseInvestigationResult` gained
+  `phishing_risk_score`/`phishing_risk_label`; new `_extract_phishing_risk`
+  mirrors `_extract_soc_risk`.
+- **`apps/api/schemas.py`/`apps/api/routers/evidence.py`** (modified) —
+  `EvidenceUploadResponse` gained `phishing_risk_score`/`phishing_risk_label`
+  (both `None`-defaulted, purely additive, no `/api/v2` cutover). No router
+  changes were needed for `.eml` dispatch — the existing parser factory's
+  extension/content-sniff selection already routes it.
+- **Testing** — 45 new tests (821 total, up from 776): parser unit tests
+  (phishing/legitimate fixtures, malformed-input degradation, attachment
+  metadata), prompt-guard unit tests (adversarial injection fixtures across
+  all four categories, operator-pattern-override, determinism), phishing-
+  tools unit tests (each heuristic in isolation, combined scoring,
+  clamping), agent-contract tests (no-evidence degradation, non-email-
+  evidence skip, benign-vs-phishing scoring, prompt-injection detection,
+  attributed-IOC-score attribution, malformed-entry skip), an integration
+  test proving an `.eml` upload routes to `PhishingAgent` (not
+  `SocAnalystAgent`) with its IOCs correctly attributed, a companion
+  legitimate-email low-risk test, a regression test proving the existing
+  SOC-only log-upload path is unchanged, and an API `TestClient` test
+  proving the single `POST /evidence` endpoint dispatches `.eml` uploads
+  with zero router changes. mypy (`--strict` on `core/`), `ruff check`/
+  `format`, `scripts/check_dependency_rules.py`, and the full pytest suite
+  all pass.
 
-**Explicitly NOT built, by ADR-0015's stated scope:** any Investigation/Case-correlation entity beyond `Case` itself; any specialist agent beyond `SocAnalystAgent`; any LLM reasoning; `core/security/*`; report generation; `apps/web` code; a `/api/v1/reports` route; a full CRUD/read API surface for `Case.labels` (write-only via `PATCH .../labels`, matching the `Evidence.parsed_json`/`Finding.finding_data_json` "raw serialized blob is never returned in a response schema" precedent).
+**Explicitly NOT built, by ADR-0016's stated scope:** LLM reasoning of any
+kind (no LLM client wrapper exists anywhere in this codebase yet); a MITRE
+Mapping Agent (M2 stays unchecked in `docs/roadmap.md` until one exists);
+the Incident Response Agent or any cross-case/case-wide recommendation-
+and-escalation engine (that request was explicitly declined this session,
+see "Key Decisions"); `Nessus`/`OpenVAS`/source-code/incident-note parsers;
+`core/security/pii_redaction.py`/`approval_gate.py`; any redesign of
+`SocAnalystAgent`, `Case`, or any other already-completed module.
 
 ---
 
@@ -39,145 +135,271 @@
 
 ```
 apps/
-  api/            FastAPI app + schemas.py (MODIFIED: Case fields +
-                   9 new request/response schemas) +
-                   routers/{system,cases(MODIFIED: 10 new routes),
-                   evidence,iocs,findings,v1}.py                    [implemented]
-  web/             Streamlit frontend                                [README only]
+  api/            FastAPI app + schemas.py (MODIFIED: +2 phishing
+                   response fields) +
+                   routers/{system,cases,evidence(MODIFIED: passes
+                   through phishing fields),iocs,findings,v1}.py       [implemented]
+  web/             Streamlit frontend                                  [README only]
 core/
-  config/         settings.py (unchanged)                            [implemented]
-  logging/        (unchanged)                                        [implemented]
-  exceptions.py, schemas.py, interfaces.py (unchanged — no new
-                   exception classes; BusinessRuleError/NotFoundError
-                   reused as-is)                                     [implemented]
-  agents/         (unchanged this session)                           [implemented — 1 concrete specialist agent]
-  tools/          (unchanged this session)                           [implemented — 1 concrete tool]
-  memory/         (unchanged)                                        [implemented — framework only]
-  knowledge/      (unchanged)                                        [implemented]
-  graph/          (unchanged)                                        [implemented]
-  db/             models/ (case.py MODIFIED: +CasePriority, +4
-                   columns, +5 CaseStatus values; case_note.py,
-                   case_tag.py NEW; timeline_event.py MODIFIED:
-                   +CASE_ASSIGNED) +
-                   case_repository.py (MODIFIED: +5 methods) +
-                   case_note_repository.py, case_tag_repository.py
-                   (NEW) +
-                   migrations/versions/ (+2 NEW: enum/column
-                   extension, case_notes/case_tags tables)            [implemented — 9 real domain tables + 5 reference tables]
-  parsers/        (unchanged)                                        [implemented]
-  threat_intel/   (unchanged)                                        [implemented]
-  findings/       (unchanged)                                        [implemented]
-  security/       (empty — README only)                              [not started]
-  reporting/      (empty — README only)                              [not started]
-  services/       case_service.py (MODIFIED: +14 functions) +
-                   case_lifecycle.py, case_events.py, case_metrics.py
-                   (NEW) +
+  config/         settings.py (MODIFIED: +.eml to allowed extensions)  [implemented]
+  logging/        (unchanged)                                          [implemented]
+  exceptions.py, schemas.py, interfaces.py (unchanged)                 [implemented]
+  agents/         coordinator.py, planning_agent.py, registry.py,
+                   base.py, confidence.py, contracts.py (unchanged) +
+                   soc_analyst_agent.py (unchanged) +
+                   phishing_agent.py (NEW — PhishingAgent, second
+                   concrete specialist agent)                          [implemented — 2 concrete specialist agents]
+  tools/          base.py, registry.py, scoring.py (unchanged) +
+                   phishing_tools.py (NEW — PhishingScoringTool)        [implemented — 2 concrete tools]
+  memory/         (unchanged)                                          [implemented — framework only]
+  knowledge/      (unchanged)                                          [implemented]
+  graph/          investigation_graph.py (MODIFIED: +PhishingAgent
+                   wiring) + state.py/routing.py/workflow_engine.py/
+                   events.py/retry.py/failure_recovery.py/metrics.py/
+                   execution_context.py (unchanged)                    [implemented]
+  db/             ioc_repository.py (unchanged, now also called
+                   directly from case_service.py) + all M1/ADR-0015
+                   models/repositories (unchanged)                     [implemented — 9 real domain tables + 5 reference tables]
+  parsers/        models.py (MODIFIED: +EvidenceType.EMAIL) +
+                   detection.py (MODIFIED: +email content-sniff
+                   heuristic) + registry.py (MODIFIED: +EmailParser
+                   registration) + email_parser.py (NEW) + the nine
+                   M1 parsers (unchanged)                               [implemented — 10 concrete parsers]
+  threat_intel/   (unchanged)                                           [implemented]
+  findings/       (unchanged)                                           [implemented]
+  security/       prompt_guard.py (NEW — scan_text, PromptGuardResult,
+                   PromptInjectionCategory); pii_redaction.py,
+                   approval_gate.py still not started                   [implemented — 1 of 3 modules]
+  reporting/      (empty — README only)                                 [not started]
+  services/       case_service.py (MODIFIED: _run_soc_analysis ->
+                   _run_specialist_agents, +_hydrate_attributed_iocs,
+                   +_extract_phishing_risk, +_required_capability_for
+                   table) + case_lifecycle.py/case_events.py/
+                   case_metrics.py (unchanged) +
                    evidence_service.py, threat_intel_service.py,
-                   finding_service.py (unchanged); report_service.py    [implemented]
-data/             (unchanged)
+                   finding_service.py (unchanged); report_service.py     [implemented]
+data/             sample_evidence/{phishing_sample_01,
+                   legitimate_sample_01}.eml now consumed by tests
+                   (pre-existing fixtures, unchanged)
 scripts/          (unchanged)
 tests/
-  unit/           111 test modules (+5 this session: test_services_
-                   case_lifecycle.py, test_services_case_events.py,
-                   test_services_case_metrics.py, test_db_case_note_
-                   repository.py, test_db_case_tag_repository.py;
-                   +2 extended: test_db_case_repository.py)
+  unit/           115 test modules (+4 this session:
+                   test_parsers_email.py, test_security_prompt_guard.py,
+                   test_tools_phishing_tools.py, test_agents_phishing.py;
+                   +1 existing test renamed/extended:
+                   test_parsers_registry.py)
   integration/    7 test modules (+2 extended this session:
-                   test_case_service_pipeline.py, test_api_case_
-                   routes.py)
+                   test_case_service_pipeline.py, test_api_case_routes.py,
+                   test_investigation_graph.py [one test renamed])
   golden/         (empty — no report generation exists yet)
-docs/             16 markdown docs (roadmap.md addendum) +
-                   docs/adr/ (16 ADR files incl. template, +0015) +
+docs/             17 markdown docs (roadmap.md addendum) +
+                   docs/adr/ (17 ADR files incl. template, +0016) +
+                   docs/dependency-rules.md (MODIFIED: rule 4d extended) +
                    docs/diagrams/ (unchanged)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 ```
 
-776 tests passing as of this session (662 prior → 776 now: 114 new). Modified this session: `core/db/models/{case,timeline_event}.py`, `core/db/case_repository.py`, `core/services/case_service.py`, `apps/api/{schemas,routers/cases}.py`, `docs/roadmap.md`, `core/db/README.md`, `core/services/README.md`, `apps/api/README.md`, `tests/unit/test_db_case_repository.py`, `tests/integration/{test_case_service_pipeline,test_api_case_routes}.py`, `CHANGELOG.md`, and this file — all currently uncommitted (see "Current Git Status" below).
+821 tests passing as of this session (776 prior → 821 now: 45 new). Modified
+this session: `core/parsers/{models,detection,registry}.py`,
+`core/config/settings.py`, `.env.example`, `core/agents/README.md`,
+`core/tools/README.md`, `core/parsers/README.md`, `core/security/README.md`,
+`core/graph/investigation_graph.py`, `core/services/case_service.py`,
+`apps/api/{schemas,routers/evidence}.py`, `docs/roadmap.md`,
+`docs/dependency-rules.md`, `tests/unit/test_parsers_registry.py`,
+`tests/integration/{test_case_service_pipeline,test_api_case_routes,
+test_investigation_graph}.py`, `CHANGELOG.md`, and this file — all currently
+uncommitted (see "Current Git Status" below).
 
-**Naming note carried forward:** `context/02_repository.md` still does not exist. The actual files remain `context/01_blueprint.md` and `context/03_engineering_constitution.md`.
+**Naming note carried forward:** `context/02_repository.md` still does not
+exist. The actual files remain `context/01_blueprint.md` and
+`context/03_engineering_constitution.md`.
 
 ---
 
 ## Architecture Status
 
-Fully aligned with `context/01_blueprint.md`, extending (not reversing) ADR-0001 through ADR-0014 per ADR-0015's explicit scoping. Ten deliberate decisions, all documented in `docs/adr/0015-case-management-extension.md`:
+Fully aligned with `context/01_blueprint.md`, extending (not reversing)
+ADR-0001 through ADR-0015 per ADR-0016's explicit scoping. Nine deliberate
+decisions, all documented in
+`docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`:
 
-1. **`CaseStatus` is extended additively** — five new values, the original three unchanged/never renamed.
-2. **`CaseNote` is a new, separate entity from `TimelineEvent.MANUAL_NOTE`** — audit record vs. editable content, paired on every mutation.
-3. **Case-level risk score is a new aggregate** (max of open `Finding.risk_score` values), never a re-derivation of Finding-level severity math or a reuse of `RiskScoringTool`.
-4. **`owner_id`/`assignee_id`** are new, nullable placeholder columns, matching `analyst_id`'s existing shape.
-5. **Tags are an indexed join table** (`case_tags`), not a Postgres-only array or unindexed JSON.
-6. **Labels are a single serialized JSON/Text column**, explicitly unindexed/unqueryable.
-7. **`CaseEvent`/`CaseMetricsCollector` live in `core/services/`**, not a new `core/cases/` leaf package — `Case` has no multi-stage deterministic engine the way Evidence/IOC/Finding do.
-8. **No new `docs/dependency-rules.md` exception required** — every new import is either a normal sibling-`core/services` call or a normal `core/db` repository call, both already-sanctioned patterns.
-9. **Transition validation is a new, pure function**, called from `case_service` *before* `CaseRepository.update_status` — never inside the repository (would be an upward, circular `core/db` → `core/services` dependency).
-10. **Duplicate-case protection is a narrow, exact-match heuristic** — not semantic/fuzzy dedup, which stays `core/memory`'s advisory-only job.
+1. **`EvidenceType.EMAIL` is additive** — nine prior values unchanged.
+2. **`EmailParser` uses only the stdlib `email` package** — no new
+   dependency; not `eml_parser`.
+3. **`EmailParser` never extracts IOCs or renders a verdict** — it only
+   produces structure; the existing `IOCExtractionEngine` already handles
+   extraction over its `raw_line` output.
+4. **`prompt_guard.py` is deterministic pattern-matching, not an LLM call**
+   — a guard manipulable by the text it screens would defeat its purpose.
+5. **`PhishingAgent` never re-extracts IOCs or recomputes threat scores** —
+   `PhishingScoringTool` only aggregates what `core/threat_intel` already
+   computed, on its own independent 0-100 scale.
+6. **`CaseInvestigationState.extracted_indicators` entries stay plain
+   dicts, not typed `ScoredIOC`** — `core/agents` has no dependency-rules.md
+   import edge onto `core/threat_intel`; `core/graph/state.py` already
+   defers that narrowing to a future Threat Hunting Agent milestone.
+7. **Per-artifact capability routing replaces the SOC-only hardcode** in
+   `case_service.py` — a real, regression-tested behavior change to an
+   already-shipped internal function, closing M3's own demo criterion.
+8. **`PhishingVerdict` is not persisted to `findings`** — matches ADR-0014
+   point 4's identical scoping decision for `SocFinding`.
+9. **`EvidenceUploadResponse` gains two fields purely additively** — no
+   `/api/v2` cutover needed.
 
-`docs/roadmap.md` records this as a dated addendum under M1's already-closed entry, not a new milestone checkbox. No approved architectural decision (ADR-0001 through 0014) was reversed. A pre-existing, unrelated gap was observed but not fixed: constitution §7 calls for SQLAlchemy `relationship()`/`back_populates`, but zero exist anywhere in `core/db/` today (uniform across every table) — `CaseNote`/`CaseTag` follow the established repository-query pattern for consistency rather than introducing `relationship()` unilaterally on two tables while five others lack it; reconciling this is left as its own future documentation/constitution-amendment ADR.
+`docs/roadmap.md` records this as a dated addendum under M2's still-open
+entry (MITRE Mapping Agent remains outstanding, so M2 itself stays
+unchecked) and checks off M3 (its demo criterion is now genuinely met with
+real agents, not test doubles). No approved architectural decision
+(ADR-0001 through 0015) was reversed.
 
 ---
 
 ## Key Decisions
 
-*(Carried forward from prior sessions — still true, unchanged: see prior sessions' "Key Decisions" sections in git history.)*
+*(Carried forward from prior sessions — still true, unchanged: see prior
+sessions' "Key Decisions" sections in git history.)*
 
 **New this session:**
 
-- **A "design the complete Case Management System from scratch" framing was flagged as a conflict, not built as green-field.** `Case`/`CaseRepository`/`case_service.py`/`/api/v1/cases` are production, ADR-0014-governed subsystems; a structurally identical "new entity" request was already declined in an earlier session for the same reason (see ADR-0014's Purpose section). The work was reframed and approved as an ADR-gated *extension* (ADR-0015) — every schema change is additive, every existing endpoint's contract is preserved except one documented, deliberate behavior change (`PATCH /cases/{id}` now validates transitions).
-- **`CaseStatus` was extended, never renamed** — `INVESTIGATING` stays `INVESTIGATING` (not `IN_PROGRESS`) because renaming a shipped enum value against a real persisted column and an already-versioned `/api/v1` contract is the kind of breaking change constitution §13 requires a `MAJOR` bump and its own ADR for; nothing in the actual requirement needed that.
-- **`CaseRepository.update_status` cannot call `core.services.case_lifecycle.validate_transition` directly** — `core/db` is a leaf layer and `core/services` sits above it; importing upward would be circular (and `case_service.py` already imports `case_repository.py`). Validation was moved one layer up into `case_service.update_case_status`, called *before* the repository write — discovered mid-implementation, corrected before it became a real circular-import bug, and the ADR text was updated to match the corrected design.
-- **`Case.labels` has no read endpoint** — matching the `Evidence.parsed_json`/`Finding.finding_data_json` precedent that raw serialized blobs are never included in a response schema. Write-only via `PATCH /cases/{id}/labels`; a structured read would need its own dedicated deserialization path, out of scope here.
-- **`add_case_tag` is idempotent** (re-adding an existing `(case_id, tag)` pair returns the existing row rather than raising) — avoids a redundant duplicate-error path for a naturally idempotent action, while the underlying `case_tags` unique constraint still protects against any other write path.
+- **A "rebuild the complete SOC Analyst Agent from scratch" framing was
+  flagged as a conflict before any code was written, not built as
+  requested.** `SocAnalystAgent` is production, M1-closed, scoped narrowly
+  to blueprint §7's "generalist log analyst" definition. The requested
+  scope (case-wide IOC/threat-intel/finding review, a recommendation engine
+  with Contain/Isolate/Escalate outputs, executive summaries) belongs to the
+  Incident Response Agent (blueprint §7, M5), not the SOC Analyst Agent, and
+  was also self-contradictory (it required Incident-Response-Agent-shaped
+  reasoning while explicitly excluding building the Incident Response
+  Agent). The user confirmed this reframing and redirected to the actually-
+  queued M2 item instead.
+- **`EmailParser` never extracts IOCs itself** — this was the key design
+  insight that kept the new agent's footprint minimal: putting sender/
+  reply-to/URL text into `EvidenceRecord.raw_line` is sufficient for the
+  *existing* `IOCExtractionEngine` to find them, with zero new extraction
+  code, directly honoring "never reimplement IOC extraction."
+- **`extracted_indicators` stays untyped (plain dicts) rather than
+  introducing a `core.threat_intel.models.ScoredIOC` import into
+  `core/agents`** — discovered mid-implementation by re-checking
+  `docs/dependency-rules.md` rule 4 (which lists `core/tools`, `core/parsers`,
+  `core/knowledge`, `core/memory`, `core/security`, and `core/graph/state.py`
+  as `core/agents`'s allowed imports — `core/threat_intel` is conspicuously
+  absent, reserved for `core/services/{threat_intel_service,finding_service}.py`'s
+  own narrow exceptions 4b/4c). `core/services/case_service.py` reduces
+  persisted `IOC` rows to plain dicts before hydrating state instead.
+- **`case_service._run_soc_analysis` was generalized, not left alongside a
+  new parallel `_run_phishing_analysis`** — a single `_run_specialist_agents`
+  registers both agents and computes one `required_capabilities` list from
+  the artifact's `EvidenceType`, avoiding two near-duplicate orchestration
+  functions and matching the Coordinator/Planning Agent's existing
+  capability-matching design intent.
 
 ---
 
 ## Public Interfaces
 
-*(M0–M4/M6 interfaces — unchanged from prior sessions except as noted below.)*
+*(M0–M4/M6/ADR-0015 interfaces — unchanged from prior sessions except as
+noted below.)*
 
 **New/changed this session:**
 
-`core.db.models.case.{CasePriority}` (new); `Case` gained `priority`, `risk_score`, `owner_id`, `assignee_id`, `labels`; `CaseStatus` gained `ESCALATED`, `ON_HOLD`, `CONTAINED`, `RESOLVED`, `ARCHIVED`. `core.db.models.case_note.CaseNote`, `core.db.models.case_tag.CaseTag` (new). `core.db.models.timeline_event.TimelineEventType.CASE_ASSIGNED` (new).
+`core.parsers.models.EvidenceType.EMAIL` (new). `core.parsers.email_parser.EmailParser`
+(new). `core.security.prompt_guard.{scan_text, PromptGuardResult,
+PromptInjectionMatch, PromptInjectionCategory}` (new).
+`core.tools.phishing_tools.{PhishingScoringTool, PhishingScoringInput,
+PhishingScoringOutput, PhishingScoringWeights, classify_phishing_risk,
+sender_reply_to_mismatch, count_urgency_phrases, high_risk_attachments}`
+(new). `core.agents.phishing_agent.{PhishingAgent,
+default_phishing_agent_tool_registry, PhishingVerdict,
+PhishingAnalysisResult}` (new).
 
-`core.db.case_repository.CaseRepository` gained `find_open_by_title_and_analyst`, `update_ownership`, `update_priority`, `update_risk_score`, `update_labels_json`. `core.db.case_note_repository.CaseNoteRepository`, `core.db.case_tag_repository.CaseTagRepository` (new).
+`core.graph.investigation_graph.build_investigation_graph` now also
+registers/wires `PhishingAgent` (node name `phishing_agent`).
 
-`core.services.case_lifecycle.{validate_transition, allowed_next_statuses}` (new). `core.services.case_events.{CaseEvent, CaseEventType, CaseEventPublisher, CaseEventSubscriber}` (new). `core.services.case_metrics.{CaseMetricsCollector, CaseMetricsSnapshot, compute_case_risk_score}` (new).
+`core.services.case_service`: `_run_soc_analysis` renamed/generalized to
+`_run_specialist_agents` (now takes `evidence_id`, registers both agents,
+computes capability from `EvidenceType`); new `_hydrate_attributed_iocs`,
+`_extract_phishing_risk`, `_required_capability_for`. `CaseInvestigationResult`
+gained `phishing_risk_score`/`phishing_risk_label`.
 
-`core.services.case_service` gained `update_case_details`, `update_case_assignment`, `update_case_priority`, `update_case_labels`, `recompute_case_risk_score`, `add_case_note`, `update_case_note`, `delete_case_note`, `list_case_notes`, `get_case_note`, `add_case_tag`, `remove_case_tag`, `list_case_tags`; `create_case` gained `priority`/`event_publisher` parameters and duplicate-case rejection; `update_case_status` gained transition validation and `event_publisher`; `investigate_new_evidence` gained `event_publisher` and now recomputes `Case.risk_score`.
+`apps.api.schemas.EvidenceUploadResponse` gained `phishing_risk_score`/
+`phishing_risk_label` (both optional, default `None`).
 
-`apps.api.schemas` gained `CaseDetailsUpdateRequest`, `CaseAssignmentUpdateRequest`, `CasePriorityUpdateRequest`, `CaseLabelsUpdateRequest`, `CaseTagRequest`, `CaseTagResponse`, `CaseNoteCreateRequest`, `CaseNoteUpdateRequest`, `CaseNoteResponse`; `CaseResponse`/`CaseCreateRequest` extended. New routes: `PATCH /api/v1/cases/{id}/{details,assignment,priority,labels}`, `GET`/`POST /api/v1/cases/{id}/tags`, `DELETE /api/v1/cases/{id}/tags/{tag}`, `GET`/`POST /api/v1/cases/{id}/notes`, `PATCH`/`DELETE /api/v1/cases/{id}/notes/{note_id}`.
-
-No concrete specialist agent other than `SocAnalystAgent`, no LLM reasoning, no `/api/v1/reports` route, no `core.security.*` implementation exist as public interfaces yet.
+No Incident Response Agent, Vulnerability/OWASP/Linux Security/Threat
+Hunting/MITRE Mapping Agent, LLM reasoning, `/api/v1/reports` route, or
+`core.security.{pii_redaction,approval_gate}` implementation exist as public
+interfaces yet.
 
 ---
 
 ## Remaining Work
 
-1. **M2 — remaining piece.** Phishing Investigation Agent + `email_parser.py` + `core/security/prompt_guard.py`; a concrete `core/agents/mitre_mapping_agent.py` (or extended `threat_hunter_agent.py`) reasoning over `finding_service.generate_findings_for_case()`'s typed output.
-2. **M3 — remaining piece.** A real Coordinator fan-out demo needs a *second* concrete specialist agent (e.g. Phishing) registered alongside `SocAnalystAgent` — the framework already supports it with zero changes.
-3. **M4 — remaining piece.** Vulnerability Assessment Agent (+ Nmap/Nessus/OpenVAS parsers + CVSS calculator), OWASP Security Agent, Linux Security Agent, `core/agents/threat_hunter_agent.py`.
-4. **M5 — Incident Response synthesis + Reporting.** Incident Response Agent, Report Generator Agent (finally gives `Report` real behavior), Jinja2/ReportLab templates, Plotly charts, `/api/v1/reports` route.
-5. **M6 — remaining piece.** Swap `InMemoryVectorStore` for real ChromaDB, populate remaining knowledge data (OWASP, playbooks), Threat Timeline/MITRE heatmap/AI Analyst Chat UI (`TimelineEvent`, now with `CASE_ASSIGNED` too, already supports the Threat Timeline view).
+1. **M2 — still open.** A concrete `core/agents/mitre_mapping_agent.py`
+   wrapping `core.knowledge.mitre`'s lookup engine — this is the one piece
+   keeping M2's checkbox unchecked (the MITRE knowledge layer and Finding &
+   MITRE Engine themselves were already built ahead of schedule).
+2. **M3 — closed this session.**
+3. **M4 — remaining piece.** Vulnerability Assessment Agent (+ Nmap/Nessus/
+   OpenVAS parsers + CVSS calculator), OWASP Security Agent, Linux Security
+   Agent, `core/agents/threat_hunter_agent.py`.
+4. **M5 — Incident Response synthesis + Reporting.** Incident Response
+   Agent (the correct home for cross-agent recommendation/escalation
+   synthesis — explicitly not built this session, see "Key Decisions"),
+   Report Generator Agent, Jinja2/ReportLab templates, Plotly charts,
+   `/api/v1/reports` route.
+5. **M6 — remaining piece.** Swap `InMemoryVectorStore` for real ChromaDB,
+   populate remaining knowledge data (OWASP, playbooks), Threat Timeline/
+   MITRE heatmap/AI Analyst Chat UI.
 6. **M7 — Hardening, tests, docs, GitHub polish.**
-7. **Deferred, not scheduled:** a structured read endpoint for `Case.labels` (currently write-only); reconciling constitution §7's `relationship()`/`back_populates` text with the codebase's uniform "FK columns + repository queries" pattern (its own future documentation/constitution-amendment ADR).
+7. **Deferred, not scheduled:** `core/security/pii_redaction.py`/
+   `approval_gate.py`; a structured read endpoint for `Case.labels`;
+   reconciling constitution §7's `relationship()`/`back_populates` text with
+   the codebase's uniform FK-column pattern; reconciling `SocFinding`/
+   `PhishingVerdict` (in-memory only) with the persisted `Finding` table
+   into one shared representation.
 
 ---
 
 ## Known Issues
 
-*(Carried forward, still true: `context/02_repository.md` doesn't exist; `apps/web` has no code; harmless Starlette deprecation warnings in test output; no CI has ever actually run on GitHub; `scripts/check_dependency_rules.py` only checks the streamlit/fastapi-import rule, not the full sibling-layer matrix; `InMemoryVectorStore` is O(n) brute-force; `HashingTextEmbedder` is not semantic; numpy not installed; `windows_event_parser.py` handles only CSV/XML export, not binary `.evtx`; `SocAnalystAgent`'s `SocFinding[]` output is still not persisted to the `findings` table, per ADR-0014 point 4; `Report` still has no consumer.)*
+*(Carried forward, still true: `context/02_repository.md` doesn't exist;
+`apps/web` has no code; harmless Starlette deprecation warnings in test
+output; no CI has ever actually run on GitHub; `scripts/check_dependency_rules.py`
+only checks the streamlit/fastapi-import rule, not the full sibling-layer
+matrix; `InMemoryVectorStore` is O(n) brute-force; `HashingTextEmbedder` is
+not semantic; numpy not installed; `windows_event_parser.py` handles only
+CSV/XML export, not binary `.evtx`; `SocAnalystAgent`'s `SocFinding[]`
+output is still not persisted to the `findings` table, per ADR-0014 point 4;
+`Report` still has no consumer; on PostgreSQL, downgrading the `CaseStatus`
+enum-extension migration is a no-op; `Case.labels` has no read endpoint; no
+case-level authorization/ownership check; the duplicate-case guard is
+intentionally narrow.)*
 
-- **On PostgreSQL, downgrading the `CaseStatus` enum-extension migration (`031e35cdb9e7`) is a no-op** — `ALTER TYPE ... DROP VALUE` is not supported; the five new enum values remain defined (unused) after a downgrade on that dialect. This is documented inline in the migration and treated as an accepted limitation of additive enum values, not a bug.
-- **`Case.labels` has no read endpoint** (write-only via `PATCH .../labels`) — see "Remaining Work."
-- **No case-level authorization/ownership check** — any request can read/write any case (`AuthenticatedUser` is still the fixed placeholder; real auth is blueprint §17 future work). `owner_id`/`assignee_id` are advisory metadata only this session, not an access-control boundary.
-- **The duplicate-case guard is intentionally narrow** — exact `(title, analyst_id)` match only, not fuzzy/semantic. A near-duplicate with a slightly different title is not caught (by design, per ADR-0015 point 10 — that's `core/memory`'s advisory-only job, M6).
+- **`PhishingVerdict` is also not persisted to `findings`**, the identical
+  gap `SocFinding` already had (ADR-0014 point 4) — now two specialist
+  agents' outputs live only in `CaseInvestigationState`/in-process
+  `AgentExecutionResult`, not the DB. Reconciling both into one shared,
+  `source_agent`-tagged persisted representation remains explicitly
+  deferred, not decided by default.
+- **`EmailParser` decodes from a single text representation** (matching
+  every other parser in this package) — a genuinely multipart MIME message
+  with per-part, non-UTF-8 charsets may not decode every part correctly. A
+  documented, real limitation, not a defect masked as one.
+- **`prompt_guard.py` is a heuristic, signature-based defense layer, not a
+  guarantee** — a sufficiently novel injection phrasing may not match any
+  pattern. Documented in `core/security/README.md`, not silently overstated.
+- **`_required_capability_for`'s evidence-type-to-capability table is a
+  simple dict**, not a general routing/rules engine — adding a third
+  specialist agent needing multi-capability or content-based (not just
+  `EvidenceType`-based) routing will need a small design decision, not
+  automatically fall out of the current shape.
 
 ---
 
 ## Dependencies
 
-Runtime (`requirements.txt`): **no new dependencies this session.**
+Runtime (`requirements.txt`): **no new dependencies this session** —
+`EmailParser` uses only the stdlib `email` package.
 
 Dev (`requirements-dev.txt`): unchanged.
 
@@ -185,16 +407,58 @@ Dev (`requirements-dev.txt`): unchanged.
 
 ## Current Git Status
 
-A git repository exists (`main` branch: `main`; working branch: `master`). All prior-session work (through the M1-closing commit) is committed.
+A git repository exists (`main` branch: `main`; working branch: `master`).
+All prior-session work (through the ADR-0015 Case Management Extension) is
+committed.
 
-This session's Case Management Extension work added/modified (all currently uncommitted):
-- New: `docs/adr/0015-case-management-extension.md`, `core/db/models/{case_note,case_tag}.py`, `core/db/{case_note_repository,case_tag_repository}.py`, `core/db/migrations/versions/{031e35cdb9e7,e20964e060ee}_*.py`, `core/services/{case_lifecycle,case_events,case_metrics}.py`, 5 new test files (`tests/unit/test_services_case_lifecycle.py`, `tests/unit/test_services_case_events.py`, `tests/unit/test_services_case_metrics.py`, `tests/unit/test_db_case_note_repository.py`, `tests/unit/test_db_case_tag_repository.py`).
-- Modified: `core/db/models/{case,timeline_event}.py`, `core/db/case_repository.py`, `core/services/case_service.py`, `apps/api/{schemas,routers/cases}.py`, `docs/roadmap.md`, `core/db/README.md`, `core/services/README.md`, `apps/api/README.md`, `tests/unit/test_db_case_repository.py`, `tests/integration/{test_case_service_pipeline,test_api_case_routes}.py`, `CHANGELOG.md`, `context/current_state.md` (this file).
+This session's Phishing Investigation Agent / Email Parser / Prompt Guard
+work added/modified (all currently uncommitted):
+- New: `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`,
+  `core/parsers/email_parser.py`, `core/security/prompt_guard.py`,
+  `core/tools/phishing_tools.py`, `core/agents/phishing_agent.py`, 4 new
+  test files (`tests/unit/test_parsers_email.py`,
+  `tests/unit/test_security_prompt_guard.py`,
+  `tests/unit/test_tools_phishing_tools.py`,
+  `tests/unit/test_agents_phishing.py`).
+- Modified: `core/parsers/{models,detection,registry}.py`,
+  `core/config/settings.py`, `.env.example`, `core/graph/investigation_graph.py`,
+  `core/services/case_service.py`, `apps/api/{schemas,routers/evidence}.py`,
+  `docs/roadmap.md`, `docs/dependency-rules.md`, `core/agents/README.md`,
+  `core/tools/README.md`, `core/parsers/README.md`, `core/security/README.md`,
+  `tests/unit/test_parsers_registry.py`,
+  `tests/integration/{test_case_service_pipeline,test_api_case_routes,
+  test_investigation_graph}.py`, `CHANGELOG.md`, `context/current_state.md`
+  (this file).
 
-Full suite (776 tests), `ruff check`/`format`, `mypy core --strict`, and `scripts/check_dependency_rules.py` all pass. The two new migrations were verified end-to-end against a throwaway SQLite DB (upgrade → downgrade → re-upgrade, schema inspected directly). Commit only when the user explicitly asks.
+Full suite (821 tests), `ruff check`/`format`, `mypy core --strict`, and
+`scripts/check_dependency_rules.py` all pass. Commit only when the user
+explicitly asks.
 
 ---
 
 ## Next Recommended Prompt
 
-> Implement Milestone M2's remaining piece exactly as scoped in `docs/roadmap.md` and this file's "Remaining Work" section: `core/parsers/email_parser.py` (`.eml`/`.txt` phishing email parsing, producing `NormalizedEvidence` per the existing parser contract), `core/security/prompt_guard.py` (prompt-injection/jailbreak pattern detection — the first attacker-controlled-text guard, structurally required per constitution §4.11/§9/§10 before any email body reaches an LLM prompt), and `core/agents/phishing_agent.py` (a concrete `BaseAgent` subclass declaring a distinct capability, e.g. `email_triage`, so it can register alongside `SocAnalystAgent` in `core/graph/investigation_graph.py` with zero framework changes — proving the Coordinator's real fan-out for the first time, which closes M3's own demo criterion too). Wire it into `core/services/case_service.py`'s `investigate_new_evidence()` (or a parallel entry point) so a phishing email upload triggers the same `TimelineEvent`/`CaseEvent`-recording pattern this session's Case Management Extension established. Add a `POST /api/v1/cases/{id}/evidence` content-type/classification path that routes `.eml` uploads correctly (the parser factory already does extension/content sniffing — confirm it dispatches to the new parser without router changes). Preserve every existing file and architectural decision described in this document — including the extended Case lifecycle/ownership/tags/notes/events/metrics subsystem, the SOC Analyst Agent, and the Finding & MITRE Engine — only extend them.
+> Implement Milestone M2's one remaining piece: a concrete
+> `core/agents/mitre_mapping_agent.py` wrapping `core.knowledge.mitre`'s
+> existing `MitreLookup` — blueprint §7's MITRE Mapping Agent, "used by
+> SOC/Threat Hunting/Incident agents" to map a described behavior to a
+> MITRE technique ID with tactic/phase, returning "unmapped" rather than a
+> low-confidence guess when nothing matches. This closes M2's checkbox in
+> `docs/roadmap.md`. Alternatively, if M4's breadth is preferred instead:
+> the Vulnerability Assessment Agent (+ Nmap/Nessus/OpenVAS parsers + CVSS
+> calculator per `core/knowledge/cvss_calculator.py`, unbuilt), OWASP
+> Security Agent (AST-based, not regex — constitution's own quality bar),
+> and Linux Security Agent are the next three specialist agents in
+> priority order, following the exact three-step extension pattern
+> `SocAnalystAgent`/`PhishingAgent` both now demonstrate: a parser/tool in
+> its owning leaf package, an agent in `core/agents/` declaring a distinct
+> capability, and two lines in `core/graph/investigation_graph.py`. Do
+> **not** build the Incident Response Agent yet — that agent's job is
+> case-wide cross-agent synthesis (recommendations, escalation,
+> containment/eradication/recovery) and depends on having more than two
+> specialist agents' findings to actually synthesize; building it early
+> was explicitly declined this session as scope belonging to M5. Preserve
+> every existing file and architectural decision described in this
+> document — including `SocAnalystAgent`, `PhishingAgent`, the Case
+> lifecycle/ownership/tags/notes/events/metrics subsystem, and the Finding
+> & MITRE Engine — only extend them.

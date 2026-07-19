@@ -1,18 +1,21 @@
 """The Case Investigation Graph — blueprint §6's `investigation_graph.py`.
 
-Today this wires exactly one node: the Coordinator (which internally
-delegates to the Planning Agent by direct call, not a graph edge — see
-`core/agents/coordinator.py`'s docstring for why). No specialist agent
-exists yet (Milestone M1+), so the conditional edge out of the Coordinator
-currently only ever resolves to `END`.
+Wires the Coordinator (which internally delegates to the Planning Agent by
+direct call, not a graph edge — see `core/agents/coordinator.py`'s docstring
+for why) plus two concrete specialist agents (Milestone M1/M2):
+`SocAnalystAgent` (`log_analysis`) and `PhishingAgent` (`email_triage`). The
+Planning Agent's capability-matching decides which of them a given case's
+declared `required_capabilities` route to; the conditional edge out of the
+Coordinator resolves to whichever specialist(s) that plan names, or `END` if
+none.
 
-Adding a specialist agent later means: implement it (`core/agents/`),
-register it in the `AgentRegistry` passed to `build_investigation_graph`,
-and add two lines here — `engine.add_agent_node(name)` and
-`engine.add_edge(name, END)`. `WorkflowEngine` and `router.py` need zero
-changes for that to work, which is the property this milestone's brief
-asked for: "the framework should support future expansion without
-modification."
+Adding another specialist agent later means exactly the same three steps
+these two followed: implement it (`core/agents/`), register it in the
+`AgentRegistry` passed to `build_investigation_graph`, and add two lines
+here — `engine.add_agent_node(name)` and `engine.add_edge(name, END)`.
+`WorkflowEngine` and `router.py` need zero changes for that to work, which is
+the property this milestone's brief asked for: "the framework should support
+future expansion without modification."
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from __future__ import annotations
 from langgraph.graph import END
 
 from core.agents.coordinator import CoordinatorAgent
+from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.planning_agent import PlanningAgent
 from core.agents.registry import AgentRegistry, default_agent_registry
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
@@ -66,6 +70,20 @@ def _ensure_soc_analyst_registered(
     )
 
 
+def _ensure_phishing_agent_registered(
+    registry: AgentRegistry, *, case_memory: CaseMemory | None
+) -> None:
+    """Mirrors `_ensure_soc_analyst_registered`'s idempotency/`case_memory`
+    contract exactly — same reasoning, same caveat about never calling this
+    against the process-wide cached `default_agent_registry()` with a real
+    `case_memory`."""
+    if registry.has(PhishingAgent.name):
+        return
+    registry.register(
+        PhishingAgent(tool_registry=default_phishing_agent_tool_registry(), case_memory=case_memory)
+    )
+
+
 def build_investigation_graph(
     *,
     agent_registry: AgentRegistry | None = None,
@@ -88,6 +106,7 @@ def build_investigation_graph(
     registry = agent_registry or default_agent_registry()
     _ensure_framework_agents_registered(registry)
     _ensure_soc_analyst_registered(registry, case_memory=case_memory)
+    _ensure_phishing_agent_registered(registry, case_memory=case_memory)
 
     engine = WorkflowEngine(
         agent_registry=registry,
@@ -100,6 +119,8 @@ def build_investigation_graph(
     engine.add_conditional_edges(CoordinatorAgent.name, route_from_coordinator)
     engine.add_agent_node(SocAnalystAgent.name)
     engine.add_edge(SocAnalystAgent.name, END)
+    engine.add_agent_node(PhishingAgent.name)
+    engine.add_edge(PhishingAgent.name, END)
     return engine
 
 

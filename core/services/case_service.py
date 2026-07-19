@@ -24,17 +24,29 @@ reaching *below* `core/graph` into `core/parsers`/`core/threat_intel`/
 `core/findings`/`core/memory` directly.
 
 **Rule 4d** (docs/dependency-rules.md, docs/adr/0014-case-model-and-first-api-
-routes-shape.md): this module *does* import `core.agents.{registry,
-soc_analyst_agent}` and `core.memory.{case_memory,repository}` directly, to
-build a session-scoped `SQLiteCaseMemory` and a *fresh* (never the
-process-wide cached) `AgentRegistry` before delegating execution to
+routes-shape.md, extended by docs/adr/0016-phishing-agent-email-parser-
+prompt-guard.md): this module *does* import `core.agents.{registry,
+soc_analyst_agent, phishing_agent}` and `core.memory.{case_memory,repository}`
+directly, to build a session-scoped `SQLiteCaseMemory` and a *fresh* (never
+the process-wide cached) `AgentRegistry` before delegating execution to
 `core/graph/investigation_graph.py`. This is the one narrow reason: the
 cached `default_agent_registry()` singleton would otherwise permanently bake
 in whichever caller's `case_memory` (or lack of one) happened to register
-`SocAnalystAgent` first. It also imports `core.parsers.models.
-{NormalizedEvidence, Severity}` directly for type reuse — the identical
-sideways leaf-model precedent `core/db/models/case.py` (and `evidence.py`)
-already established, not a new kind of exception.
+`SocAnalystAgent`/`PhishingAgent` first. It also imports `core.parsers.models.
+{EvidenceType, NormalizedEvidence, Severity}` directly for type reuse — the
+identical sideways leaf-model precedent `core/db/models/case.py` (and
+`evidence.py`) already established, not a new kind of exception. Reading
+`core.db.ioc_repository.IOCRepository` needs no new exception at all: every
+other `core/db` repository (`CaseRepository`, `CaseNoteRepository`, ...) is
+already imported directly here — `core/services` -> `core/db` is a normal,
+always-sanctioned edge (constitution §7), distinct from the 4a/4b/4c
+exceptions that are specifically about reaching into the deterministic leaf
+*processing* packages (`core/parsers`/`core/threat_intel`/`core/findings`).
+`PhishingAgent` needs its case's already-persisted, already-scored IOCs
+(`IOC.composite_score`) reduced to plain dicts before they're hydrated onto
+`CaseInvestigationState.extracted_indicators` — see `_hydrate_attributed_iocs`
+below and `core/agents/phishing_agent.py`'s docstring for why this stays
+string/dict-typed rather than a `core.threat_intel.models.ScoredIOC` import.
 """
 
 from __future__ import annotations
@@ -46,12 +58,14 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.registry import AgentRegistry
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
 from core.config import Settings
 from core.db.case_note_repository import CaseNoteRepository
 from core.db.case_repository import CaseRepository
 from core.db.case_tag_repository import CaseTagRepository
+from core.db.ioc_repository import IOCRepository
 from core.db.models.case import Case, CasePriority, CaseStatus
 from core.db.models.case_note import CaseNote
 from core.db.models.case_tag import CaseTag
@@ -63,7 +77,7 @@ from core.graph.state import CaseInvestigationState
 from core.logging import get_logger, logging_context
 from core.memory.case_memory import SQLiteCaseMemory
 from core.memory.repository import MemoryRepository
-from core.parsers.models import NormalizedEvidence, Severity
+from core.parsers.models import EvidenceType, NormalizedEvidence, Severity
 from core.services.case_events import CaseEvent, CaseEventPublisher, CaseEventType
 from core.services.case_lifecycle import validate_transition
 from core.services.case_metrics import compute_case_risk_score
@@ -81,10 +95,27 @@ _STATUS_TO_EVENT_TYPE: dict[CaseStatus, CaseEventType] = {
     CaseStatus.CLOSED: CaseEventType.CASE_CLOSED,
 }
 
-#: The capability name `SocAnalystAgent` declares — read from the class
-#: rather than re-declared as a string literal here, so the two can never
-#: silently drift.
+#: The capability names `SocAnalystAgent`/`PhishingAgent` declare — read from
+#: the classes rather than re-declared as string literals here, so these can
+#: never silently drift.
 _SOC_ANALYST_CAPABILITY = SocAnalystAgent.capabilities[0].name
+_PHISHING_CAPABILITY = PhishingAgent.capabilities[0].name
+
+#: Which capability a newly-ingested artifact's `EvidenceType` requires —
+#: the per-upload routing decision that lets the Coordinator fan out to the
+#: right specialist(s) automatically (blueprint §7's Coordinator/Planning
+#: Agent responsibility, closing M3's own demo criterion:
+#: "upload mixed evidence to one Case and watch the Coordinator fan out to
+#: both agents automatically"). Additive: any `EvidenceType` not listed here
+#: falls back to `_SOC_ANALYST_CAPABILITY`, matching the pre-M2 behavior for
+#: every log-shaped format this framework already parses.
+_EVIDENCE_TYPE_CAPABILITY: dict[EvidenceType, str] = {
+    EvidenceType.EMAIL: _PHISHING_CAPABILITY,
+}
+
+
+def _required_capability_for(evidence_type: EvidenceType) -> str:
+    return _EVIDENCE_TYPE_CAPABILITY.get(evidence_type, _SOC_ANALYST_CAPABILITY)
 
 
 class CaseInvestigationResult(BaseModel):
@@ -100,6 +131,8 @@ class CaseInvestigationResult(BaseModel):
     merged_finding_ids: tuple[uuid.UUID, ...]
     soc_risk_score: float | None = None
     soc_risk_label: str | None = None
+    phishing_risk_score: float | None = None
+    phishing_risk_label: str | None = None
 
 
 async def create_case(
@@ -406,22 +439,62 @@ async def _record_timeline(
     )
 
 
-async def _run_soc_analysis(
-    session: AsyncSession, *, case_id: uuid.UUID, evidence_items: list[NormalizedEvidence]
+async def _hydrate_attributed_iocs(
+    session: AsyncSession, *, evidence_id: uuid.UUID
+) -> list[dict[str, object]]:
+    """Reduces this evidence's already-persisted, already-scored `IOC` rows
+    to plain dicts (`{"evidence_id", "ioc_type", "composite_score"}`) for
+    `CaseInvestigationState.extracted_indicators` — never re-extracts or
+    re-scores an IOC (constitution §1.9); `IOC.composite_score` was already
+    computed by `core.threat_intel`'s Threat Scoring Engine
+    (`core/services/threat_intel_service.py`). Kept as plain dicts rather
+    than a typed `core.threat_intel.models.ScoredIOC` per
+    `core/agents/phishing_agent.py`'s docstring: `core/agents` has no import
+    edge onto `core/threat_intel` (docs/dependency-rules.md rule 4)."""
+    repository = IOCRepository(session)
+    iocs = await repository.find_by_evidence(evidence_id)
+    return [
+        {
+            "evidence_id": ioc.evidence_id,
+            "ioc_type": ioc.ioc_type.value,
+            "composite_score": ioc.composite_score,
+        }
+        for ioc in iocs
+    ]
+
+
+async def _run_specialist_agents(
+    session: AsyncSession,
+    *,
+    case_id: uuid.UUID,
+    evidence_items: list[NormalizedEvidence],
+    evidence_id: uuid.UUID,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`."""
+    delegating to `core/graph`. Registers both concrete specialist agents
+    built to date (`SocAnalystAgent`, `PhishingAgent`); which one(s) the
+    Coordinator actually fans out to is decided by `required_capabilities`,
+    computed per-artifact from its `EvidenceType` (`_required_capability_for`)
+    — this is what lets a log upload and an email upload to the same Case
+    each route to the correct specialist automatically."""
     case_memory = SQLiteCaseMemory(MemoryRepository(session))
     registry = AgentRegistry()
     registry.register(
         SocAnalystAgent(tool_registry=default_soc_analyst_tool_registry(), case_memory=case_memory)
     )
+    registry.register(
+        PhishingAgent(tool_registry=default_phishing_agent_tool_registry(), case_memory=case_memory)
+    )
     engine = build_investigation_graph(agent_registry=registry)
+
+    required_capability = _required_capability_for(evidence_items[0].evidence_type)
+    attributed_iocs = await _hydrate_attributed_iocs(session, evidence_id=evidence_id)
     state = CaseInvestigationState(
         case_id=case_id,
         evidence=list(evidence_items),
-        metadata={"required_capabilities": [_SOC_ANALYST_CAPABILITY]},
+        extracted_indicators=list(attributed_iocs),
+        metadata={"required_capabilities": [required_capability]},
     )
     return engine.run(state)
 
@@ -500,15 +573,20 @@ async def investigate_new_evidence(
                 )
             )
 
-        result_state = await _run_soc_analysis(
-            session, case_id=case_id, evidence_items=[normalized]
+        result_state = await _run_specialist_agents(
+            session,
+            case_id=case_id,
+            evidence_items=[normalized],
+            evidence_id=ingestion.evidence_id,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
-        soc_output = result_state.agent_outputs.get(SocAnalystAgent.name)
-        if soc_output is not None:
-            await _record_timeline(
-                session, case_id, TimelineEventType.AGENT_ANALYSIS, soc_output.thought
-            )
+        phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
+        for agent_name in (SocAnalystAgent.name, PhishingAgent.name):
+            agent_output = result_state.agent_outputs.get(agent_name)
+            if agent_output is not None:
+                await _record_timeline(
+                    session, case_id, TimelineEventType.AGENT_ANALYSIS, agent_output.thought
+                )
 
         case = await get_case(session, case_id)
         if case is not None and case.status is CaseStatus.OPEN:
@@ -526,6 +604,8 @@ async def investigate_new_evidence(
             merged_finding_ids=generation.merged_finding_ids,
             soc_risk_score=soc_risk_score,
             soc_risk_label=soc_risk_label,
+            phishing_risk_score=phishing_risk_score,
+            phishing_risk_label=phishing_risk_label,
         )
 
 
@@ -541,4 +621,17 @@ def _extract_soc_risk(state: CaseInvestigationState) -> tuple[float | None, str 
     if not findings_payload:
         return None, None
     top = max(findings_payload, key=lambda f: f["risk_score"])
+    return top["risk_score"], top["risk_label"]
+
+
+def _extract_phishing_risk(state: CaseInvestigationState) -> tuple[float | None, str | None]:
+    """`PhishingAgent`'s counterpart to `_extract_soc_risk` — reads the
+    highest risk score/label across this run's `PhishingVerdict` payload."""
+    phishing_output = state.agent_outputs.get(PhishingAgent.name)
+    if phishing_output is None:
+        return None, None
+    verdicts_payload = phishing_output.output.get("verdicts", [])
+    if not verdicts_payload:
+        return None, None
+    top = max(verdicts_payload, key=lambda v: v["risk_score"])
     return top["risk_score"], top["risk_label"]

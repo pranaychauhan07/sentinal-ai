@@ -21,6 +21,7 @@ from core.knowledge.mitre.bootstrap import load_mitre_dataset
 pytestmark = pytest.mark.integration
 
 _SSH_AUTH_LOG = Path("data/sample_evidence/ssh_auth.log")
+_PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
 
 
 @pytest.fixture
@@ -107,6 +108,30 @@ def test_upload_evidence_runs_full_pipeline_and_updates_timeline(client: TestCli
     timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
     event_types = {item["event_type"] for item in timeline["items"]}
     assert "evidence_ingested" in event_types
+    assert "agent_analysis" in event_types
+
+
+def test_upload_email_evidence_routes_to_phishing_agent(client: TestClient) -> None:
+    """The parser factory's extension/content-sniff dispatch already routes
+    `.eml` to `EmailParser` with zero router changes (constitution §1.9's
+    "never reimplement" applies to routing too) — this proves the same
+    single `POST /evidence` endpoint used for logs also triages email."""
+    created = client.post("/api/v1/cases", json={"title": "Suspicious email"}).json()
+    case_id = created["id"]
+
+    upload = client.post(
+        f"/api/v1/cases/{case_id}/evidence",
+        files={"file": ("phishing_sample_01.eml", _PHISHING_EMAIL.read_bytes(), "message/rfc822")},
+    )
+    assert upload.status_code == 201
+    body = upload.json()
+    assert body["case_id"] == case_id
+    assert body["soc_risk_score"] is None
+    assert body["phishing_risk_score"] is not None
+    assert body["phishing_risk_label"] in {"medium", "high", "critical"}
+
+    timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
+    event_types = {item["event_type"] for item in timeline["items"]}
     assert "agent_analysis" in event_types
 
 

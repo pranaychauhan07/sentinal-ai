@@ -20,7 +20,17 @@ permission checks, retry-on-I/O-failure, caching, logging) and `registry.py`
 deterministic 0-100 risk-scoring math, scoped to raw evidence-artifact
 aggregate signal, distinct from and never duplicating `core/findings/
 severity.py`'s already-implemented IOC/Finding-level `calculate_risk_score`).
-No other concrete tool (`log_tools.py`, `phishing_tools.py`, ...) exists yet.
+
+**Implemented (Milestone M2, `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`):**
+`phishing_tools.py` (`PhishingScoringTool`, `PhishingScoringWeights` — the
+Phishing Agent's deterministic 0-100 risk-scoring math on its own
+independent scale: sender/reply-to domain mismatch, urgency/social-
+engineering phrase density, high-risk attachment extensions, combined with
+the case's already-scored attributed URL/domain/email IOC composite scores.
+Never re-extracts an IOC or recomputes a threat score itself).
+
+No other concrete tool (`log_tools.py`, `vuln_tools.py`, `owasp_tools.py`,
+`linux_tools.py`, `ir_tools.py`, `mitre_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*
 tool to call and interpret the result, not to do the math itself.

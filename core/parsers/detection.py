@@ -22,6 +22,7 @@ _APACHE_COMBINED_RE = re.compile(r'^\S+ \S+ \S+ \[[^\]]+\] "[A-Z]+ \S+ \S+" \d{3
 _APACHE_ERROR_RE = re.compile(r"^\[[^\]]+\] \[[a-z:]+\] (\[pid \d+\] )?")
 _SYSLOG_RE = re.compile(r"^\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} \S+ \S+")
 _SSH_AUTH_HINT_RE = re.compile(r"sshd\[\d+\]:")
+_EMAIL_HEADER_RE = re.compile(r"^(From|Subject|Date|Message-ID):", re.IGNORECASE)
 
 #: Ordered fallback ladder for decoding bytes with no/ambiguous BOM.
 _TEXT_ENCODING_LADDER: tuple[str, ...] = ("utf-8", "utf-8-sig", "latin-1")
@@ -106,6 +107,10 @@ def sniff_evidence_type(filename: str, decoded_text: str) -> list[tuple[Evidence
         candidates.append((EvidenceType.SSH_AUTH, 0.9))
     elif any(_SYSLOG_RE.match(line) for line in sample_lines):
         candidates.append((EvidenceType.SYSLOG, 0.7))
+
+    email_header_hits = sum(1 for line in sample_lines if _EMAIL_HEADER_RE.match(line))
+    if email_header_hits:
+        candidates.append((EvidenceType.EMAIL, min(0.9, email_header_hits / 2)))
 
     if any(_APACHE_COMBINED_RE.match(line) for line in sample_lines):
         candidates.append((EvidenceType.APACHE_ACCESS, 0.9))
