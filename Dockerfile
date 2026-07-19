@@ -3,7 +3,7 @@
 # in Phase 1-4 per the blueprint; split into apps/web and apps/api images
 # only if/when they need independent scaling (see docs/deployment-guide.md).
 
-FROM python:3.11-slim AS base
+FROM python:3.14-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
