@@ -48,9 +48,9 @@ Project-wide rules. CI enforces what's mechanically enforceable (ruff, mypy,
 ## Docstrings and comments
 
 - Public functions/classes in `core/` get a one-line docstring stating what
-  they do (not how) — see the root CLAUDE-style guidance: default to no
-  inline comments; add one only when the *why* isn't obvious from the code
-  (a non-obvious constraint, a workaround, a subtle invariant).
+  they do (not how). Default to no inline comments; add one only when the
+  *why* isn't obvious from the code (a non-obvious constraint, a
+  workaround, a subtle invariant).
 - Never leave commented-out code in a merged PR.
 
 ## Logging
