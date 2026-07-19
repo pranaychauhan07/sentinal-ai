@@ -251,6 +251,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     `core/services → core/threat_intel`/`core/parsers` edge were verified
     by manual `grep` to be exactly as scoped.
 
+### Fixed
+- Re-verification pass over the Evidence Ingestion & Parser Framework
+  (`core/parsers/`): confirmed `ruff check`/`format`, `mypy --strict`,
+  `pytest` (517 tests), and `scripts/check_dependency_rules.py` all pass
+  with no code changes needed — no deviation from
+  `context/01_blueprint.md`/`context/03_engineering_constitution.md` found.
+- `mypy core --strict` gap closed (6 `[type-arg]` errors, none in
+  `core/parsers`): `core/tools/registry.py`'s `ToolRegistry` and
+  `core/agents/base.py`'s `BaseAgent.use_tool` now type tool instances as
+  `BaseTool[Any, Any]` instead of the bare generic (a registry holds
+  heterogeneous tool input/output types by design); `core/graph/
+  workflow_engine.py`'s `WorkflowEngine` now fully parameterizes
+  `StateGraph`/`CompiledStateGraph` as `[CaseInvestigationState, Any, Any,
+  Any]` (LangGraph's four type parameters: `StateT, ContextT, InputT,
+  OutputT`). Typing-only; no behavioral change.
+
 <!--
 Template for future entries:
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from core.agents.confidence import ConfidenceScore
 from core.agents.contracts import (
@@ -160,6 +160,6 @@ class BaseAgent(ABC):
                 f"Agent '{self.name}' has no tool registry configured.",
                 details={"agent": self.name, "tool": tool_name},
             )
-        tool: BaseTool = self._tool_registry.get(tool_name)
+        tool: BaseTool[Any, Any] = self._tool_registry.get(tool_name)
         self._logger.debug("tool_invoked", agent_name=self.name, tool=tool_name)
         return tool(arguments, approved=approved)

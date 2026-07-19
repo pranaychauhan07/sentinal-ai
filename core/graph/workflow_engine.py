@@ -113,10 +113,12 @@ class WorkflowEngine:
         self._event_bus = event_bus or default_event_bus()
         self._retry_policy = retry_policy or RetryPolicy()
         self._recovery_policy = recovery_policy or FailureRecoveryPolicy()
-        self._graph: StateGraph[CaseInvestigationState] = StateGraph(CaseInvestigationState)
+        self._graph: StateGraph[CaseInvestigationState, Any, Any, Any] = StateGraph(
+            CaseInvestigationState
+        )
         self._node_names: list[str] = []
         self._pending_conditional_edges: list[tuple[str, RouterFn]] = []
-        self._compiled: CompiledStateGraph | None = None
+        self._compiled: CompiledStateGraph[CaseInvestigationState, Any, Any, Any] | None = None
 
     @property
     def node_names(self) -> tuple[str, ...]:
@@ -157,7 +159,7 @@ class WorkflowEngine:
     def add_edge(self, source: str, target: str) -> None:
         self._graph.add_edge(source, target)
 
-    def compile(self) -> CompiledStateGraph:
+    def compile(self) -> CompiledStateGraph[CaseInvestigationState, Any, Any, Any]:
         path_map = [*self._node_names, END]
         for source, router in self._pending_conditional_edges:
             self._graph.add_conditional_edges(source, router, path_map)

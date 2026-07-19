@@ -12,6 +12,7 @@ integration").
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from core.exceptions import NotFoundError
 from core.tools.base import BaseTool
@@ -21,19 +22,25 @@ class ToolRegistry:
     """An explicit, injectable registry — never a module-level mutable dict
     (constitution §2, "Avoid global state"). Construct one per process (see
     :func:`default_tool_registry`) or one per test for isolation.
+
+    Tools registered here have heterogeneous `InputT`/`OutputT` type
+    parameters (a `CVSSTool` and a `MitreMappingTool` share no concrete
+    input/output type), so entries are held as `BaseTool[Any, Any]` — the
+    registry is a name-keyed lookup table, not a place that narrows a tool's
+    contract; callers get the concrete type back by calling the tool.
     """
 
     def __init__(self) -> None:
-        self._tools: dict[str, BaseTool] = {}
+        self._tools: dict[str, BaseTool[Any, Any]] = {}
 
-    def register(self, tool: BaseTool) -> None:
+    def register(self, tool: BaseTool[Any, Any]) -> None:
         """Register a tool instance under its declared `name`. Re-registering
         the same name overwrites the previous entry, which is a deliberate,
         explicit action (e.g. swapping a tool implementation in a test),
         never an accidental collision silently ignored."""
         self._tools[tool.name] = tool
 
-    def get(self, name: str) -> BaseTool:
+    def get(self, name: str) -> BaseTool[Any, Any]:
         try:
             return self._tools[name]
         except KeyError as exc:

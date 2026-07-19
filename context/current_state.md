@@ -40,6 +40,36 @@
 - **Testing** — 165 new tests (517 total, up from 352): one dedicated `tests/unit/test_threat_intel_*.py` file per framework module (20 files), `test_db_ioc_repository.py` (real SQLite, mirroring `test_db_evidence_repository.py`'s pattern), `test_threat_intel_service.py` (full pipeline, including a rejected-candidate assertion, the memory-advisory-failure assertion, a detection-rule-match classification test, and a 3,000-line large-evidence-artifact performance test). A dedicated `test_threat_intel_patterns.py::test_every_pattern_compiles_and_matches_bounded_text_quickly` regression-guards every one of the twenty patterns against catastrophic backtracking. mypy (strict on `core/`), `ruff check`/`format`, and `scripts/check_dependency_rules.py` all pass; the new `core/threat_intel` leaf boundary and the `core/services → core/threat_intel`/`core/parsers` edge were verified by manual `grep` to be exactly as scoped in the ADR.
 - **No new runtime dependency** — `core/threat_intel` uses only the stdlib (`re`, `ipaddress`, `urllib.parse`, `importlib.metadata`).
 
+### Re-verification + `mypy --strict` hardening (new this session)
+
+This session did **not** add a new milestone or feature. At explicit user
+direction, it (1) re-verified the already-implemented Evidence Ingestion &
+Parser Framework (`core/parsers/`, committed in a prior session) against
+`context/01_blueprint.md` and `context/03_engineering_constitution.md` —
+`ruff check`/`format`, `mypy core/parsers --strict`, the full `pytest`
+suite, and `scripts/check_dependency_rules.py` all passed with **zero**
+code changes required, confirming no drift — and then (2), on request, ran
+`mypy core --strict` across the whole `core/` package (not just
+`core/parsers`) and fixed the 6 pre-existing `[type-arg]` errors it
+surfaced, all in `core/tools`/`core/agents`/`core/graph` (framework layers
+from the Multi-Agent Framework session), none in `core/parsers` or
+`core/threat_intel`:
+
+- `core/tools/registry.py` — `ToolRegistry` now stores/returns
+  `BaseTool[Any, Any]` rather than the bare generic `BaseTool` (a registry
+  holds tools with heterogeneous `InputT`/`OutputT` by design).
+- `core/agents/base.py` — `BaseAgent.use_tool`'s local `tool` variable
+  typed as `BaseTool[Any, Any]`.
+- `core/graph/workflow_engine.py` — `WorkflowEngine` now fully
+  parameterizes `StateGraph`/`CompiledStateGraph` as
+  `[CaseInvestigationState, Any, Any, Any]`, matching LangGraph's actual
+  four type parameters (`StateT, ContextT, InputT, OutputT`).
+
+Typing-only; no behavioral change, no new dependency, no architecture
+change. `mypy core --strict` now reports zero issues across all 110
+`core/` source files (previously clean only when scoped to individual
+subpackages). Full suite still 517 passed after the fix.
+
 **Explicitly NOT built, by this session's stated scope:** `Case`/`Finding`/`MitreTechnique`/`TimelineEvent`/`Report` domain models, any concrete specialist agent (SOC Analyst, Threat Hunting, Phishing, Vulnerability, OWASP, Linux Security, Incident Response, MITRE Mapping), MITRE ATT&CK mapping of any kind, incident/cross-case correlation (only the `find_by_value_and_type` lookup primitive a future correlation feature could build on), any LLM reasoning, any concrete `ThreatIntelProvider`/`IOCEnrichmentProvider` implementation, any `/api/v1` route, `email_parser.py`/`nessus_parser.py`/`openvas_parser.py`/`source_code_parser.py`/`incident_parser.py`, `core/security/*`, `core/reporting/*`, any `apps/web` code.
 
 ---
@@ -174,12 +204,14 @@ Dev (`requirements-dev.txt`): unchanged.
 
 ## Current Git Status
 
-A git repository exists (`main` branch: `main`; working branch: `master`), with two prior commits: `8664039 feat(parsers): implement Evidence Ingestion & Parser Framework ahead of schedule` (which followed `0ee65d5` and `eae4fb8`). This session's Threat Intelligence & IOC Extraction Framework work is **uncommitted**:
+A git repository exists (`main` branch: `main`; working branch: `master`), with four prior commits: `eae4fb8` (foundation) → `0ee65d5` (memory/knowledge) → `8664039` (parsers) → `40ac180 feat(threat-intel): implement Threat Intelligence & IOC Extraction Framework ahead of schedule`. All prior-session work, including the Threat Intelligence & IOC Extraction Framework, is committed — the working tree was clean at the start of this session.
 
-- Modified: `CHANGELOG.md`, `context/current_state.md`, `docs/roadmap.md`, `docs/dependency-rules.md`, `docs/diagrams/README.md`, `core/db/README.md`, `core/services/README.md`, `core/config/settings.py`, `core/db/models/__init__.py`, `.env.example`.
-- Untracked (new): `docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`, `docs/diagrams/{threat-intel-pipeline,ioc-lifecycle}.mmd`, all 20 new `core/threat_intel/*.py` modules + `README.md`, `core/db/models/ioc.py`, `core/db/ioc_repository.py`, `core/db/migrations/versions/d1d941bb0216_create_ioc_table.py`, `core/services/threat_intel_service.py`, and 20 new `tests/unit/test_{threat_intel,db_ioc}_*.py` files.
+This session's re-verification + `mypy --strict` hardening pass (see "Re-verification + `mypy --strict` hardening" above) modified:
 
-The working tree is in a complete, self-consistent, fully-tested state (517 tests passing — mypy/ruff/dependency-rules clean, migration verified against a real SQLite DB) but has not yet been committed; commit only when the user explicitly asks.
+- `core/tools/registry.py`, `core/agents/base.py`, `core/graph/workflow_engine.py` (the 6 `[type-arg]` fixes).
+- `CHANGELOG.md`, `context/current_state.md` (this file — documentation of the above).
+
+Full suite (517 tests), `ruff check`/`format`, `mypy core --strict` (whole `core/`, not just one subpackage), and `scripts/check_dependency_rules.py` all pass. Commit only when the user explicitly asks.
 
 ---
 
