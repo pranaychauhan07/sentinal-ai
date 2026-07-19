@@ -11,5 +11,6 @@ the same PR that introduces it.
 """
 
 from core.db.models.evidence import Evidence, EvidenceStatus
+from core.db.models.ioc import IOC, IOCStatus
 
-__all__ = ["Evidence", "EvidenceStatus"]
+__all__ = ["IOC", "Evidence", "EvidenceStatus", "IOCStatus"]

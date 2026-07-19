@@ -81,6 +81,35 @@ class Settings(BaseSettings):
         default=Path("./data/evidence_uploads"), alias="EVIDENCE_STORAGE_DIR"
     )
 
+    # --- Threat intelligence (core/threat_intel, core/services/threat_intel_service.py) ---
+    threat_intel_max_iocs_per_artifact: int = Field(
+        default=5_000, alias="THREAT_INTEL_MAX_IOCS_PER_ARTIFACT"
+    )
+    threat_intel_max_regex_input_chars: int = Field(
+        default=1_000_000, alias="THREAT_INTEL_MAX_REGEX_INPUT_CHARS"
+    )
+    threat_intel_min_confidence: float = Field(
+        default=0.3, ge=0.0, le=1.0, alias="THREAT_INTEL_MIN_CONFIDENCE"
+    )
+    threat_intel_malicious_score_threshold: float = Field(
+        default=70.0, ge=0.0, le=100.0, alias="THREAT_INTEL_MALICIOUS_SCORE_THRESHOLD"
+    )
+    threat_intel_suspicious_score_threshold: float = Field(
+        default=40.0, ge=0.0, le=100.0, alias="THREAT_INTEL_SUSPICIOUS_SCORE_THRESHOLD"
+    )
+    threat_intel_enabled_providers: str = Field(default="", alias="THREAT_INTEL_ENABLED_PROVIDERS")
+    threat_intel_provider_timeout_seconds: float = Field(
+        default=10.0, alias="THREAT_INTEL_PROVIDER_TIMEOUT_SECONDS"
+    )
+    misp_base_url: str | None = Field(default=None, alias="MISP_BASE_URL")
+    misp_api_key: str | None = Field(default=None, alias="MISP_API_KEY")
+    alienvault_otx_api_key: str | None = Field(default=None, alias="ALIENVAULT_OTX_API_KEY")
+    virustotal_api_key: str | None = Field(default=None, alias="VIRUSTOTAL_API_KEY")
+    abuseipdb_api_key: str | None = Field(default=None, alias="ABUSEIPDB_API_KEY")
+    greynoise_api_key: str | None = Field(default=None, alias="GREYNOISE_API_KEY")
+    opencti_base_url: str | None = Field(default=None, alias="OPENCTI_BASE_URL")
+    opencti_api_key: str | None = Field(default=None, alias="OPENCTI_API_KEY")
+
     # --- Frontend / API ---
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     api_base_url: str = Field(default="http://localhost:8000", alias="API_BASE_URL")
@@ -107,6 +136,15 @@ class Settings(BaseSettings):
     def evidence_allowed_extension_list(self) -> list[str]:
         """Parsed comma-separated allowlist of upload extensions."""
         return [e.strip().lower() for e in self.evidence_allowed_extensions.split(",") if e.strip()]
+
+    @property
+    def threat_intel_enabled_provider_list(self) -> list[str]:
+        """Parsed comma-separated list of enabled threat-intel provider
+        names (e.g. `misp,virustotal`). Empty by default — no provider is
+        implemented yet (docs/adr/0012 point 4)."""
+        return [
+            p.strip().lower() for p in self.threat_intel_enabled_providers.split(",") if p.strip()
+        ]
 
     @property
     def is_sqlite(self) -> bool:

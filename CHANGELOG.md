@@ -177,6 +177,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     exactly as scoped.
   - New dependency: `defusedxml` (runtime, XXE protection for
     `nmap_parser.py`) + `types-defusedxml` (dev, mypy stubs).
+- Threat Intelligence & IOC Extraction Framework
+  (`docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`) —
+  built ahead of the milestone schedule as a new leaf package,
+  `core/threat_intel`, peer to `core/parsers`:
+  - `models.py`: `IOCType` (twenty types), `ThreatSeverity`,
+    `SourceReliability`, `ThreatCategory`, `RuleType`, `IOCRecord`,
+    `ThreatScore`, `IOCClassification`, `AttributionRecord`, `ScoredIOC`,
+    `NormalizedThreatIntel`, `DetectionRule` (Sigma-adjacent field naming),
+    `IOCQuery`/`ProviderLookupResult`/`EnrichmentResult`.
+  - `base.py`/`extractor.py`: `BaseIOCExtractor` template method (mirrors
+    `BaseParser`) + `IOCExtractionEngine`, one data-driven engine covering
+    all twenty `IOCType`s via `patterns.py`'s bounded, ReDoS-safe regex
+    table and structured-field extraction — not twenty near-duplicate
+    per-type extractor classes.
+  - `registry.py`/`provider_registry.py`: plugin-capable `ExtractorRegistry`
+    (`cdc.threat_intel_extractors` entry-point group) and an empty,
+    plugin-capable `ProviderRegistry` (`cdc.threat_intel_providers`).
+  - `validator.py`/`normalizer.py`/`dedup.py`: per-`IOCType` validation
+    (`ipaddress`, RFC-shaped regex, hash-length checks, port range, ...),
+    canonicalization, and within-run deduplication (never cross-case
+    correlation — explicit scope cut).
+  - `rules.py`/`rule_validation.py`: `DetectionRuleEngine` (pattern/regex/
+    threshold/composite rules, priority ordering, enable/disable) with
+    catastrophic-backtracking regex-safety validation enforced at
+    registration time, not by review.
+  - `scoring.py`/`classification.py`/`attribution.py`: configurable
+    `ThreatScoringEngine` (confidence/severity/impact/likelihood/evidence
+    quality/source reliability/rule matches, weights sum-validated),
+    `ConfidenceCalculator`, `ThreatClassificationEngine`
+    (benign/suspicious/malicious/unknown, no MITRE mapping), and
+    `EvidenceAttributionTracker` (ties every IOC back to its evidence
+    artifact and line numbers).
+  - `interfaces.py`: `ThreatIntelProvider`/`IOCEnrichmentProvider`
+    `typing.Protocol`s only — no MISP/AlienVault OTX/VirusTotal/AbuseIPDB/
+    GreyNoise/OpenCTI implementation, per explicit scope.
+  - `metrics.py`/`events.py`/`audit.py`: self-contained observability
+    (never imports `core/graph`), mirroring `core/parsers`'s pattern.
+  - `core/db/models/ioc.py` (new domain table, `IOC` + `IOCStatus`):
+    `evidence_id` a **real** foreign key to `evidence.id` (unlike
+    `Evidence.case_id`, that table already exists); `case_id` a plain UUID
+    column pending Milestone M1's `Case` model, following the same
+    ADR-0011 precedent. Plus `core/db/ioc_repository.py` and its Alembic
+    migration (generated, hand-reviewed, and verified against a throwaway
+    SQLite DB — table + all seven indexes + the FK constraint confirmed).
+  - `core/services/threat_intel_service.py`: `IOCExtractionPipeline`, the
+    nine explicit stages (discover → validate → normalize → deduplicate →
+    classify → score → persist → publish_event → notify_memory) +
+    `extract_threat_intelligence()` orchestrator. `core/services` importing
+    `core/threat_intel`/`core/parsers`/`core/memory` directly is a second,
+    separately-scoped documented exception (`docs/dependency-rules.md` rule
+    4b) to the "services only call `core/graph`" rule.
+  - New `Settings` fields (`threat_intel_max_iocs_per_artifact`,
+    `threat_intel_max_regex_input_chars`, `threat_intel_min_confidence`,
+    `threat_intel_malicious_score_threshold`,
+    `threat_intel_suspicious_score_threshold`,
+    `threat_intel_enabled_providers`, `threat_intel_provider_timeout_seconds`,
+    and one API-key/base-URL pair per named provider), all documented in
+    `.env.example`.
+  - Two new mermaid diagrams (`docs/diagrams/threat-intel-pipeline.mmd`,
+    `ioc-lifecycle.mmd`).
+  - No MITRE ATT&CK mapping, no incident/cross-case correlation, no LLM
+    reasoning, no concrete threat-intel provider, and no `/api/v1` route —
+    all explicit scope cuts per the ADR.
+  - 165 new tests (517 total: 500 unit + 17 integration), including a
+    regex-catastrophic-backtracking timing regression guard (every one of
+    the twenty `IOC_PATTERNS` scanned against a 5,000+ character
+    adversarial input in well under a second), rejected-candidate/never-
+    silently-dropped assertions, the memory-advisory-failure assertion, and
+    a 3,000-line large-evidence-artifact performance test. mypy (strict on
+    `core/`), `ruff check`/`format`, and `scripts/check_dependency_rules.py`
+    all pass; the new `core/threat_intel` leaf boundary and the
+    `core/services → core/threat_intel`/`core/parsers` edge were verified
+    by manual `grep` to be exactly as scoped.
 
 <!--
 Template for future entries:

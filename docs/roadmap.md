@@ -79,6 +79,29 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
 - [ ] **M4 — Remaining specialist modules.** Vulnerability Assessment Agent
       (+ Nmap/Nessus/OpenVAS parsers + CVSS calculator), OWASP Security Agent
       (AST-based), Linux Security Agent, Threat Hunting Agent.
+      **Built ahead of schedule** (`docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`):
+      the reusable Threat Intelligence & IOC Extraction Framework —
+      data-driven `IOCExtractionEngine` covering twenty `IOCType`s
+      (IPv4/IPv6, domain, hostname, URL, email, SHA1/SHA256/MD5, file name,
+      username, process name, registry key, port, service, mutex, scheduled
+      task, command line, user agent, certificate fingerprint), a
+      plugin-capable `ExtractorRegistry`, `IOCValidator`/`IOCNormalizer`,
+      within-run deduplication, a `DetectionRuleEngine` (pattern/regex/
+      threshold/composite rules, Sigma-adjacent metadata, regex-safety
+      validation against catastrophic backtracking), a configurable
+      `ThreatScoringEngine`/`ConfidenceCalculator`, a
+      `ThreatClassificationEngine`, an `EvidenceAttributionTracker`, and
+      unimplemented `ThreatIntelProvider`/`IOCEnrichmentProvider` interfaces
+      (MISP/AlienVault OTX/VirusTotal/AbuseIPDB/GreyNoise/OpenCTI, no
+      concrete provider) — plus the second real domain table, `IOC`
+      (`core/db/models/ioc.py`, a real FK to `evidence.id`, `case_id` a
+      plain UUID pending M1's `Case` model per the ADR-0011 precedent), its
+      repository, and the nine-stage `IOCExtractionPipeline`
+      (`core/services/threat_intel_service.py`). No MITRE mapping, incident
+      correlation, or LLM reasoning — explicitly out of scope per the ADR.
+      Still not checked off: the milestone's own demo criterion (all 9
+      modules through the Coordinator) needs the concrete Vulnerability/
+      OWASP/Linux/Threat Hunting agents first, which don't exist yet.
       *Demo: all 9 required modules functioning through the same Coordinator.*
 
 - [ ] **M5 — Incident Response synthesis + Reporting.** Incident Response

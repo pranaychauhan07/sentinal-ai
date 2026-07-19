@@ -1,0 +1,57 @@
+"""Unit tests for core/threat_intel/patterns.py."""
+
+from __future__ import annotations
+
+import time
+
+import pytest
+
+from core.threat_intel.models import IOCType
+from core.threat_intel.patterns import IOC_PATTERNS, refang
+
+
+@pytest.mark.unit
+def test_ipv4_pattern_matches_valid_address() -> None:
+    match = IOC_PATTERNS[IOCType.IPV4].search("connection from 192.168.1.1 accepted")
+    assert match is not None
+    assert match.group(0) == "192.168.1.1"
+
+
+@pytest.mark.unit
+def test_domain_pattern_matches() -> None:
+    match = IOC_PATTERNS[IOCType.DOMAIN].search("beaconing to evil.example.com over https")
+    assert match is not None
+    assert match.group(0) == "evil.example.com"
+
+
+@pytest.mark.unit
+def test_sha256_pattern_requires_exact_length() -> None:
+    valid = "a" * 64
+    assert IOC_PATTERNS[IOCType.SHA256].search(f"hash={valid}") is not None
+    assert IOC_PATTERNS[IOCType.SHA256].search(f"hash={'a' * 63}") is None
+
+
+@pytest.mark.unit
+def test_refang_reverses_common_defanging_conventions() -> None:
+    assert refang("hxxp://evil[.]example[.]com") == "http://evil.example.com"
+    assert refang("user(at)example(dot)com") == "user@example.com"
+
+
+@pytest.mark.unit
+def test_refang_is_idempotent_on_already_live_text() -> None:
+    text = "http://example.com/path"
+    assert refang(text) == text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ioc_type", list(IOC_PATTERNS))
+def test_every_pattern_compiles_and_matches_bounded_text_quickly(ioc_type: IOCType) -> None:
+    """Regression guard for catastrophic backtracking: every pattern must
+    finish scanning a worst-case-shaped 5,000-character string well under a
+    second."""
+    pattern = IOC_PATTERNS[ioc_type]
+    adversarial_text = ("a" * 200 + " ") * 25  # 5,000+ chars, no matches
+    started = time.monotonic()
+    pattern.findall(adversarial_text)
+    elapsed = time.monotonic() - started
+    assert elapsed < 1.0

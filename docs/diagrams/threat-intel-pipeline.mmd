@@ -1,0 +1,43 @@
+%% Threat Intelligence & IOC Extraction Framework — the nine-stage pipeline
+%% (docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md).
+%% Render with `mmdc -i threat-intel-pipeline.mmd -o threat-intel-pipeline.png`.
+%% No Case model or apps/api route exists yet — "Caller" below is a test
+%% harness / a future core/agents/threat_hunter_agent.py, nothing else changes
+%% once that agent is built (it calls the same extract_threat_intelligence()).
+
+sequenceDiagram
+    participant Caller as Caller (future ThreatHuntingAgent)
+    participant Pipeline as IOCExtractionPipeline
+    participant Registry as ExtractorRegistry
+    participant Engine as IOCExtractionEngine
+    participant Validator as IOCValidator
+    participant Normalizer as IOCNormalizer
+    participant Dedup as core.threat_intel.dedup
+    participant Rules as DetectionRuleEngine
+    participant Scoring as ThreatScoringEngine
+    participant Classify as ThreatClassificationEngine
+    participant Repo as IOCRepository
+    participant Events as ThreatIntelEventPublisher
+    participant Memory as CaseMemory (advisory)
+
+    Caller->>Pipeline: extract_threat_intelligence(case_id, evidence)
+    Pipeline->>Registry: get(extractor_name)
+    Registry-->>Pipeline: IOCExtractionEngine
+    Pipeline->>Engine: discover(evidence)
+    Note over Engine: pattern scan (refang'd, length-capped)<br/>+ structured-field extraction
+    Engine-->>Pipeline: candidate IOCRecord[]
+    Pipeline->>Validator: validate() [per IOCType]
+    Validator-->>Pipeline: valid[], rejected reasons (never dropped silently)
+    Pipeline->>Normalizer: normalize() [canonicalize per IOCType]
+    Pipeline->>Dedup: deduplicate_iocs() [+ resource-exhaustion cap]
+    Pipeline->>Rules: classify() [pattern/regex/threshold/composite]
+    Rules-->>Pipeline: RuleMatchResult[]
+    Pipeline->>Scoring: score() [confidence/severity/impact/likelihood/<br/>evidence_quality/source_reliability/rule_matches]
+    Scoring-->>Pipeline: ThreatScore per IOC
+    Pipeline->>Classify: classify(score, rule_matches)
+    Classify-->>Pipeline: IOCClassification (benign/suspicious/malicious/unknown)
+    Pipeline->>Repo: persist() [insert IOC rows]
+    Repo-->>Pipeline: IOC[] (status=ACTIVE)
+    Pipeline->>Events: publish_event(CLASSIFIED | DEGRADED)
+    Pipeline->>Memory: notify_memory() [advisory, never raises]
+    Pipeline-->>Caller: ThreatIntelExtractionResult

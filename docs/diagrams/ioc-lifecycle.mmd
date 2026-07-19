@@ -1,0 +1,38 @@
+%% IOC Lifecycle — how one candidate IOCRecord moves from discovery to a
+%% persisted, scored, classified IOC row, and how the framework never lets a
+%% single malformed candidate crash extraction or silently lose a rejection
+%% (constitution §1.7; docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md).
+%% Render with `mmdc -i ioc-lifecycle.mmd -o ioc-lifecycle.png`.
+
+stateDiagram-v2
+    [*] --> Discovered: IOCExtractionEngine finds a candidate\n(pattern scan or structured field)
+    Discovered --> Validated: IOCValidator.validate() passes
+    Discovered --> Rejected: IOCValidationError raised
+
+    Validated --> Normalized: IOCNormalizer.normalize() [canonical form]
+    Normalized --> Deduplicated: merged with any other candidate\nsharing (ioc_type, value)
+
+    Deduplicated --> RuleEvaluated: DetectionRuleEngine.evaluate()\n[pattern/regex/threshold/composite]
+    RuleEvaluated --> Scored: ThreatScoringEngine.score()\n+ ConfidenceCalculator.calculate()
+    Scored --> Classified: ThreatClassificationEngine.classify()\n[benign|suspicious|malicious|unknown]
+    Classified --> Attributed: EvidenceAttributionTracker.attribute()\n[line numbers, first/last seen]
+    Attributed --> Persisted: IOCRepository.add()\n[status=ACTIVE]
+
+    Rejected --> [*]: recorded in NormalizedThreatIntel.rejected_candidates\n(never silently dropped)
+    Persisted --> [*]: available via IOCRepository.find_by_case /\nfind_by_evidence / find_by_value_and_type
+
+    note right of Deduplicated
+        Scoped to *within* one extraction run's
+        candidate set — never cross-case/cross-
+        evidence correlation (explicit scope cut,
+        docs/adr/0012 point "Scope Cuts").
+    end note
+
+    note right of Persisted
+        A later extraction run observing the same
+        (ioc_type, value) can call
+        IOCRepository.increment_occurrence() /
+        mark_dismissed() / mark_false_positive() —
+        analyst/pipeline workflow state, distinct
+        from the ThreatCategory classification.
+    end note
