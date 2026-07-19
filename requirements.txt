@@ -4,7 +4,7 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 
 # Agentic AI stack
-langgraph>=0.2
+langgraph>=1.2.9
 langchain>=0.3
 langchain-openai>=0.2
 langchain-google-genai>=2.0
