@@ -1,26 +1,24 @@
 # core/db — Persistence (SQLAlchemy ORM)
 
 **Purpose:** The Database Layer (`context/01_blueprint.md` §4). `models/` is a
-package, one module per table (`models/evidence.py`, `models/ioc.py`,
-`models/finding.py`, `models/finding_mitre_mapping.py`,
+package, one module per table (`models/case.py`, `models/evidence.py`,
+`models/ioc.py`, `models/finding.py`, `models/finding_mitre_mapping.py`,
 `models/mitre_tactic.py`, `models/mitre_technique.py`,
 `models/mitre_software.py`, `models/mitre_group.py`,
-`models/mitre_mitigation.py` today; future `models/case.py`,
-`models/timeline_event.py`, `models/report.py` as Milestone M1 adds them),
-re-exported from `models/__init__.py` exactly as blueprint §8 specifies.
+`models/mitre_mitigation.py`, `models/timeline_event.py`,
+`models/report.py`), re-exported from `models/__init__.py` exactly as
+blueprint §8 specifies — blueprint §8's full schema list is now complete.
 `session.py` provides the async SQLAlchemy session factory. `migrations/`
 holds Alembic migrations.
 
-**`Evidence.case_id`, `IOC.case_id`, and `Finding.case_id` are plain UUID
-columns, not yet foreign keys** — `Case` doesn't exist yet. See
-`docs/adr/0011-evidence-ingestion-pipeline-shape.md` (extending the identical
-precedent `core/memory/db_models.py::MemoryRecordRow` set in ADR-0010),
-`docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md` point 3,
-and `docs/adr/0013-finding-mitre-intelligence-engine-shape.md` point 6
-(`IOC.evidence_id`/`Finding.primary_evidence_id`/`Finding.primary_ioc_id`, by
-contrast, **are** real foreign keys, since `evidence`/`iocs` already exist).
-A follow-up additive migration adds all three `case_id` FK constraints once
-Milestone M1 builds `Case`.
+**`Evidence.case_id`, `IOC.case_id`, and `Finding.case_id` are now real
+foreign keys** to `cases.id` — the follow-up migration ADR-0011/0012/0013
+each owed (`7ae8f470d5e7`, applied via `op.batch_alter_table` for SQLite
+compatibility) landed once `Case` existed (`docs/adr/0014-case-model-and-
+first-api-routes-shape.md` point 3). `IOC.evidence_id`/`Finding.
+primary_evidence_id`/`Finding.primary_ioc_id` were already real foreign keys.
+`Report.case_id`/`TimelineEvent.case_id` are real foreign keys from the
+start, since `Case` existed before they were created.
 
 **The five `mitre_*` tables are reference tables, seeded only by
 `scripts/mitre/import_attack_bundle.py`, never written by application

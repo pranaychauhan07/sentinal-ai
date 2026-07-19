@@ -17,15 +17,19 @@ modification."
 
 from __future__ import annotations
 
+from langgraph.graph import END
+
 from core.agents.coordinator import CoordinatorAgent
 from core.agents.planning_agent import PlanningAgent
 from core.agents.registry import AgentRegistry, default_agent_registry
+from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
 from core.graph.events import EventBus
 from core.graph.failure_recovery import FailureRecoveryPolicy
 from core.graph.retry import RetryPolicy
 from core.graph.routing import route_from_coordinator
 from core.graph.state import CaseInvestigationState
 from core.graph.workflow_engine import WorkflowEngine
+from core.memory.interfaces import CaseMemory
 
 
 def _ensure_framework_agents_registered(registry: AgentRegistry) -> None:
@@ -40,9 +44,32 @@ def _ensure_framework_agents_registered(registry: AgentRegistry) -> None:
         registry.register(CoordinatorAgent(planning_agent=planner))
 
 
+def _ensure_soc_analyst_registered(
+    registry: AgentRegistry, *, case_memory: CaseMemory | None
+) -> None:
+    """Auto-registers `SocAnalystAgent` with `case_memory=None` — the
+    correct, documented default for any caller not supplying a session-
+    scoped memory (constitution: "every agent must work correctly with
+    case_memory=None"). A caller wanting real memory (`core/services/
+    case_service.py`, docs/adr/0014 rule 4d) pre-registers its own instance
+    into a *fresh* `AgentRegistry` before calling `build_investigation_graph`
+    — this idempotency check then leaves that instance untouched. Never
+    called against the process-wide cached `default_agent_registry()` with a
+    real `case_memory`: doing so would permanently bake in whichever caller
+    happened to run first (see docs/adr/0014 for why this function takes
+    `case_memory` as an explicit parameter instead of constructing one
+    itself)."""
+    if registry.has(SocAnalystAgent.name):
+        return
+    registry.register(
+        SocAnalystAgent(tool_registry=default_soc_analyst_tool_registry(), case_memory=case_memory)
+    )
+
+
 def build_investigation_graph(
     *,
     agent_registry: AgentRegistry | None = None,
+    case_memory: CaseMemory | None = None,
     event_bus: EventBus | None = None,
     retry_policy: RetryPolicy | None = None,
     recovery_policy: FailureRecoveryPolicy | None = None,
@@ -53,9 +80,14 @@ def build_investigation_graph(
     `engine.add_agent_node(...)` for additional specialist agents *after*
     this returns, before running it. Returns the `WorkflowEngine` rather
     than a compiled graph directly so callers/tests can inspect
-    `node_names` before running it."""
+    `node_names` before running it.
+
+    `case_memory` is only consulted when `SocAnalystAgent` isn't already
+    registered on `agent_registry` (see `_ensure_soc_analyst_registered`) —
+    ignored if a caller pre-registered their own instance."""
     registry = agent_registry or default_agent_registry()
     _ensure_framework_agents_registered(registry)
+    _ensure_soc_analyst_registered(registry, case_memory=case_memory)
 
     engine = WorkflowEngine(
         agent_registry=registry,
@@ -66,6 +98,8 @@ def build_investigation_graph(
     engine.add_agent_node(CoordinatorAgent.name)
     engine.set_entry(CoordinatorAgent.name)
     engine.add_conditional_edges(CoordinatorAgent.name, route_from_coordinator)
+    engine.add_agent_node(SocAnalystAgent.name)
+    engine.add_edge(SocAnalystAgent.name, END)
     return engine
 
 

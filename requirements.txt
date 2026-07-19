@@ -2,6 +2,7 @@
 streamlit>=1.38
 fastapi>=0.115
 uvicorn[standard]>=0.30
+python-multipart>=0.0.12  # required by FastAPI's UploadFile (POST /cases/{id}/evidence)
 
 # Agentic AI stack
 langgraph>=0.2

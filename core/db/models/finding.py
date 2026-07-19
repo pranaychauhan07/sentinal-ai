@@ -3,15 +3,16 @@ table (docs/adr/0013-finding-mitre-intelligence-engine-shape.md point 6),
 the third real domain table after `Evidence` (ADR-0011) and `IOC`
 (ADR-0012).
 
-`case_id` is a plain UUID column, not a foreign key — `Case` doesn't exist
-yet, following the exact precedent `Evidence.case_id`/`IOC.case_id` already
-set, resolved by the same owed follow-up migration. `primary_evidence_id`/
-`primary_ioc_id` **are** real, nullable foreign keys (`evidence`/`iocs`
-already exist) — they identify the Finding's first/primary supporting
-reference for indexed lookups; the complete `evidence_refs`/`ioc_refs` list
-lives in `finding_data_json` (the serialized `core.findings.models.
-FindingRecord`), matching the `IOC.metadata_json`/`Evidence.parsed_json`
-"ORM row is persistence, Pydantic model is the full contract" pattern.
+`case_id` **is now a real foreign key** to `cases.id` — the FK-tightening
+migration (`7ae8f470d5e7`) applied it once Milestone M1's `Case` model
+existed, following the exact precedent `Evidence.case_id`/`IOC.case_id` set.
+`primary_evidence_id`/`primary_ioc_id` are also real, nullable foreign keys
+(`evidence`/`iocs` already exist) — they identify the Finding's
+first/primary supporting reference for indexed lookups; the complete
+`evidence_refs`/`ioc_refs` list lives in `finding_data_json` (the serialized
+`core.findings.models.FindingRecord`), matching the `IOC.metadata_json`/
+`Evidence.parsed_json` "ORM row is persistence, Pydantic model is the full
+contract" pattern.
 """
 
 from __future__ import annotations
@@ -38,8 +39,9 @@ class Finding(Entity):
         Index("ix_findings_priority", "priority"),
     )
 
-    #: Plain UUID, not a ForeignKey — see module docstring.
-    case_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
     primary_evidence_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("evidence.id", ondelete="SET NULL"), nullable=True
     )

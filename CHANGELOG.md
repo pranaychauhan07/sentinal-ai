@@ -340,6 +340,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     `core/knowledge/mitre` leaf boundaries and the
     `core/services → core/findings`/`core/knowledge`/`core/threat_intel`
     edge were verified by manual `grep` to be exactly as scoped.
+- Milestone M1 completion — `Case`/`SocAnalystAgent`/first `/api/v1` routes
+  (`docs/adr/0014-case-model-and-first-api-routes-shape.md`):
+  - `core/db/models/case.py` (`Case`, `CaseStatus`),
+    `core/db/models/timeline_event.py` (`TimelineEvent`,
+    `TimelineEventType`), `core/db/models/report.py` (`Report`, `ReportType`
+    — schema-only, no consumer yet), completing blueprint §8's full domain
+    schema. `core/db/{case_repository,timeline_event_repository,
+    report_repository}.py`.
+  - Two new Alembic migrations: table creation for `cases`/`timeline_events`/
+    `reports`, then a `batch_alter_table`-based follow-up (SQLite-compatible)
+    turning `Evidence.case_id`/`IOC.case_id`/`Finding.case_id` into real
+    foreign keys against `cases.id` — the migration ADR-0011/0012/0013 each
+    explicitly owed. Verified end-to-end against a throwaway SQLite DB: full
+    migration chain, FK constraints confirmed via `PRAGMA foreign_key_list`,
+    clean downgrade.
+  - `core/tools/scoring.py` (`RiskScoringTool`, `ScoringWeights`) — the SOC
+    Analyst Agent's deterministic, configurable 0-100 risk-scoring math,
+    distinct from and never duplicating `core/findings/severity.py`'s
+    IOC/Finding-level scoring.
+  - `core/agents/soc_analyst_agent.py` (`SocAnalystAgent`) — the first
+    concrete specialist agent: summarizes evidence, classifies severity,
+    detects suspected brute-force patterns from source concentration. Wired
+    into `core/graph/investigation_graph.py` with zero `WorkflowEngine`/
+    `routing.py` changes, confirming `docs/agent-design.md`'s stated
+    extensibility contract for real.
+  - `core/services/case_service.py` — `create_case`/`get_case`/`list_cases`/
+    `update_case_status`/`list_timeline_for_case` plus
+    `investigate_new_evidence()`, the blueprint §9 orchestrator composing
+    `evidence_service` → `threat_intel_service` → `finding_service` → a
+    `core/graph` run of `SocAnalystAgent`, recording a `TimelineEvent` at
+    each stage. A case auto-transitions `OPEN` → `INVESTIGATING` on its
+    first evidence upload. `core/services` importing `core.agents.{registry,
+    soc_analyst_agent}`/`core.memory.{case_memory,repository}`/
+    `core.parsers.models` directly is a fourth, separately-scoped documented
+    exception (`docs/dependency-rules.md` rule 4d).
+  - `apps/api/schemas.py` and the first real `/api/v1` routes:
+    `routers/cases.py` (create/list/get/update-status, `GET .../timeline`),
+    `routers/evidence.py` (`POST .../evidence` synchronously runs the full
+    pipeline), `routers/iocs.py` and `routers/findings.py` (read-only
+    lists). New runtime dependency: `python-multipart` (required by
+    FastAPI's `UploadFile`).
+  - 33 new tests (662 total): repository tests, `RiskScoringTool` unit
+    tests, agent-level `SocAnalystAgent` tests (including a
+    non-`NormalizedEvidence`-item degradation case), a full-pipeline
+    integration test against the real vendored MITRE bundle and the real
+    `data/sample_evidence/ssh_auth.log` fixture, and API integration tests
+    via `TestClient` covering the 404 path, pagination, and the full
+    upload-through-timeline flow. mypy (strict on `core/`), `ruff check`/
+    `format`, and `scripts/check_dependency_rules.py` all pass.
 
 ### Fixed
 - Re-verification pass over the Evidence Ingestion & Parser Framework

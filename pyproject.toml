@@ -28,6 +28,12 @@ ignore = []
 [tool.ruff.lint.isort]
 known-first-party = ["core", "apps"]
 
+# FastAPI's parameter-declaration idiom is a call-as-default by design
+# (`limit: int = Query(default=50)`) — not the mutable-default-argument
+# bug B008 exists to catch.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Query", "fastapi.Path", "fastapi.File", "fastapi.Body"]
+
 # ---------------------------------------------------------------------------
 # mypy — strict typing on core/, relaxed on apps/ presentation glue.
 # ---------------------------------------------------------------------------

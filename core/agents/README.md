@@ -20,9 +20,20 @@ these two, inherits from), `registry.py` (`AgentRegistry`), `confidence.py`
 (`ConfidenceScore`/`ConfidenceLevel`), `contracts.py` (`ExecutionPlan`,
 `AgentExecutionResult`, `AgentCapability`, etc.), `coordinator.py`
 (`CoordinatorAgent` — delegates planning, never executes agents itself),
-`planning_agent.py` (`PlanningAgent` — capability-based plan builder). No
-specialist agent (SOC Analyst, Phishing, ...) exists yet — see
-`docs/agent-design.md` for how to add one on top of this framework.
+`planning_agent.py` (`PlanningAgent` — capability-based plan builder).
+
+**Implemented (Milestone M1, `docs/adr/0014-case-model-and-first-api-routes-shape.md`):**
+`soc_analyst_agent.py` — the first concrete specialist agent
+(`SocAnalystAgent`), declaring capability `log_analysis`. Calls
+`core.tools.scoring.RiskScoringTool` (never computes risk scores itself) to
+summarize each `NormalizedEvidence` artifact's event volume, severity
+distribution, and flag suspected brute-force patterns from source
+concentration. Its `SocFinding[]` output lives on
+`CaseInvestigationState.findings` (the in-memory ReAct trail), not the
+persisted `findings` DB table — see the ADR for why. No other specialist
+agent (Phishing, Vulnerability, OWASP, Linux Security, Threat Hunting,
+Incident Response, ...) exists yet — see `docs/agent-design.md` for how to
+add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

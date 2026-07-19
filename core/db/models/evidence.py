@@ -3,12 +3,13 @@ this table per `docs/adr/0011-evidence-ingestion-pipeline-shape.md`: `Case`,
 `Finding`, `MitreTechnique`, `TimelineEvent`, `Report` arrive with Milestone
 M1 and each get their own sibling module in this package.
 
-``case_id`` is a plain UUID column, **not yet a foreign key** — ``Case``
-doesn't exist yet. This follows the exact precedent
-``core/memory/db_models.py::MemoryRecordRow`` set for the same reason
-(ADR-0010): a leaf-adjacent persistence layer must not block on a domain
-model that hasn't been built. Once M1 adds ``Case``, a follow-up additive
-migration adds the FK constraint (constitution §7, "Future scalability").
+``case_id`` **is now a real foreign key** to ``cases.id`` — Milestone M1's
+`Case` model exists (`core/db/models/case.py`) and the FK-tightening
+migration (``7ae8f470d5e7``) applied it. Originally a plain UUID column
+(ADR-0011) following the same precedent ``core/memory/db_models.py::
+MemoryRecordRow`` set: a leaf-adjacent persistence layer must not block on a
+domain model that hasn't been built yet (constitution §7, "Future
+scalability").
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import Index, String
+from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.db.session import Entity
@@ -53,8 +54,9 @@ class Evidence(Entity):
         Index("ix_evidence_status", "status"),
     )
 
-    #: Plain UUID, not a ForeignKey — see module docstring.
-    case_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
     evidence_type: Mapped[EvidenceType] = mapped_column(
         SqlEnum(
             EvidenceType,

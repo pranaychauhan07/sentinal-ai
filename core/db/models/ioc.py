@@ -2,12 +2,10 @@
 (docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md point
 3), the second real domain table after `Evidence` (ADR-0011).
 
-``evidence_id`` is a **real foreign key** to ``evidence.id`` — unlike
-``Evidence.case_id`` (ADR-0011), the referenced table already exists, so
-there is no reason to defer the constraint. ``case_id`` is still a plain
-UUID column, not a foreign key — ``Case`` doesn't exist yet; it follows the
-exact precedent ``Evidence.case_id`` set (ADR-0011), resolved by the same
-follow-up migration Milestone M1 already owes ``Evidence.case_id``.
+``evidence_id`` is a real foreign key to ``evidence.id``. ``case_id`` **is
+now also a real foreign key** to ``cases.id`` — the FK-tightening migration
+(``7ae8f470d5e7``) applied it once Milestone M1's `Case` model existed,
+following the exact precedent ``Evidence.case_id`` set (ADR-0011).
 """
 
 from __future__ import annotations
@@ -57,8 +55,9 @@ class IOC(Entity):
         Index("ix_iocs_status", "status"),
     )
 
-    #: Plain UUID, not a ForeignKey — see module docstring.
-    case_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
     evidence_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("evidence.id", ondelete="CASCADE"), nullable=True
     )

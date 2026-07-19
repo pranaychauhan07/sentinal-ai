@@ -26,6 +26,10 @@ logger = get_logger(__name__)
 
 OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "system", "description": "Liveness, readiness, and version endpoints."},
+    {"name": "cases", "description": "Case lifecycle and timeline."},
+    {"name": "evidence", "description": "Evidence upload and the pipeline it triggers."},
+    {"name": "iocs", "description": "Indicators of compromise extracted per case (read-only)."},
+    {"name": "findings", "description": "MITRE-mapped Findings generated per case (read-only)."},
 ]
 
 

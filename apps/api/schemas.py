@@ -1,0 +1,136 @@
+"""Request/response schemas for the Case/Evidence/IOC/Finding routes
+(Milestone M1's first real domain API surface).
+
+Per constitution §6, every endpoint's response is a named Pydantic model
+here — never a bare dict, never the ORM row directly. Response models use
+`from_attributes=True` (inherited from `core.schemas.BaseSchema`'s pattern,
+restated locally to avoid a circular import back into `core/db`) so they
+construct directly from SQLAlchemy rows in the router, matching constitution
+§7's "translation happens in one place" rule.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from core.db.models.case import CaseStatus
+from core.db.models.evidence import EvidenceStatus
+from core.db.models.ioc import IOCStatus
+from core.db.models.timeline_event import TimelineEventType
+from core.findings.models import FindingPriority, FindingSeverity, FindingStatus
+from core.parsers.models import EvidenceType, Severity
+from core.threat_intel.models import IOCType, ThreatCategory, ThreatSeverity
+
+
+class ApiSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# --- Case ---------------------------------------------------------------
+
+
+class CaseCreateRequest(ApiSchema):
+    title: str = Field(min_length=1, max_length=500)
+    description: str = ""
+    severity: Severity = Severity.INFO
+
+
+class CaseStatusUpdateRequest(ApiSchema):
+    status: CaseStatus
+
+
+class CaseResponse(ApiSchema):
+    id: uuid.UUID
+    title: str
+    description: str
+    status: CaseStatus
+    severity: Severity
+    analyst_id: str
+    created_at: datetime
+    updated_at: datetime
+    closed_at: datetime | None
+
+
+# --- Evidence -------------------------------------------------------------
+
+
+class EvidenceResponse(ApiSchema):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    evidence_type: EvidenceType
+    original_filename: str
+    sha256: str
+    file_size_bytes: int
+    mime_type: str
+    parser_name: str | None
+    parser_confidence: float | None
+    status: EvidenceStatus
+    uploaded_at: datetime
+    parsed_at: datetime | None
+
+
+class EvidenceUploadResponse(ApiSchema):
+    """`POST /cases/{case_id}/evidence`'s response — the full investigation
+    result (`core.services.case_service.CaseInvestigationResult`), not just
+    the persisted `Evidence` row, since upload synchronously triggers the
+    whole ingest -> extract -> generate -> analyze pipeline."""
+
+    case_id: uuid.UUID
+    evidence_id: uuid.UUID
+    ioc_count: int
+    created_finding_ids: list[uuid.UUID]
+    merged_finding_ids: list[uuid.UUID]
+    soc_risk_score: float | None
+    soc_risk_label: str | None
+
+
+# --- IOC --------------------------------------------------------------------
+
+
+class IOCResponse(ApiSchema):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    evidence_id: uuid.UUID | None
+    ioc_type: IOCType
+    value: str
+    source: str
+    confidence: float
+    severity: ThreatSeverity
+    classification: ThreatCategory
+    composite_score: float
+    status: IOCStatus
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+# --- Finding ------------------------------------------------------------
+
+
+class FindingResponse(ApiSchema):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    title: str
+    description: str
+    severity: FindingSeverity
+    confidence: float
+    status: FindingStatus
+    priority: FindingPriority
+    risk_score: float
+    ioc_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Timeline -----------------------------------------------------------
+
+
+class TimelineEventResponse(ApiSchema):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    timestamp: datetime
+    event_type: TimelineEventType
+    source_finding_id: uuid.UUID | None
+    narrative: str

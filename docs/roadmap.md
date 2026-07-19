@@ -31,13 +31,13 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       *Demo: `docker compose up`, then `make run-api` serves a real,
       tested `/health`, `/ready`, `/version` API with OpenAPI docs at `/docs`.*
 
-- [ ] **M1 — First real module, single agent, no orchestration.** Domain
+- [x] **M1 — First real module, single agent, no orchestration.** Domain
       models (`Case`, `Finding`, `MitreTechnique`, `TimelineEvent`, `Report` —
       blueprint §8) + their Alembic migration, SOC Analyst Agent as a
       standalone single-node LangGraph + risk scoring
       (`core/tools/scoring.py`), constructed with a real
       `core.memory.case_memory.SQLiteCaseMemory`.
-      **Built ahead of schedule** (`docs/adr/0011-evidence-ingestion-pipeline-shape.md`):
+      Built ahead of schedule (`docs/adr/0011-evidence-ingestion-pipeline-shape.md`):
       the reusable Evidence Ingestion & Parser Framework — plugin-capable
       `ParserRegistry` (aliases, priority, versioning, enable/disable,
       `importlib.metadata` plugin discovery), deterministic
@@ -48,14 +48,25 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       `apache_error`, `syslog`, `windows_event` [CSV/XML EVTX abstraction],
       `json_evidence`, `csv_evidence`, `nmap_xml` [via `defusedxml`, XXE-safe],
       `plain_text`) producing the canonical `NormalizedEvidence` contract —
-      plus the first real domain table, `Evidence` (`core/db/models/
-      evidence.py`, `case_id` a plain UUID pending M1's `Case` model per the
-      ADR-0010 precedent), its repository, and the ten-stage
-      `EvidencePipeline` (`core/services/evidence_service.py`). 107 new
-      tests, mypy/ruff/dependency-rules clean. Still not checked off: `Case`/
-      `Finding`/etc. domain models, any concrete specialist agent, and the
-      `/api/v1` route wiring `ingest_evidence()` to a real endpoint.
-      *Demo: upload a firewall log → get a real, saved, severity-classified finding.*
+      plus the first real domain table, `Evidence`, its repository, and the
+      ten-stage `EvidencePipeline` (`core/services/evidence_service.py`).
+      **This session** (`docs/adr/0014-case-model-and-first-api-routes-shape.md`)
+      closed the milestone: `core/db/models/{case,timeline_event,report}.py`
+      + repositories, the FK-tightening migration turning `Evidence.case_id`/
+      `IOC.case_id`/`Finding.case_id` into real foreign keys against
+      `cases.id`, `core/tools/scoring.py` (`RiskScoringTool`),
+      `core/agents/soc_analyst_agent.py` (the first concrete specialist
+      agent, wired into `core/graph/investigation_graph.py` with zero
+      framework changes), `core/services/case_service.py` (the
+      `investigate_new_evidence()` orchestrator composing evidence
+      ingestion → IOC extraction → Finding generation → SOC analysis, one
+      `TimelineEvent` per stage), and the first real `/api/v1` routes
+      (`cases`, `evidence`, `iocs`, `findings`). 33 new tests (662 total),
+      mypy/ruff/dependency-rules clean.
+      *Demo: `POST /api/v1/cases`, then `POST /api/v1/cases/{id}/evidence`
+      with `data/sample_evidence/ssh_auth.log` → a real, saved,
+      severity-classified SOC finding plus extracted IOCs and MITRE-mapped
+      Findings, all visible via `GET /api/v1/cases/{id}/...` on refresh.*
 
 - [ ] **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE
       Agent; Phishing Investigation Agent + email parser + prompt-injection
@@ -117,9 +128,10 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       unimplemented `ThreatIntelProvider`/`IOCEnrichmentProvider` interfaces
       (MISP/AlienVault OTX/VirusTotal/AbuseIPDB/GreyNoise/OpenCTI, no
       concrete provider) — plus the second real domain table, `IOC`
-      (`core/db/models/ioc.py`, a real FK to `evidence.id`, `case_id` a
-      plain UUID pending M1's `Case` model per the ADR-0011 precedent), its
-      repository, and the nine-stage `IOCExtractionPipeline`
+      (`core/db/models/ioc.py`, a real FK to `evidence.id`; `case_id` was a
+      plain UUID at the time, tightened into a real FK to `cases.id` once
+      M1 closed — `docs/adr/0014-case-model-and-first-api-routes-shape.md`
+      point 3), its repository, and the nine-stage `IOCExtractionPipeline`
       (`core/services/threat_intel_service.py`). No MITRE mapping, incident
       correlation, or LLM reasoning — explicitly out of scope per the ADR.
       Still not checked off: the milestone's own demo criterion (all 9

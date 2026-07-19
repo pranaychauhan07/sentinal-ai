@@ -70,6 +70,25 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`. No other
    `core/services` module gets this exception without its own ADR.
 
+4d. **`core/services/case_service.py` may import `core.agents.{registry,
+   soc_analyst_agent}`, `core.memory.{case_memory, repository}`, and
+   `core.parsers.models` directly** — the fourth documented exception to
+   "services only call `core/graph`," worded identically to 4a/4b/4c. Every
+   other `core/services` call in this module (`evidence_service`,
+   `threat_intel_service`, `finding_service`, `core/graph/
+   investigation_graph.py`) goes through the normal sanctioned edges;
+   this specific exception exists for one narrow reason: constructing a
+   session-scoped `CaseMemory` and a *fresh* (never the process-wide cached
+   `default_agent_registry()`) `AgentRegistry` before delegating to
+   `core/graph`. Reusing the cached singleton here would permanently bake in
+   whichever caller's `case_memory` (or lack of one) happened to register
+   `SocAnalystAgent` first — a real correctness hazard, not a style
+   preference. The `core.parsers.models` import is for type reuse only
+   (`NormalizedEvidence`, `Severity`), the identical sideways leaf-model
+   precedent `core/db/models/case.py`/`evidence.py` already established. See
+   `docs/adr/0014-case-model-and-first-api-routes-shape.md`. No other
+   `core/services` module gets this exception without its own ADR.
+
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to
    "leaves never call up" — `core/graph/state.py` specifically (not

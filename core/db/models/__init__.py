@@ -8,6 +8,7 @@ Alembic autogeneration — every new domain module must be imported below in
 the same PR that introduces it.
 """
 
+from core.db.models.case import Case, CaseStatus
 from core.db.models.evidence import Evidence, EvidenceStatus
 from core.db.models.finding import Finding
 from core.db.models.finding_mitre_mapping import FindingMitreMapping
@@ -17,9 +18,13 @@ from core.db.models.mitre_mitigation import MitreMitigation
 from core.db.models.mitre_software import MitreSoftware
 from core.db.models.mitre_tactic import MitreTactic
 from core.db.models.mitre_technique import MitreTechnique
+from core.db.models.report import Report, ReportType
+from core.db.models.timeline_event import TimelineEvent, TimelineEventType
 
 __all__ = [
     "IOC",
+    "Case",
+    "CaseStatus",
     "Evidence",
     "EvidenceStatus",
     "Finding",
@@ -30,4 +35,8 @@ __all__ = [
     "MitreSoftware",
     "MitreTactic",
     "MitreTechnique",
+    "Report",
+    "ReportType",
+    "TimelineEvent",
+    "TimelineEventType",
 ]

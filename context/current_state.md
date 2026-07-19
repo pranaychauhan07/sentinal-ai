@@ -10,26 +10,26 @@
 
 ## Completed Features
 
-**Still no concrete specialist agent, `Case` model, or investigation logic exists.** What is now complete, beyond the M0 engineering foundation, the M3 Multi-Agent Framework, the M6 Memory & Knowledge Layer, the M1 Evidence Ingestion & Parser Framework, and the M4 Threat Intelligence & IOC Extraction Framework, is the **Finding & MITRE ATT&CK Intelligence Engine**: a reusable, agent-independent pipeline that maps `core.threat_intel.models.ScoredIOC`s to ATT&CK techniques (rule-based, deterministic), aggregates supporting evidence, calculates multi-dimensional confidence, assigns severity/priority/risk score, deduplicates/merges within a case, and persists typed `Finding` records — plus the concrete MITRE ATT&CK knowledge layer (`core/knowledge/mitre/`) ADR-0010 deferred, and the third/fourth real domain schemas (`Finding`/`FindingMitreMapping` and five MITRE reference tables). Built ahead of the milestone schedule (normally split across M2's "MITRE mapping" half and M4's remaining specialist-agent work) at explicit user direction — framework-first, extending the exact precedent set by the Multi-Agent Framework (ADR-0009), Memory & Knowledge Layer (ADR-0010), Evidence Ingestion & Parser Framework (ADR-0011), and Threat Intelligence & IOC Extraction Framework (ADR-0012) sessions. Full design rationale, including six deliberate architecture decisions and mid-implementation refinements: `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`.
+**Milestone M1 is now complete**, alongside the M0 engineering foundation, the M3 Multi-Agent Framework, the M6 Memory & Knowledge Layer, the M1 Evidence Ingestion & Parser Framework, the M4 Threat Intelligence & IOC Extraction Framework, and the M2 Finding & MITRE ATT&CK Intelligence Engine (all built ahead of schedule in prior sessions). This session closed M1's remaining piece: the `Case`/`TimelineEvent`/`Report` domain models (completing blueprint §8's full schema), the FK-tightening migration ADR-0011/0012/0013 each owed, `core/tools/scoring.py`, the first concrete specialist agent (`core/agents/soc_analyst_agent.py`), `core/services/case_service.py` (the first real cross-subsystem orchestrator), and the first real `/api/v1` routes. Full design rationale: `docs/adr/0014-case-model-and-first-api-routes-shape.md`.
 
-### M0 foundation + Multi-Agent Framework + Memory & Knowledge Layer + Evidence Ingestion Framework + Threat Intelligence Framework (unchanged from prior sessions)
+A separate request earlier in this session, to design a standalone "Investigation & Correlation Engine" (a new `Investigation` entity with its own lifecycle/graph/attack-chain builder, sitting between `Finding` and `Case`), was declined as an architectural conflict — no such entity exists in the blueprint, `Case` is blueprint's stated central object, and the request duplicated work already assigned to the Coordinator agent, `TimelineEvent`, and the future Incident Response Agent. `Case` not existing yet was blueprint's own stated blocker for that kind of work. See ADR-0014's Purpose section for the full conflict analysis; no Investigation entity/engine was built.
 
-- **Configuration, logging, shared contracts, DB foundation, FastAPI app, governance, `core/agents`/`core/tools`/`core/graph` framework, `core/memory`/`core/knowledge` framework, `core/parsers` framework (9 parsers) + `Evidence` domain table, `core/threat_intel` framework (20 IOC types) + `IOC` domain table, `core/services/{evidence_service,threat_intel_service}.py`** — unchanged, see prior sessions' detail in git history / `docs/adr/0001-0012`.
+### M0 foundation + Multi-Agent Framework + Memory & Knowledge Layer + Evidence/Threat-Intel/Finding Frameworks (unchanged from prior sessions)
 
-### Finding & MITRE ATT&CK Intelligence Engine (new this session)
+- **Configuration, logging, shared contracts, DB foundation, FastAPI app, governance, `core/agents`/`core/tools`/`core/graph` framework, `core/memory`/`core/knowledge` framework, `core/parsers` framework (9 parsers), `core/threat_intel` framework (20 IOC types), `core/findings`/`core/knowledge/mitre` (Finding & MITRE Engine)** — unchanged, see prior sessions' detail in git history / `docs/adr/0001-0013`.
 
-- **`data/mitre/raw/attack-enterprise-15.1.json`** — a genuine STIX 2.1 bundle, but a curated, hand-authored subset of the official MITRE ATT&CK Enterprise matrix (not the complete corpus, documented honestly): all 14 Enterprise tactics, 20 real well-known techniques, 5 real software entries, 5 real groups, 6 real mitigations, ~39 real `uses`/`mitigates` relationships — every ID/name/relationship is real MITRE taxonomy; only the STIX object UUIDs are session-generated. `data/mitre/README.md` documents provenance and the versioned import path for a future/complete official bundle. **Never fetched over the network** — the application works completely offline.
-- **`core/knowledge/mitre/`** — fulfills ADR-0010's deliberately deferred `KnowledgeSourceType.MITRE_ATTACK` slot: `models.py` (`MitreTactic`, `MitreTechnique`, `MitreSoftware`, `MitreGroup`, `MitreMitigation`, `MitreRelationship`, `MitreDataset`, all versioned via `attack_spec_version`), `exceptions.py` (`MalformedMitreDataError`, `UnknownTechniqueError`, `UnsupportedAttackVersionError`), `loader.py` (`load_bundle`/`load_bundle_from_path`: the one STIX-parsing implementation, reused by both the in-memory source and the DB seed script; a malformed *individual* object is skipped and logged, never a hard failure — only a structurally invalid bundle raises), `source.py` (`MitreAttackSource`, a concrete `KnowledgeSource`), `lookup.py` (`MitreLookup`: `technique_by_id`, `tactics_for_technique`, `mitigations_for_technique`, `groups_using_technique`, `software_using_technique`), `bootstrap.py` (`load_mitre_dataset(settings)`, validates the vendored bundle's version against `Settings.mitre_attack_version`).
-- **`core/findings/`** (new leaf package, peer to `core/threat_intel`/`core/parsers`) — `models.py` (`FindingSeverity`, `FindingStatus`, `FindingPriority`, `MappingConfidenceFactors`, `MitreMapping`, `TimelineEntry`, `EvidenceBundle`, `FindingConfidence`, `DuplicateMatchResult`, `FindingRecord`), `exceptions.py` (`FindingsError`, `NoTechniqueMatchError`, `InvalidMappingRuleError`, `DuplicateExplosionGuardError`), `base.py` (`BaseFindingGenerator`, template-method base mirroring `BaseIOCExtractor`), `mapping_rules.py` (`MAPPING_RULES`: twenty data-driven rules, one per vendored technique, supporting both one-IOC-to-many-techniques — e.g. `USERNAME` maps to both Brute Force and Valid Accounts — and many-IOCs-to-one-technique via co-occurrence boosting), `mapping_engine.py` (`MitreMappingEngine`, the one concrete rule-dispatching mapper; validates every rule's `technique_id` against the loaded `MitreDataset` at construction time, never mid-evaluation; returns "unmapped" — never a forced low-confidence guess — for anything below `finding_mapping_min_confidence`), `evidence_aggregation.py` (`EvidenceAggregator`: cross-reference tracking, timeline reconstruction, chain-of-custody preservation via carried-forward `AttributionRecord`s), `confidence_engine.py` (`ConfidenceEngine`/`FindingConfidenceWeights`, all seven required dimensions — IOC quality, evidence quality, supporting-indicator count, rule strength, mapping quality, source reliability, historical evidence [a documented neutral stub pending cross-case memory] — weights sum-to-1.0 validated), `severity.py` (pure `assign_severity`/`assign_priority`/`calculate_risk_score` functions), `dedup.py` (`FindingDeduplicationEngine`: the six required dimensions — hash similarity, IOC overlap, technique overlap, evidence overlap, time-window proximity, host overlap — bucket-first pre-filtering for performance and a technique-overlap gate that prevents two Findings mapped to disjoint techniques from ever merging, however much supporting evidence otherwise overlaps; `merge_findings()`, which unions evidence/IOCs/mappings and reopens a `CLOSED` merge target), `finding_generator.py` (`FindingGenerationEngine`: one candidate Finding per mapped technique), `metrics.py`/`events.py`/`audit.py` (self-contained, leaf-layer observability, never importing `core.graph.events.EventBus`; `events.py` defines the six required lifecycle events — `FindingCreated`, `FindingUpdated`, `FindingMerged`, `TechniqueMapped`, `ConfidenceUpdated`, `FindingClosed`).
-- **`core/db/models/{mitre_tactic,mitre_technique,mitre_software,mitre_group,mitre_mitigation}.py`** — five reference tables, each with a surrogate UUID PK (never the business ID, per constitution §7), a unique indexed `(business_id, attack_spec_version)` pair, seeded **only** by `scripts/mitre/import_attack_bundle.py`, never by application logic. **`core/db/models/finding.py`** (`Finding` + `FindingStatus`; `case_id` a plain UUID column pending Milestone M1's `Case` model, following the exact `Evidence.case_id`/`IOC.case_id` precedent; `primary_evidence_id`/`primary_ioc_id` real nullable FKs to `evidence.id`/`iocs.id`; `finding_data_json` stores the full serialized `FindingRecord`) and **`core/db/models/finding_mitre_mapping.py`** (`FindingMitreMapping`, the real many-to-many join table — one Finding maps to several techniques, one technique is shared across many Findings). Plus `core/db/finding_repository.py` and `core/db/mitre_repository.py` (five small per-table repositories), and two hand-reviewed Alembic migrations (`873a0801082d_create_mitre_reference_tables.py`, `0db9628cc4fc_create_finding_and_finding_mitre_.py`, generated via `alembic revision --autogenerate` and verified end-to-end against a throwaway SQLite DB — every table, index, unique constraint, and FK confirmed present, including the full migration chain applied cleanly from empty DB to head).
-- **`core/services/finding_service.py`** — `FindingGenerationPipeline`, the explicit stages requested — `discover` → `map_and_generate` → `deduplicate` → `persist` → `publish_event` → `notify_memory` — composed by one `generate_findings_for_case()` orchestrator, plus `get_finding()`/`list_findings_for_case()`. `discover()` reconstructs `ScoredIOC`s from `IOC.metadata_json` (never re-extracts), excluding non-`ACTIVE` rows. `persist()` explicitly sets `Finding.id = FindingRecord.finding_id` so the persisted row and its embedded JSON blob share one identity (load-bearing for merge-target lookup). A missing `MitreTechnique` seed row degrades to a skipped, logged join-table insert — never a crash. `notify_memory` is advisory-only, verified by test.
-- **`scripts/mitre/import_attack_bundle.py`** — the only supported way ATT&CK data enters the system: reads a local vendored STIX bundle (`--bundle`), seeds the five reference tables, idempotent (skips rows already present for a `(business_id, attack_spec_version)` pair), never fetches over the network. Verified end-to-end against a fresh SQLite DB (full migration chain + real seed: 14 tactics, 20 techniques, 5 software, 5 groups, 6 mitigations).
-- **New `Settings` fields**: `mitre_attack_data_path`, `mitre_attack_version`, `finding_mapping_min_confidence`, `finding_dedup_similarity_threshold`, `finding_dedup_time_window_minutes`, `finding_max_candidates_per_case` — all documented in `.env.example`.
-- **New mermaid diagrams**: `docs/diagrams/finding-mitre-mapping-pipeline.mmd` (the Finding Generation Pipeline sequence), `finding-lifecycle.mmd` (one candidate `FindingRecord`'s state machine: mapped → aggregated → scored → deduplicated → open/merged/closed).
-- **Testing** — 112 new tests (629 total, up from 517): dedicated `tests/unit/test_mitre_*.py`/`test_findings_*.py` files (one per module, 20 files total across both packages), `test_db_finding_repository.py`/`test_db_mitre_repository.py` (real SQLite), `test_finding_service.py` (full pipeline against hand-built fixtures — happy path, no-mappable-IOCs, second-run merge, missing-technique-seed degradation, dismissed-IOC exclusion, memory-advisory-failure, a 300-IOC performance guard), `test_import_attack_bundle_script.py` (idempotency), and `tests/integration/test_finding_mitre_pipeline_integration.py` (the *real* vendored bundle + the *real* default `MAPPING_RULES` table + the real seed script together — a mapping-rules/dataset consistency test, a rejected-bad-rule test, a full end-to-end generation test, and a 500-IOC performance guard). mypy (strict on `core/`), `ruff check`/`format`, and `scripts/check_dependency_rules.py` all pass; the new `core/findings`/`core/knowledge/mitre` leaf boundaries and the `core/services → core/findings`/`core/knowledge`/`core/threat_intel` edge were verified by manual `grep` to be exactly as scoped in the ADR.
-- **No new runtime dependency** — `core/findings` and `core/knowledge/mitre` use only the stdlib (`json`, `hashlib`, `uuid`, `datetime`) plus existing Pydantic/SQLAlchemy.
+### Milestone M1 completion (new this session)
 
-**Explicitly NOT built, by this session's stated scope:** `Case`/`MitreTechnique`-as-blueprint-flat-table (superseded by the five-table schema)/`TimelineEvent`/`Report` domain models beyond `Finding`, any concrete specialist agent (SOC Analyst, Threat Hunting, Phishing, Vulnerability, OWASP, Linux Security, Incident Response, MITRE Mapping), any LLM reasoning, any cross-case/incident correlation, any `/api/v1` route, `email_parser.py`/`nessus_parser.py`/`openvas_parser.py`/`source_code_parser.py`/`incident_parser.py`, `core/security/*`, `core/reporting/*`, any `apps/web` code, and the complete official MITRE ATT&CK STIX corpus (a curated real-data subset is vendored; the import script supports importing the full bundle later without any code change).
+- **`core/db/models/{case,timeline_event,report}.py`** — `Case` (`CaseStatus`: open/investigating/closed; `severity` reuses `core.parsers.models.Severity`), `TimelineEvent` (`TimelineEventType`: case_opened/evidence_ingested/ioc_extracted/finding_generated/agent_analysis/case_status_changed/manual_note; real FK to `cases.id`, nullable FK to `findings.id`), `Report` (`ReportType`: module/executive; schema-only, no consumer this session — Report Generator Agent is M5). Blueprint §8's full domain schema (`Case`/`Evidence`/`Finding`/`MitreTechnique`(×5 tables)/`TimelineEvent`/`Report`) is now complete. Plus `core/db/{case_repository,timeline_event_repository,report_repository}.py`.
+- **FK-tightening migration (`7ae8f470d5e7`)** — `Evidence.case_id`, `IOC.case_id`, `Finding.case_id` are now real foreign keys against `cases.id`, applied via `op.batch_alter_table` (required for SQLite; a no-op wrapper on dialects supporting `ALTER ... ADD CONSTRAINT` directly). The three ORM models were updated in lockstep so `Base.metadata` never drifts from what's actually applied. Verified end-to-end against a throwaway SQLite DB: full chain from empty DB to head, FKs confirmed via `PRAGMA foreign_key_list`, clean downgrade.
+- **`core/tools/scoring.py`** — `RiskScoringTool` (`BaseTool` subclass) + `ScoringWeights` (configurable, injectable, matching `FindingConfidenceWeights`'s pattern — no hardcoded scoring math). Scores a raw evidence artifact's aggregate severity distribution + source concentration into a 0-100 risk score/label. Distinct from, and never duplicating, `core/findings/severity.py`'s already-implemented IOC/Finding-level `calculate_risk_score`.
+- **`core/agents/soc_analyst_agent.py`** — `SocAnalystAgent`, the first concrete specialist agent (capability `log_analysis`). Reads `NormalizedEvidence` items off `CaseInvestigationState.evidence`, calls `RiskScoringTool` via `self.use_tool()` (never computes the score itself), and flags suspected brute-force patterns (repeated failure-shaped events concentrated on few sources — deterministic, not a real Sigma/YARA engine). Produces `SocFinding[]`, appended to `CaseInvestigationState.findings` (the in-memory ReAct trail) — **not** the persisted `findings` DB table, which remains the Finding & MITRE Engine's exclusive output (ADR-0014 point 4 explains why reconciling the two is deferred). Wired into `core/graph/investigation_graph.py` via `_ensure_soc_analyst_registered`, mirroring `_ensure_framework_agents_registered`'s existing idempotency pattern — zero changes to `WorkflowEngine`/`routing.py`, confirming `docs/agent-design.md`'s stated extensibility contract for the first time against a real agent.
+- **`core/services/case_service.py`** — `create_case`/`get_case`/`list_cases`/`update_case_status`/`list_timeline_for_case`, plus `investigate_new_evidence()`: the first real cross-subsystem orchestrator, composing `evidence_service.ingest_evidence` → `threat_intel_service.extract_threat_intelligence` → `finding_service.generate_findings_for_case` → a `core/graph` run of `SocAnalystAgent`, recording a `TimelineEvent` at each stage (blueprint §9's full data flow, for real, for the first time). A case auto-transitions `OPEN` → `INVESTIGATING` on its first evidence upload, never on later ones. **New documented dependency-rules exception, rule 4d**: `case_service.py` imports `core.agents.{registry, soc_analyst_agent}`, `core.memory.{case_memory, repository}`, and `core.parsers.models` (types only) directly, to construct a session-scoped `SQLiteCaseMemory` and a *fresh* (never the process-wide cached `default_agent_registry()`) `AgentRegistry` before delegating to `core/graph` — reusing the cached singleton would permanently bake in whichever caller's `case_memory` happened to register `SocAnalystAgent` first.
+- **`apps/api/schemas.py` + first real `/api/v1` routes** — `routers/cases.py` (`POST`/`GET`/`PATCH /cases`, `GET /cases/{id}/timeline`), `routers/evidence.py` (`POST /cases/{id}/evidence` — the one sanctioned action-trigger endpoint this session, synchronously running the full investigation pipeline via `case_service.investigate_new_evidence`), `routers/iocs.py` and `routers/findings.py` (read-only lists). All wired into `apps/api/routers/v1.py`. **New runtime dependency: `python-multipart`** (FastAPI's `UploadFile` requires it; justified in `requirements.txt`).
+- **Testing** — 33 new tests (662 total, up from 629): `test_db_case_repository.py`, `test_db_timeline_event_repository.py`, `test_tools_scoring.py`, `test_agents_soc_analyst.py` (agent-level, including a non-`NormalizedEvidence`-item degradation case), `test_case_service_pipeline.py` (integration — the real vendored MITRE bundle + `data/sample_evidence/ssh_auth.log`, asserting the full pipeline end-to-end), `test_api_case_routes.py` (integration — `TestClient` against the real FastAPI app, covering create/list/get/patch, 404 envelope, pagination, and the full upload → IOC → Finding → SOC-risk → timeline flow). One pre-existing test updated (`test_default_graph_has_only_the_coordinator_as_a_node` → `test_default_graph_has_coordinator_and_soc_analyst_as_nodes`, the one legitimate contract change from wiring in a real specialist agent — confirmed via full-suite diff that nothing else broke). mypy (strict on `core/`), `ruff check`/`format`, and `scripts/check_dependency_rules.py` all pass; the new `core/services` rule-4d boundary was manually `grep`-verified against ADR-0014's documented scope.
+- **No new Settings fields** — `ScoringWeights` follows the existing `FindingConfidenceWeights` pattern (a configurable, injectable Pydantic model with sensible defaults), not settings-file-driven.
+
+**Explicitly NOT built, by this session's stated scope:** any Investigation/Case-correlation entity beyond `Case` itself (see conflict note above); any specialist agent other than SOC Analyst (Phishing, Vulnerability, OWASP, Linux Security, Threat Hunting, Incident Response, MITRE Mapping); any LLM reasoning; `core/security/*` (prompt-injection guard); report generation (`Report` is schema-only); `apps/web` code; a `/api/v1/reports` route.
 
 ---
 
@@ -37,72 +37,75 @@
 
 ```
 apps/
-  api/            FastAPI app (unchanged)                          [implemented]
-  web/             Streamlit frontend                               [README only]
+  api/            FastAPI app + schemas.py (NEW) +
+                   routers/{system,cases(NEW),evidence(NEW),
+                   iocs(NEW),findings(NEW),v1}.py             [implemented]
+  web/             Streamlit frontend                          [README only]
 core/
-  config/         settings.py + mitre_*/finding_* fields NEW        [implemented]
-  logging/        (unchanged)                                       [implemented]
-  exceptions.py, schemas.py, interfaces.py                          [implemented]
-  agents/         (unchanged — framework only)                      [implemented — framework only]
-  tools/          (unchanged — framework only)                      [implemented — framework only]
-  memory/         (unchanged — framework only)                      [implemented — framework only]
-  knowledge/      abstraction (unchanged) + mitre/ (NEW, 7 modules)  [implemented — abstraction + 1 concrete source]
-  graph/          (unchanged — framework only)                       [implemented — framework only]
+  config/         settings.py (unchanged this session)         [implemented]
+  logging/        (unchanged)                                   [implemented]
+  exceptions.py, schemas.py, interfaces.py                      [implemented]
+  agents/         base/registry/coordinator/planning (unchanged)
+                   + soc_analyst_agent.py (NEW)                 [implemented — 1 concrete specialist agent]
+  tools/          base/registry (unchanged) + scoring.py (NEW)  [implemented — 1 concrete tool]
+  memory/         (unchanged — framework only)                  [implemented — framework only]
+  knowledge/      abstraction + mitre/ (unchanged)               [implemented]
+  graph/          state/routing/workflow_engine (unchanged) +
+                   investigation_graph.py (MODIFIED: wires
+                   SocAnalystAgent as a node)                    [implemented]
   db/             base_repository.py, session.py (unchanged) +
-                   models/ (evidence.py, ioc.py, finding.py NEW,
-                   finding_mitre_mapping.py NEW, mitre_tactic.py NEW,
-                   mitre_technique.py NEW, mitre_software.py NEW,
-                   mitre_group.py NEW, mitre_mitigation.py NEW),
-                   evidence_repository.py, ioc_repository.py,
-                   finding_repository.py (NEW), mitre_repository.py (NEW),
-                   migrations/versions/ (+2 NEW)                    [implemented — 4 real domain tables + 5 reference tables]
-  parsers/        (unchanged — 9 parsers + framework)                [implemented — 9 parsers + framework]
-  threat_intel/   (unchanged — 20 modules)                           [implemented]
-  findings/       models.py, exceptions.py, base.py, mapping_rules.py,
-                   mapping_engine.py, evidence_aggregation.py,
-                   confidence_engine.py, severity.py, dedup.py,
-                   finding_generator.py, metrics.py, events.py,
-                   audit.py                                          [NEW — implemented, 13 modules]
-  security/       (empty — README only)                              [not started]
-  reporting/      (empty — README only)                              [not started]
+                   models/ (evidence.py, ioc.py, finding.py
+                   MODIFIED: case_id now a real FK; case.py,
+                   timeline_event.py, report.py NEW) +
+                   case_repository.py, timeline_event_repository.py,
+                   report_repository.py (NEW) +
+                   migrations/versions/ (+2 NEW: create tables,
+                   FK-tightening)                                [implemented — 7 real domain tables + 5 reference tables]
+  parsers/        (unchanged — 9 parsers + framework)             [implemented]
+  threat_intel/   (unchanged — 20 modules)                       [implemented]
+  findings/       (unchanged — 13 modules)                       [implemented]
+  security/       (empty — README only)                          [not started]
+  reporting/      (empty — README only)                          [not started]
   services/       evidence_service.py, threat_intel_service.py,
-                   finding_service.py (NEW); case_service.py,
-                   report_service.py                                 [implemented — evidence + threat intel + findings]
+                   finding_service.py (unchanged) +
+                   case_service.py (NEW); report_service.py       [implemented — evidence + threat intel + findings + case orchestration]
 data/
-  sample_evidence/ (unchanged — 9 fixtures + malformed/)             [unchanged]
-  mitre/          raw/attack-enterprise-15.1.json (NEW), README.md (NEW) [NEW — implemented, curated subset]
+  sample_evidence/ (unchanged — 9 fixtures + malformed/)         [unchanged]
+  mitre/          (unchanged)                                    [unchanged]
 scripts/
-  mitre/          import_attack_bundle.py (NEW)                      [NEW — implemented]
+  mitre/          import_attack_bundle.py (unchanged)             [implemented]
 tests/
-  unit/           101 test modules (608 tests total, +18 modules/+108 tests this session)
-  integration/    5 test modules (21 tests, +1 module/+4 tests this session)
+  unit/           106 test modules (+5 this session)
+  integration/    7 test modules (+2 this session)
   golden/         (empty — no report generation exists yet)
-docs/             15 markdown docs + docs/adr/ (14 ADR files incl. template) +
-                   docs/diagrams/ (+2 new .mmd files)
+docs/             15 markdown docs + docs/adr/ (15 ADR files incl. template) +
+                   docs/diagrams/ (unchanged this session)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
-scripts/          run_migrations.sh, seed_sample_data.py, check_dependency_rules.py, mitre/ (NEW)
+scripts/          run_migrations.sh, seed_sample_data.py, check_dependency_rules.py, mitre/
 .github/          (unchanged)
 ```
 
-629 tests passing as of this session (517 prior → 629 now: 112 new). This session added: 7 new `core/knowledge/mitre/` modules, 13 new `core/findings/` modules, 7 new `core/db/models/` files + 2 new `core/db/` repository files + 2 new Alembic migrations, 1 new `core/services/` file, 1 new `scripts/mitre/` script, 19 new test files (18 unit + 1 integration) + 1 new test-helper module, 1 new ADR, 2 new diagrams, 1 new vendored data file + its README, plus edits to `core/config/settings.py`, `.env.example`, `core/db/models/__init__.py`, `docs/dependency-rules.md`, `docs/roadmap.md`, `docs/diagrams/README.md`, `core/db/README.md`, `core/knowledge/README.md`, `core/services/README.md`, `scripts/README.md`, `CHANGELOG.md`, and this file — all currently uncommitted (see "Current Git Status" below).
+662 tests passing as of this session (629 prior → 662 now: 33 new). Modified this session: `core/db/models/{__init__,evidence,ioc,finding}.py` (FK tightening), `core/graph/investigation_graph.py` (SocAnalystAgent wiring), `apps/api/{main,routers/v1}.py`, `docs/dependency-rules.md` (rule 4d), `docs/roadmap.md` (M1 checked off), `pyproject.toml` (ruff B008 allowlist for FastAPI `Query`/`Path`/`File`/`Body`), `requirements.txt` (`python-multipart`), `tests/integration/test_investigation_graph.py` (one test updated), plus the five folder `README.md`s touched by new modules (`core/db`, `core/agents`, `core/tools`, `core/services`, `apps/api`), `CHANGELOG.md`, and this file — all currently uncommitted (see "Current Git Status" below).
 
-**Naming note carried forward:** `context/02_repository.md` and `context/03_constitution.md` still do not exist. The actual files remain `context/01_blueprint.md` and `context/03_engineering_constitution.md`.
+**Naming note carried forward:** `context/02_repository.md` still does not exist. The actual files remain `context/01_blueprint.md` and `context/03_engineering_constitution.md`.
 
 ---
 
 ## Architecture Status
 
-Fully aligned with `context/01_blueprint.md`, extending (not reversing) ADR-0009/0010/0011/0012 per ADR-0013's explicit scoping. Six deliberate decisions, all documented in `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`:
+Fully aligned with `context/01_blueprint.md`, extending (not reversing) ADR-0009 through ADR-0013 per ADR-0014's explicit scoping. Eight deliberate decisions, all documented in `docs/adr/0014-case-model-and-first-api-routes-shape.md`:
 
-1. **The concrete MITRE reference-data/model layer lives in `core/knowledge/mitre/`**, fulfilling ADR-0010's deferred `KnowledgeSourceType.MITRE_ATTACK` slot — not a second, competing model layer inside the new Finding package.
-2. **`core/findings/` is a new leaf package, peer to `core/threat_intel`/`core/parsers`.** May import `core.knowledge` (already permitted) and, as a new documented sideways leaf-model exception matching `core/threat_intel`'s import of `core.parsers.models`, `core.threat_intel.models` (its input contract only). `docs/dependency-rules.md` rule 5 extended accordingly.
-3. **`core/services/finding_service.py` gets rule "4c"** — the third documented exception to "services only call `core/graph`," worded identically to 4a/4b.
-4. **The official MITRE ATT&CK corpus is vendored locally, a curated real-data subset for this session**, with `scripts/mitre/import_attack_bundle.py` as the versioned, code-change-free import path for a future/complete bundle. Never fetched over the network.
-5. **Every MITRE reference table's business ID (`technique_id`, etc.) is a unique indexed column, never the primary key** — constitution §7's explicit rule, restated because MITRE IDs look permanently stable.
-6. **`Finding.case_id` is a plain UUID column, not a foreign key** — `Case` still doesn't exist, following the exact `Evidence.case_id`/`IOC.case_id` precedent. `Finding.primary_evidence_id`/`primary_ioc_id` and `FindingMitreMapping`'s two FKs **are** real, since their referenced tables already exist.
+1. **`Case` gets its own module**, matching the `Evidence`/`IOC`/`Finding` precedent exactly; `TimelineEvent`/`Report` complete blueprint §8's schema for the first time.
+2. **`Report` is schema-only** — no service/route/repository-method-beyond-CRUD reads or writes it yet (Report Generator Agent is M5).
+3. **The FK-tightening migration every prior ADR owed is applied now**, via `op.batch_alter_table` for SQLite compatibility, with the ORM models updated in lockstep.
+4. **`SocAnalystAgent`'s output stays in `CaseInvestigationState.findings`, not the persisted `findings` table** — reconciling agent-produced findings with the Finding & MITRE Engine's schema (via a `source_agent` column blueprint §8 implies but doesn't exist yet) is explicit future work, not decided by default.
+5. **`RiskScoringTool` and `core/findings/severity.py`'s scoring never overlap** — different inputs, different pipeline stages.
+6. **New rule 4d**: `core/services/case_service.py` imports `core.agents`/`core.memory`/`core.parsers.models` directly, narrowly scoped to constructing a session-scoped `CaseMemory` + fresh `AgentRegistry` before delegating to `core/graph`.
+7. **Evidence upload synchronously runs the full pipeline** (ingest → extract → generate → analyze) rather than exposing per-stage trigger endpoints — matches blueprint §9 and M1's own roadmap demo criterion without inventing an unneeded task queue.
+8. **New runtime dependency `python-multipart`**, justified (FastAPI file uploads).
 
-Plus all architectural notes carried forward unchanged from prior sessions (see git history for ADR-0001 through 0012's individual points). No approved architectural decision has been reversed. `docs/roadmap.md`'s M2 checkbox remains unchecked — the MITRE knowledge layer's concrete data and the full Finding Engine are implemented, but M2's own demo criterion (two independent working modules through a real agent) needs a concrete MITRE Mapping Agent and the Phishing Investigation Agent first; M4's checkbox likewise remains unchecked pending the concrete Vulnerability/OWASP/Linux/Threat Hunting agents.
+Plus all architectural notes carried forward unchanged from prior sessions (ADR-0001 through 0013 — see git history). No approved architectural decision has been reversed. `docs/roadmap.md`'s M1 checkbox is now checked. M2/M3/M4's checkboxes remain unchecked pending their own concrete specialist agents (Phishing, Vulnerability, OWASP, Linux Security, Threat Hunting) and a real Coordinator fan-out demo.
 
 ---
 
@@ -112,67 +115,59 @@ Plus all architectural notes carried forward unchanged from prior sessions (see 
 
 **New this session:**
 
-- **`core/findings`/`core/knowledge/mitre` reuse existing patterns rather than inventing new ones.** `BaseFindingGenerator` is `BaseIOCExtractor`'s template-method shape applied once more; `core/findings/metrics.py`/`events.py`/`audit.py` mirror `core/threat_intel`'s identical "self-contained, no `EventBus`" pattern; `MitreAttackSource` satisfies the `KnowledgeSource` Protocol ADR-0010 already defined.
-- **One data-driven `MAPPING_RULES` table, not twenty near-duplicate per-technique mapper classes** — `MitreMappingEngine` dispatches from `mapping_rules.py` exactly as `IOCExtractionEngine` dispatches from `patterns.py` (ADR-0012's precedent, reapplied).
-- **Dedup's "empty vs. empty" Jaccard convention was corrected during implementation**: two Findings both lacking, say, linked evidence artifacts score 1.0 on that dimension (agreement, not disagreement) — discovered via a failing merge test where a legitimately-duplicate second-run candidate wasn't merging because every empty-vs-empty comparison scored 0.0 and dragged the average down. Documented in `dedup.py::_jaccard`'s docstring.
-- **Dedup gates merging on technique overlap**: two candidates mapped to entirely disjoint technique sets are never merge candidates, however much supporting evidence otherwise overlaps — discovered via a failing test where two legitimately-separate Findings (one IOC mapped to two different techniques in the same generation run) were incorrectly merging into one. This is the structural expression of "one-IOC-to-many-techniques stays separate."
-- **`Finding.id` (the DB surrogate PK) is explicitly set to `FindingRecord.finding_id`** rather than left to `Entity`'s default factory — the persisted row and its embedded JSON blob must share one identity, since dedup/merge logic reasons about "this Finding" purely in terms of `FindingRecord.finding_id`.
-- **Finding confidence weights are configurable and validated to sum to 1.0** (`FindingConfidenceWeights`), mirroring `ThreatScoringEngine`'s identical pattern — the task's explicit "do not hardcode scoring values" requirement, structurally enforced.
-- **The vendored MITRE bundle is an honest, curated subset**, not the complete official corpus — documented explicitly in `data/mitre/README.md` and ADR-0013, with a real, tested, code-change-free import path (`scripts/mitre/import_attack_bundle.py`) for importing the complete bundle later.
-- **No FastAPI route this session** — mirrors ADR-0011/0012's identical scope cut; `Case` doesn't exist yet.
+- **An "Investigation & Correlation Engine" request was declined as an architectural conflict**, not built. No `Investigation` entity exists in the blueprint; `Case` is blueprint's stated central object and didn't exist yet, which was itself blueprint's own stated blocker for that kind of cross-evidence-correlation work. The request also duplicated the Coordinator agent's, `TimelineEvent`'s, and the future Incident Response Agent's already-assigned responsibilities. M1 (this session's actual work) was substituted instead, per explicit user direction.
+- **`SocAnalystAgent` is deliberately kept separate from the persisted `Finding` table.** Blueprint §8 implies one shared table via `source_agent`, but that column doesn't exist on the current schema; conflating agent-level findings with the Finding & MITRE Engine's deterministic, IOC-driven output without a schema change was not a decision to make silently.
+- **`default_agent_registry()`'s `@lru_cache` singleton nature is a real correctness hazard for any agent needing session-scoped state** (like `case_memory`) — discovered while wiring `SocAnalystAgent` in. Resolved by having `core/services/case_service.py` construct a *fresh* `AgentRegistry` per investigation run (rule 4d) rather than polluting the shared singleton; `build_investigation_graph()`'s own auto-registration only ever uses `case_memory=None` against the cached singleton, which is the correct, contract-compliant default for any caller not supplying a session.
+- **Evidence-upload triggers the full pipeline synchronously, not via separate per-stage endpoints** — matches blueprint §9's data flow and avoids inventing a task queue this milestone doesn't need.
 
 ---
 
 ## Public Interfaces
 
-*(M0/M3/M6/M1-evidence/M4-threat-intel interfaces — unchanged from prior sessions except as noted below.)*
+*(M0/M3/M6/M2-findings interfaces — unchanged from prior sessions except as noted below.)*
 
-**MITRE knowledge contracts:** `core.knowledge.mitre.models.{MitreObjectType, MitreRelationshipType, MitreTactic, MitreTechnique, MitreSoftware, MitreGroup, MitreMitigation, MitreRelationship, MitreDataset}`, `core.knowledge.mitre.exceptions.{MitreKnowledgeError, MalformedMitreDataError, UnknownTechniqueError, UnsupportedAttackVersionError}`, `core.knowledge.mitre.loader.{load_bundle, load_bundle_from_path}`, `core.knowledge.mitre.source.MitreAttackSource`, `core.knowledge.mitre.lookup.MitreLookup`, `core.knowledge.mitre.bootstrap.load_mitre_dataset`.
+**New this session:**
 
-**Findings contracts:** `core.findings.models.{FindingSeverity, FindingStatus, FindingPriority, DedupDecision, MappingConfidenceFactors, MitreMapping, TimelineEntry, EvidenceBundle, FindingConfidence, DuplicateMatchResult, FindingRecord}`, `core.findings.exceptions.{FindingsError, NoTechniqueMatchError, InvalidMappingRuleError, DuplicateExplosionGuardError}`, `core.findings.base.{BaseFindingGenerator, MappingRunResult}`.
+`core.db.models.{Case, CaseStatus, TimelineEvent, TimelineEventType, Report, ReportType}`, `core.db.case_repository.CaseRepository`, `core.db.timeline_event_repository.TimelineEventRepository`, `core.db.report_repository.ReportRepository`.
 
-**Findings framework:** `core.findings.mapping_rules.{MappingRule, MAPPING_RULES}`, `core.findings.mapping_engine.MitreMappingEngine`, `core.findings.evidence_aggregation.EvidenceAggregator`, `core.findings.confidence_engine.{FindingConfidenceWeights, ConfidenceEngine}`, `core.findings.severity.{assign_severity, assign_priority, calculate_risk_score}`, `core.findings.dedup.{FindingDeduplicationEngine, merge_findings}`, `core.findings.finding_generator.FindingGenerationEngine`, `core.findings.metrics.FindingsMetricsCollector`, `core.findings.events.{FindingEvent, FindingEventType, FindingEventPublisher}`, `core.findings.audit.{FindingAuditAction, log_finding_audit_event}`.
+`core.tools.scoring.{RiskScoringTool, RiskScoringInput, RiskScoringOutput, ScoringWeights, classify_risk_score}`.
 
-**Domain persistence:** `core.db.models.{Evidence, EvidenceStatus, IOC, IOCStatus, Finding, FindingMitreMapping, MitreTactic, MitreTechnique, MitreSoftware, MitreGroup, MitreMitigation}`, `core.db.evidence_repository.EvidenceRepository`, `core.db.ioc_repository.IOCRepository`, `core.db.finding_repository.FindingRepository`, `core.db.mitre_repository.{MitreTacticRepository, MitreTechniqueRepository, MitreSoftwareRepository, MitreGroupRepository, MitreMitigationRepository}`.
+`core.agents.soc_analyst_agent.{SocAnalystAgent, SocFinding, SocAnalysisResult, default_soc_analyst_tool_registry}`. `core.graph.investigation_graph.build_investigation_graph` gained a `case_memory: CaseMemory | None` parameter.
 
-**Finding service:** `core.services.finding_service.{FindingGenerationPipeline, FindingGenerationResult, generate_findings_for_case, get_finding, list_findings_for_case}`.
+`core.services.case_service.{CaseInvestigationResult, create_case, get_case, list_cases, update_case_status, list_timeline_for_case, investigate_new_evidence}`.
 
-**Seed script:** `scripts.mitre.import_attack_bundle.{import_dataset, main}`.
+`apps.api.schemas.{CaseCreateRequest, CaseStatusUpdateRequest, CaseResponse, EvidenceResponse, EvidenceUploadResponse, IOCResponse, FindingResponse, TimelineEventResponse}`. New routes: `POST/GET/PATCH /api/v1/cases`, `GET /api/v1/cases/{id}/timeline`, `POST/GET /api/v1/cases/{id}/evidence`, `GET /api/v1/cases/{id}/iocs`, `GET /api/v1/cases/{id}/findings`.
 
-No `Case`/`TimelineEvent`/`Report` models/schemas, concrete specialist agents, concrete `ThreatIntelProvider`/`IOCEnrichmentProvider` implementations, or `/api/v1` routes exist as public interfaces yet.
+No concrete specialist agent other than `SocAnalystAgent`, no LLM reasoning, no `/api/v1/reports` route, no `core.security.*` implementation exist as public interfaces yet.
 
 ---
 
 ## Remaining Work
 
-Unchanged in substance from the prior session's plan (see `docs/roadmap.md`), except M2's MITRE-mapping half and part of M4 are now done ahead of schedule:
-
-1. **M1 — remaining piece.** `Case`/`TimelineEvent`/`Report` domain models + their Alembic migration (including follow-up migrations turning `Evidence.case_id`, `IOC.case_id`, and `Finding.case_id` into real FKs); `core/tools/scoring.py`; `core/agents/soc_analyst_agent.py`; first real `/api/v1` route wiring `evidence_service`/`case_service`/`threat_intel_service`/`finding_service` together.
-2. **M2 — remaining piece.** Phishing Investigation Agent + `email_parser.py` + `core/security/prompt_guard.py`; a concrete `core/agents/mitre_mapping_agent.py` (or extended `threat_hunter_agent.py`) that calls `core.services.finding_service.generate_findings_for_case()` and reasons over its typed output — the same "framework built, agent still unbuilt" pattern ADR-0011/0012 established.
-3. **M3 — remaining piece:** wire real agents through the now-implemented framework.
-4. **M4 — remaining piece.** Vulnerability Assessment Agent (+ Nmap/Nessus/OpenVAS parsers + CVSS calculator), OWASP Security Agent, Linux Security Agent, `core/agents/threat_hunter_agent.py`.
-5. **M5 — Incident Response synthesis + Reporting.**
-6. **M6 — remaining piece:** swap `InMemoryVectorStore` for real ChromaDB, populate remaining knowledge data (OWASP, playbooks), Threat Timeline/MITRE heatmap/AI Analyst Chat UI.
-7. **M7 — Hardening, tests, docs, GitHub polish.**
+1. **M2 — remaining piece.** Phishing Investigation Agent + `email_parser.py` + `core/security/prompt_guard.py`; a concrete `core/agents/mitre_mapping_agent.py` (or extended `threat_hunter_agent.py`) reasoning over `finding_service.generate_findings_for_case()`'s typed output.
+2. **M3 — remaining piece.** A real Coordinator fan-out demo needs a *second* concrete specialist agent (e.g. Phishing) registered alongside `SocAnalystAgent` — the framework already supports it with zero changes, per this session's proof.
+3. **M4 — remaining piece.** Vulnerability Assessment Agent (+ Nmap/Nessus/OpenVAS parsers + CVSS calculator), OWASP Security Agent, Linux Security Agent, `core/agents/threat_hunter_agent.py`.
+4. **M5 — Incident Response synthesis + Reporting.** Incident Response Agent, Report Generator Agent (finally gives `Report` real behavior), Jinja2/ReportLab templates, Plotly charts, `/api/v1/reports` route.
+5. **M6 — remaining piece.** Swap `InMemoryVectorStore` for real ChromaDB, populate remaining knowledge data (OWASP, playbooks), Threat Timeline/MITRE heatmap/AI Analyst Chat UI (the backend data — `TimelineEvent`, now real — already supports the Threat Timeline view).
+6. **M7 — Hardening, tests, docs, GitHub polish.**
 
 ---
 
 ## Known Issues
 
-*(Carried forward, still true: `context/02_repository.md`/`03_constitution.md` don't exist; `make migrate`/`make seed` are no-ops for `Case`; `apps/web` has no code; harmless Starlette deprecation warnings in test output; no CI has ever actually run on GitHub; `scripts/check_dependency_rules.py` only checks the streamlit/fastapi-import rule, not the full sibling-layer matrix — manually verified via `grep` for each new session's boundaries; `InMemoryVectorStore` is O(n) brute-force; `HashingTextEmbedder` is not semantic; numpy not installed; `windows_event_parser.py` handles only CSV/XML export, not binary `.evtx`.)*
+*(Carried forward, still true: `context/02_repository.md` doesn't exist; `apps/web` has no code; harmless Starlette deprecation warnings in test output; no CI has ever actually run on GitHub; `scripts/check_dependency_rules.py` only checks the streamlit/fastapi-import rule, not the full sibling-layer matrix — manually verified via `grep` for each new session's boundaries; `InMemoryVectorStore` is O(n) brute-force; `HashingTextEmbedder` is not semantic; numpy not installed; `windows_event_parser.py` handles only CSV/XML export, not binary `.evtx`.)*
 
-- **`Evidence.case_id`, `IOC.case_id`, and `Finding.case_id` have no referential integrity yet** (plain UUID, no FK) — resolved when Milestone M1 adds `Case` and its follow-up FK migration for all three tables.
-- **No `/api/v1` route exists for Findings** — `generate_findings_for_case()` is only callable from `core/services` directly, not yet from `apps/api` or `apps/web`.
-- **The vendored MITRE ATT&CK bundle is a curated subset (20 techniques, 14 tactics, 5 software, 5 groups, 6 mitigations), not the complete official corpus** — a deliberate, documented scope choice (`data/mitre/README.md`); mapping coverage is bounded by which techniques were vendored, not by the mapping engine's design, which is unchanged by importing a larger bundle via `scripts/mitre/import_attack_bundle.py`.
-- **`core/findings`'s Finding-clustering strategy is "one candidate per mapped technique"** — a deliberate, simple, deterministic choice (`core/findings/README.md`/`finding_generator.py` docstring) rather than connected-components clustering across shared IOCs; a future milestone could refine this without changing any downstream consumer's contract.
-- **`ConfidenceEngine`'s `historical_evidence` dimension is a documented neutral stub (0.5)** — no cross-case memory exists yet; a future Memory Agent supplies a real value through the same parameter without a signature change.
-- **No MITRE relationship data is persisted to the database** — `MitreRelationship` (uses/mitigates edges) exists only in the in-memory `MitreDataset`/`MitreLookup` the mapping engine reads directly; there is no `mitre_relationships` table. This was a deliberate scope choice (not requested as a persisted, queryable table) but is worth flagging if a future UI wants to query relationships independently of the mapping engine.
+- **`SocAnalystAgent`'s `SocFinding[]` output is not persisted** — it lives only on `CaseInvestigationState.findings` for the duration of one graph run, visible via the API only indirectly (`soc_risk_score`/`soc_risk_label` on `EvidenceUploadResponse`). A future milestone/ADR needs to decide how (or whether) to persist it, per ADR-0014 point 4.
+- **`Report` has no consumer** — the table exists, nothing reads or writes it. Deliberate, per ADR-0014 point 2.
+- **`make migrate`/`make seed` were not re-verified this session** — the new migrations were verified directly via `alembic upgrade head`/`downgrade -1` against a throwaway DB, not through the Makefile wrapper.
+- **No case-level authorization/ownership check** — any request can read/write any case (`AuthenticatedUser` is still the fixed placeholder from `apps/api/dependencies.py`; real auth is blueprint §17 future work).
+- **`POST /cases/{id}/evidence` has no per-request size/rate limiting beyond the existing `EVIDENCE_MAX_UPLOAD_BYTES` validation** — acceptable for single-analyst mode (blueprint §3), flagged for when auth/multi-tenant work begins.
 
 ---
 
 ## Dependencies
 
-Runtime (`requirements.txt`): **no new dependency this session** — `core/findings` and `core/knowledge/mitre` use only the stdlib (`json`, `hashlib`, `uuid`, `datetime`, `pathlib`) plus already-present Pydantic/SQLAlchemy.
+Runtime (`requirements.txt`): **one new dependency this session** — `python-multipart>=0.0.12` (FastAPI's `UploadFile` requires it for `POST /cases/{id}/evidence`; justified inline in `requirements.txt`).
 
 Dev (`requirements-dev.txt`): unchanged.
 
@@ -180,16 +175,16 @@ Dev (`requirements-dev.txt`): unchanged.
 
 ## Current Git Status
 
-A git repository exists (`main` branch: `main`; working branch: `master`), with five prior commits: `eae4fb8` (foundation) → `0ee65d5` (memory/knowledge) → `8664039` (parsers) → `40ac180` (threat intel) → `908e34a` (mypy --strict hardening). All prior-session work is committed — the working tree was clean at the start of this session.
+A git repository exists (`main` branch: `main`; working branch: `master`), with prior commits through `f151536` (a small docs wording tidy-up) — `2886f4e` (Finding & MITRE Engine) is the most recent substantive feature commit; all prior-session work is committed.
 
-This session's Finding & MITRE ATT&CK Intelligence Engine work added/modified (all currently uncommitted):
-- New: `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`, `data/mitre/raw/attack-enterprise-15.1.json`, `data/mitre/README.md`, `core/knowledge/mitre/*` (7 files), `core/findings/*` (13 files + README), `core/db/models/{finding,finding_mitre_mapping,mitre_tactic,mitre_technique,mitre_software,mitre_group,mitre_mitigation}.py`, `core/db/finding_repository.py`, `core/db/mitre_repository.py`, `core/db/migrations/versions/{873a0801082d,0db9628cc4fc}_*.py`, `core/services/finding_service.py`, `scripts/mitre/import_attack_bundle.py`, `docs/diagrams/{finding-mitre-mapping-pipeline,finding-lifecycle}.mmd`, 21 new test files.
-- Modified: `core/config/settings.py`, `.env.example`, `core/db/models/__init__.py`, `docs/dependency-rules.md`, `docs/roadmap.md`, `docs/diagrams/README.md`, `core/db/README.md`, `core/knowledge/README.md`, `core/services/README.md`, `scripts/README.md`, `CHANGELOG.md`, `context/current_state.md` (this file).
+This session's Milestone M1 completion work added/modified (all currently uncommitted):
+- New: `docs/adr/0014-case-model-and-first-api-routes-shape.md`, `core/db/models/{case,timeline_event,report}.py`, `core/db/{case_repository,timeline_event_repository,report_repository}.py`, `core/db/migrations/versions/{6735a0d18bb9,7ae8f470d5e7}_*.py`, `core/tools/scoring.py`, `core/agents/soc_analyst_agent.py`, `core/services/case_service.py`, `apps/api/schemas.py`, `apps/api/routers/{cases,evidence,iocs,findings}.py`, 6 new test files.
+- Modified: `core/db/models/{__init__,evidence,ioc,finding}.py`, `core/graph/investigation_graph.py`, `apps/api/{main,routers/v1}.py`, `docs/dependency-rules.md`, `docs/roadmap.md`, `pyproject.toml`, `requirements.txt`, `tests/integration/test_investigation_graph.py`, `core/db/README.md`, `core/agents/README.md`, `core/tools/README.md`, `core/services/README.md`, `apps/api/README.md`, `CHANGELOG.md`, `context/current_state.md` (this file).
 
-Full suite (629 tests), `ruff check`/`format`, `mypy core --strict` (whole `core/`), and `scripts/check_dependency_rules.py` all pass. Every new package boundary (`core/findings`, `core/knowledge/mitre`, `core/services/finding_service.py`'s rule-4c imports) was manually `grep`-verified against the ADR's documented scope. Commit only when the user explicitly asks.
+Full suite (662 tests), `ruff check`/`format`, `mypy core --strict`, and `scripts/check_dependency_rules.py` all pass. The new `core/services` rule-4d boundary and every new import edge were manually `grep`-verified against ADR-0014's documented scope. Commit only when the user explicitly asks.
 
 ---
 
 ## Next Recommended Prompt
 
-> Implement the remaining piece of Milestone M1 exactly as scoped in `docs/roadmap.md` and this file's "Remaining Work" section: add `core/db/models/case.py` (and `timeline_event.py`, `report.py`) defining `Case`, `TimelineEvent`, and `Report` (each inheriting `core.db.Entity`, per `context/01_blueprint.md` §8 and `context/03_engineering_constitution.md` §7), generate the Alembic migration against them (including follow-up migrations that turn `Evidence.case_id`, `IOC.case_id`, and `Finding.case_id` into real foreign keys against the new `Case` table — additive, per constitution §7), implement `core/tools/scoring.py` as a concrete `BaseTool` subclass, and implement `core/agents/soc_analyst_agent.py` as a concrete `BaseAgent` subclass — constructed with a real `core.memory.case_memory.SQLiteCaseMemory` rather than `None` — registered into `AgentRegistry` and wired into `core/graph/investigation_graph.py`. Wire `core.services.evidence_service.ingest_evidence()`, `core.services.threat_intel_service.extract_threat_intelligence()`, `core.services.finding_service.generate_findings_for_case()`, and a new `core.services.case_service` together, and add the first real `/api/v1` routes (`apps/api/routers/cases.py`, `evidence.py`, `iocs.py`, and/or `findings.py`) so a case can actually be created, have evidence uploaded, have IOCs extracted, and have Findings generated end-to-end. Do not build the OWASP/Vulnerability/Phishing/Threat-Hunting/MITRE-Mapping agents yet, and do not populate any OWASP/playbook knowledge data yet — those are later milestones. Preserve every existing file and architectural decision described in this document, including the Multi-Agent Framework, the Memory & Knowledge Layer, the Evidence Ingestion & Parser Framework, the Threat Intelligence & IOC Extraction Framework, and the Finding & MITRE ATT&CK Intelligence Engine built in prior sessions; only extend them.
+> Implement Milestone M2's remaining piece exactly as scoped in `docs/roadmap.md` and this file's "Remaining Work" section: `core/parsers/email_parser.py` (`.eml`/`.txt` phishing email parsing, producing `NormalizedEvidence` per the existing parser contract), `core/security/prompt_guard.py` (prompt-injection/jailbreak pattern detection — the first attacker-controlled-text guard, structurally required per constitution §4.11/§9/§10 before any email body reaches an LLM prompt), and `core/agents/phishing_agent.py` (a concrete `BaseAgent` subclass declaring a distinct capability, e.g. `email_triage`, so it can register alongside `SocAnalystAgent` in `core/graph/investigation_graph.py` with zero framework changes — proving the Coordinator's real fan-out for the first time, which closes M3's own demo criterion too). Wire it into `core/services/case_service.py`'s `investigate_new_evidence()` (or a parallel entry point) so a phishing email upload triggers the same TimelineEvent-recording pattern. Add a `POST /api/v1/cases/{id}/evidence` content-type/classification path that routes `.eml` uploads correctly (the parser factory already does extension/content sniffing — confirm it dispatches to the new parser without router changes). Preserve every existing file and architectural decision described in this document — including the Case/TimelineEvent/Report schema, the SOC Analyst Agent, and the Finding & MITRE Engine — only extend them.
