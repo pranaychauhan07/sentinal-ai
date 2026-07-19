@@ -15,7 +15,8 @@ core/graph                     (LangGraph workflow)
         ↓ may import           ↘ core/parsers, core/memory (evidence ingestion only — rule 4a)
 core/agents                    (specialist agents)
         ↓ may import           ↘ core/threat_intel, core/parsers (IOC extraction only — rule 4b)
-core/tools , core/parsers , core/threat_intel   (deterministic functions)
+                                ↘ core/findings, core/knowledge (Finding/MITRE mapping only — rule 4c)
+core/tools , core/parsers , core/threat_intel , core/findings   (deterministic functions)
         ↓ may import
 core/knowledge , core/memory , core/security , core/db , core/reporting , core/config
         (leaf layers — import each other sparingly and only where documented below)
@@ -59,6 +60,16 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    `docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`. No
    other `core/services` module gets this exception without its own ADR.
 
+4c. **`core/services/finding_service.py` may import `core/findings`,
+   `core/threat_intel` (models only), `core/knowledge`, and `core/memory`
+   directly** — the third documented exception to "services only call
+   `core/graph`," worded identically to 4a/4b and scoped exactly to this
+   module. Finding generation (MITRE mapping, evidence aggregation,
+   confidence calculation, deduplication, persistence) is deterministic,
+   pre-investigation processing with no agent/LLM reasoning involved. See
+   `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`. No other
+   `core/services` module gets this exception without its own ADR.
+
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to
    "leaves never call up" — `core/graph/state.py` specifically (not
@@ -74,17 +85,22 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    through `core/services` or a repository function `core/graph` calls,
    keeping agents unaware of SQL/ORM details.
 
-5. **`core/tools`, `core/parsers`, and `core/threat_intel` may import
-   `core/knowledge`** (e.g. a tool interpreting a CVSS vector uses
-   `core/knowledge/cvss_calculator.py`) **but never `core/agents`,
-   `core/graph`, or `core/memory`.** These are leaves — nothing calls up from
-   them, and they call nothing above them. `core/threat_intel` is the one
-   documented exception allowed to import another leaf's *model* contract
-   sideways: it imports `core.parsers.models.NormalizedEvidence` (its input
-   type), matching the precedent `core/db/models/evidence.py` already set by
-   importing `core.parsers.models.EvidenceType` — see
+5. **`core/tools`, `core/parsers`, `core/threat_intel`, and `core/findings`
+   may import `core/knowledge`** (e.g. a tool interpreting a CVSS vector uses
+   `core/knowledge/cvss_calculator.py`; `core/findings`'s mapping engine uses
+   `core/knowledge/mitre`) **but never `core/agents`, `core/graph`, or
+   `core/memory`.** These are leaves — nothing calls up from them, and they
+   call nothing above them. `core/threat_intel` and `core/findings` are the
+   two documented exceptions allowed to import another leaf's *model*
+   contract sideways: `core/threat_intel` imports
+   `core.parsers.models.NormalizedEvidence` (its input type), matching the
+   precedent `core/db/models/evidence.py` already set by importing
+   `core.parsers.models.EvidenceType`; `core/findings` imports
+   `core.threat_intel.models.ScoredIOC`/`IOCRecord`/`IOCType` (its input
+   type), the identical pattern applied once more — see
    `docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`
-   point 1.
+   point 1 and `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`
+   point 2.
 
 6. **`core/memory` is the only layer allowed to import a vector-store client
    (ChromaDB).** No other layer talks to ChromaDB directly.

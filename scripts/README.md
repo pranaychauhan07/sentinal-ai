@@ -3,6 +3,10 @@
 **Purpose:** Small, standalone scripts that support development but are not
 part of the shipped application: `seed_sample_data.py` (loads
 `data/sample_evidence` into a fresh dev database as demo cases),
+`mitre/import_attack_bundle.py` (seeds the five MITRE ATT&CK reference tables
+from a local, vendored STIX bundle — the only supported way ATT&CK data
+enters the system; never fetches over the network, see
+`data/mitre/README.md` and `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`),
 `run_migrations.sh` (Alembic upgrade wrapper), `generate_diagrams.sh` (Mermaid
 CLI batch render for `docs/diagrams/`), `check_dependency_rules.py` (static
 check that `core/` contains no Streamlit/FastAPI imports, enforced in CI).

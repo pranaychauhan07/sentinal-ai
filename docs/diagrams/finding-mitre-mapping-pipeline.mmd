@@ -1,0 +1,40 @@
+%% Finding & MITRE ATT&CK Intelligence Engine — the Finding Generation
+%% Pipeline (docs/adr/0013-finding-mitre-intelligence-engine-shape.md).
+%% Render with `mmdc -i finding-mitre-mapping-pipeline.mmd -o finding-mitre-mapping-pipeline.png`.
+%% "Caller" is a test harness today; a future core/agents/mitre_mapping_agent.py
+%% or threat_hunter_agent.py calls the same generate_findings_for_case().
+
+sequenceDiagram
+    participant Caller as Caller (future MitreMappingAgent)
+    participant Pipeline as FindingGenerationPipeline
+    participant IOCRepo as IOCRepository
+    participant MapEngine as MitreMappingEngine
+    participant Lookup as MitreLookup (core.knowledge.mitre)
+    participant GenEngine as FindingGenerationEngine
+    participant Aggregator as EvidenceAggregator
+    participant Confidence as ConfidenceEngine
+    participant Severity as core.findings.severity
+    participant Dedup as FindingDeduplicationEngine
+    participant FindingRepo as FindingRepository
+    participant Events as FindingEventPublisher
+    participant Memory as CaseMemory (advisory)
+
+    Caller->>Pipeline: generate_findings_for_case(case_id)
+    Pipeline->>IOCRepo: find_by_case(case_id) [ACTIVE only]
+    IOCRepo-->>Pipeline: IOC rows -> ScoredIOC[] (deserialized from metadata_json)
+    Pipeline->>MapEngine: map(iocs) [rule-based, MAPPING_RULES table]
+    MapEngine->>Lookup: tactics_for_technique() per matched rule
+    MapEngine-->>Pipeline: MitreMapping[] (technique_id, confidence, tactic_ids)
+    Pipeline->>GenEngine: generate(case_id, iocs) [one candidate per mapped technique]
+    GenEngine->>Aggregator: aggregate(supporting IOCs) [timeline, chain of custody]
+    GenEngine->>Confidence: calculate(iocs, mappings) [7 dimensions]
+    GenEngine->>Severity: assign_severity / assign_priority / calculate_risk_score
+    GenEngine-->>Pipeline: FindingRecord[] candidates
+    Pipeline->>FindingRepo: find_open_for_case(case_id)
+    FindingRepo-->>Pipeline: existing open Findings
+    Pipeline->>Dedup: evaluate() [hash/IOC/technique/evidence/time/host overlap]
+    Dedup-->>Pipeline: NEW or MERGE per candidate
+    Pipeline->>FindingRepo: persist() [insert Finding + FindingMitreMapping rows]
+    Pipeline->>Events: publish(TechniqueMapped, FindingCreated|FindingMerged, ConfidenceUpdated)
+    Pipeline->>Memory: notify_memory() [advisory, never raises]
+    Pipeline-->>Caller: FindingGenerationResult

@@ -251,6 +251,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     `core/services → core/threat_intel`/`core/parsers` edge were verified
     by manual `grep` to be exactly as scoped.
 
+- Finding & MITRE ATT&CK Intelligence Engine
+  (`docs/adr/0013-finding-mitre-intelligence-engine-shape.md`) — deterministic
+  mapping of scored IOCs to ATT&CK techniques and generation of typed,
+  confidence-scored `Finding`s. No LLM reasoning, no investigation logic, no
+  cross-case correlation, per explicit scope.
+  - `data/mitre/raw/attack-enterprise-15.1.json`: a curated, hand-authored
+    STIX 2.1 bundle subset (14 real tactics, 20 real techniques, 5 real
+    software entries, 5 real groups, 6 real mitigations, ~39 real
+    `uses`/`mitigates` relationships) — vendored, never fetched over the
+    network. `data/mitre/README.md` documents provenance and the versioned
+    import path for a future/complete official bundle.
+  - `core/knowledge/mitre/`: fulfills ADR-0010's deferred
+    `KnowledgeSourceType.MITRE_ATTACK` slot. `models.py` (`MitreTactic`/
+    `MitreTechnique`/`MitreSoftware`/`MitreGroup`/`MitreMitigation`/
+    `MitreRelationship`/`MitreDataset`, versioned via `attack_spec_version`),
+    `loader.py` (STIX bundle parsing — local files only, degrades
+    malformed-but-known objects to a skipped, logged entry rather than
+    aborting the load), `source.py` (`MitreAttackSource`, a concrete
+    `KnowledgeSource`), `lookup.py` (`MitreLookup`: fast technique/tactic/
+    software/group/mitigation lookups), `bootstrap.py` (`load_mitre_dataset`,
+    validates the vendored bundle's version against `Settings.
+    mitre_attack_version`).
+  - `core/findings/` (new leaf package, peer to `core/threat_intel`): `models.py`
+    (`FindingSeverity`/`FindingStatus`/`FindingPriority`/`MitreMapping`/
+    `EvidenceBundle`/`FindingConfidence`/`DuplicateMatchResult`/
+    `FindingRecord`), `base.py` (`BaseFindingGenerator`, mirrors
+    `BaseIOCExtractor`), `mapping_rules.py` (`MAPPING_RULES`: twenty
+    data-driven rules covering every vendored technique, supporting both
+    one-IOC-to-many-techniques and many-IOCs-to-one-technique via
+    co-occurrence boosting), `mapping_engine.py` (`MitreMappingEngine`, the
+    one concrete rule-dispatching mapper — validates every rule's
+    `technique_id` against the loaded dataset at construction time, never
+    mid-evaluation), `evidence_aggregation.py` (`EvidenceAggregator`:
+    cross-reference tracking, timeline reconstruction, chain-of-custody
+    preservation), `confidence_engine.py` (`ConfidenceEngine`/
+    `FindingConfidenceWeights`, all seven required dimensions, weights
+    sum-validated), `severity.py` (pure `assign_severity`/`assign_priority`/
+    `calculate_risk_score` functions), `dedup.py`
+    (`FindingDeduplicationEngine`: six required dimensions — hash/IOC/
+    technique/evidence/time-window/host overlap — bucket-first and
+    technique-overlap-gated to avoid both O(n²) blow-up and false merges
+    across disjoint technique hypotheses; `merge_findings()`),
+    `finding_generator.py` (`FindingGenerationEngine`, one candidate Finding
+    per mapped technique), `metrics.py`/`events.py`/`audit.py`
+    (self-contained observability; `events.py` defines the six required
+    lifecycle events: `FindingCreated`/`FindingUpdated`/`FindingMerged`/
+    `TechniqueMapped`/`ConfidenceUpdated`/`FindingClosed`).
+  - `core/db/models/{mitre_tactic,mitre_technique,mitre_software,mitre_group,
+    mitre_mitigation}.py`: five reference tables, each with a surrogate UUID
+    PK, a unique indexed business column + `attack_spec_version` (append-only
+    versioning — never an in-place mutation), seeded only by
+    `scripts/mitre/import_attack_bundle.py`. `core/db/models/finding.py`
+    (`Finding` + `FindingStatus`; `case_id` a plain UUID column pending
+    Milestone M1's `Case` model, following the `Evidence.case_id`/
+    `IOC.case_id` precedent; `primary_evidence_id`/`primary_ioc_id` real
+    nullable FKs) and `core/db/models/finding_mitre_mapping.py`
+    (`FindingMitreMapping`, the real many-to-many join table). Plus
+    `core/db/finding_repository.py` and `core/db/mitre_repository.py`, and
+    two hand-reviewed Alembic migrations (generated via
+    `alembic revision --autogenerate`, verified end-to-end against a
+    throwaway SQLite DB — all tables, indexes, unique constraints, and FKs
+    confirmed present).
+  - `core/services/finding_service.py`: `FindingGenerationPipeline`, the
+    explicit stages (discover → map_and_generate → deduplicate → persist →
+    publish_event → notify_memory) + `generate_findings_for_case()`
+    orchestrator. `core/services` importing `core/findings`/
+    `core/threat_intel` (models only)/`core/knowledge`/`core/memory` directly
+    is a third, separately-scoped documented exception
+    (`docs/dependency-rules.md` rule 4c).
+  - `scripts/mitre/import_attack_bundle.py`: the only supported way ATT&CK
+    data enters the system — idempotent, offline-only, seeds all five
+    reference tables from a local vendored bundle.
+  - New `Settings` fields (`mitre_attack_data_path`, `mitre_attack_version`,
+    `finding_mapping_min_confidence`, `finding_dedup_similarity_threshold`,
+    `finding_dedup_time_window_minutes`, `finding_max_candidates_per_case`),
+    documented in `.env.example`.
+  - Two new mermaid diagrams (`docs/diagrams/finding-mitre-mapping-pipeline.mmd`,
+    `finding-lifecycle.mmd`).
+  - 112 new tests (629 total), including a real-vendored-bundle consistency
+    test (every shipped `MAPPING_RULES` entry resolves against the real
+    20-technique dataset), an idempotent-import regression test, a
+    missing-technique-seed degradation test (never crashes, logs and skips
+    the join row), and two performance guards (300 and 500 mixed-type IOCs
+    generating/deduplicating/persisting well under the time budget). mypy
+    (strict on `core/`), `ruff check`/`format`, and
+    `scripts/check_dependency_rules.py` all pass; the new `core/findings`/
+    `core/knowledge/mitre` leaf boundaries and the
+    `core/services → core/findings`/`core/knowledge`/`core/threat_intel`
+    edge were verified by manual `grep` to be exactly as scoped.
+
 ### Fixed
 - Re-verification pass over the Evidence Ingestion & Parser Framework
   (`core/parsers/`): confirmed `ruff check`/`format`, `mypy --strict`,

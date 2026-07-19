@@ -60,6 +60,29 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
 - [ ] **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE
       Agent; Phishing Investigation Agent + email parser + prompt-injection
       guard (first attacker-controlled-text agent).
+      **Built ahead of schedule** (`docs/adr/0013-finding-mitre-intelligence-engine-shape.md`):
+      the MITRE knowledge layer's concrete data — `core/knowledge/mitre/`
+      (`MitreAttackSource`, a real `KnowledgeSource`; a STIX 2.1 bundle
+      loader reading only local, vendored files, never the network;
+      `MitreLookup` fast lookups) — plus the full, reusable Finding & MITRE
+      ATT&CK Intelligence Engine (`core/findings/`): a rule-based, data-driven
+      `MitreMappingEngine` (twenty mapping rules covering every vendored
+      technique, one-IOC-to-many-techniques and many-IOCs-to-one-technique
+      via co-occurrence boosting), `EvidenceAggregator` (timeline
+      reconstruction, chain-of-custody preservation), a configurable
+      `ConfidenceEngine` (seven required dimensions, sum-to-1.0 validated),
+      deterministic severity/priority/risk-score assignment, and a
+      six-dimension, bucket-first `FindingDeduplicationEngine` — plus the
+      third and fourth real domain tables/schemas: five MITRE reference
+      tables (`mitre_tactics`/`techniques`/`software`/`groups`/`mitigations`,
+      seeded only by `scripts/mitre/import_attack_bundle.py`) and
+      `findings`/`finding_mitre_mappings` (a real many-to-many join table),
+      and the ten-stage `FindingGenerationPipeline`
+      (`core/services/finding_service.py`). No LLM reasoning, no
+      investigation logic, no cross-case correlation — explicitly out of
+      scope per the ADR. A curated (not complete) real-ATT&CK-data subset is
+      vendored (`data/mitre/raw/`, documented honestly in
+      `data/mitre/README.md`); a MITRE Agent still doesn't exist.
       *Demo: two independent working modules, each producing a mapped/scored finding.*
 
 - [ ] **M3 — Multi-agent orchestration.** Coordinator + Planning Agent + full

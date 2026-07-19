@@ -20,3 +20,12 @@ in the root `README.md`. Regenerate PNGs with the Mermaid CLI
   validation, normalization, deduplication, rule evaluation, scoring,
   classification, attribution, and persistence, including the
   never-silently-drop-a-rejection contract (constitution §1.7).
+- `finding-mitre-mapping-pipeline.mmd` — the Finding & MITRE ATT&CK
+  Intelligence Engine's Finding Generation Pipeline: MITRE mapping, evidence
+  aggregation, confidence/severity/priority assignment, deduplication,
+  persistence, and event publication
+  (`docs/adr/0013-finding-mitre-intelligence-engine-shape.md`).
+- `finding-lifecycle.mmd` — one candidate `FindingRecord`'s lifecycle:
+  mapping, aggregation, scoring, deduplication, and the open/merged/closed
+  state machine, including the never-a-forced-low-confidence-guess and
+  never-drop-evidence-on-merge contracts (constitution §1.7).

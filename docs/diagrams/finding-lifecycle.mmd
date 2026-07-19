@@ -1,0 +1,42 @@
+%% Finding Lifecycle — how one candidate FindingRecord moves from mapped
+%% technique to a persisted, deduplicated Finding row, and how a matching
+%% candidate merges into an existing open Finding rather than duplicating it
+%% (constitution §1.7; docs/adr/0013-finding-mitre-intelligence-engine-shape.md).
+%% Render with `mmdc -i finding-lifecycle.mmd -o finding-lifecycle.png`.
+
+stateDiagram-v2
+    [*] --> Mapped: MitreMappingEngine matches >=1 rule\n(one candidate per mapped technique_id)
+    Mapped --> Unmapped: no rule matched or confidence <\nfinding_mapping_min_confidence
+    Unmapped --> [*]: no Finding generated\n(never a forced low-confidence guess)
+
+    Mapped --> Aggregated: EvidenceAggregator.aggregate()\n[timeline, chain of custody, affected assets]
+    Aggregated --> Scored: ConfidenceEngine.calculate()\n[7 dimensions -> composite]
+    Scored --> Prioritized: assign_severity() / assign_priority() /\ncalculate_risk_score()
+    Prioritized --> Deduplicated: FindingDeduplicationEngine.evaluate()\nagainst this case's OPEN Findings
+
+    Deduplicated --> Open: decision=NEW\nFinding + FindingMitreMapping rows inserted
+    Deduplicated --> Merged: decision=MERGE (similarity >= threshold)\nmerge_findings() unions evidence/IOCs/mappings
+
+    Open --> Closed: analyst/future IR Agent closes the case
+    Closed --> Merged: a later run's candidate merges into this\nFinding — merge_findings() reopens it (new\nevidence is grounds to reconsider a closed decision)
+
+    Open --> [*]
+    Closed --> [*]
+    Merged --> [*]
+
+    note right of Deduplicated
+        Six dimensions, bucket-first (not naive
+        pairwise): hash similarity, IOC overlap,
+        technique overlap, evidence overlap,
+        time-window proximity, host overlap.
+        Two Findings mapped to disjoint technique
+        sets are never merge candidates, however
+        much supporting evidence otherwise overlaps
+        (one-IOC-to-many-techniques stays separate).
+    end note
+
+    note right of Mapped
+        Scoped to *within* one case's Findings —
+        never cross-case correlation (explicit
+        scope cut, docs/adr/0013 "Scope Cuts").
+    end note

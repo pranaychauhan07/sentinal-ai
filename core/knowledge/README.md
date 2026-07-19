@@ -24,11 +24,19 @@ from agent writes.
   against whatever sources are registered, but explicitly not semantic/RAG
   retrieval; that's a documented future swap behind the same Protocol.
 
-**Not yet built, by explicit scope:** any concrete `KnowledgeSource`
-(`MitreAttackSource`, `OwaspTop10Source`, a threat-intel/playbook/detection-
-rule/investigation-template source) and any populated dataset. This is
-cybersecurity-domain content, deliberately deferred past this
-infrastructure-only milestone.
+**Implemented (new this session, docs/adr/0013-finding-mitre-intelligence-
+engine-shape.md):**
+- `mitre/` — `MitreAttackSource` (a concrete `KnowledgeSource`) plus typed
+  MITRE ATT&CK reference models (`MitreTechnique`, `MitreTactic`,
+  `MitreSoftware`, `MitreGroup`, `MitreMitigation`), a STIX 2.1 bundle
+  loader, and `MitreLookup` fast in-memory lookups — see
+  `core/knowledge/mitre/README.md`. Data is vendored offline
+  (`data/mitre/raw/`), never fetched over the network.
+
+**Not yet built, by explicit scope:** `OwaspTop10Source`, a threat-intel/
+playbook/detection-rule/investigation-template source, and any populated
+dataset for those domains. This is cybersecurity-domain content, deliberately
+deferred past this session.
 
 **Why it exists:** Gives every agent a shared, versioned vocabulary (see
 `docs/mitre.md`, `docs/owasp.md`) instead of each agent inventing its own

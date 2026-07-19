@@ -1,6 +1,4 @@
-"""Domain models — one module per table (`evidence.py`, and future
-`case.py`/`finding.py`/`mitre_technique.py`/`timeline_event.py`/`report.py`
-as Milestone M1 adds them), re-exported here so
+"""Domain models — one module per table, re-exported here so
 `from core.db.models import Evidence` keeps working regardless of which
 sibling module actually defines it.
 
@@ -11,6 +9,25 @@ the same PR that introduces it.
 """
 
 from core.db.models.evidence import Evidence, EvidenceStatus
+from core.db.models.finding import Finding
+from core.db.models.finding_mitre_mapping import FindingMitreMapping
 from core.db.models.ioc import IOC, IOCStatus
+from core.db.models.mitre_group import MitreGroup
+from core.db.models.mitre_mitigation import MitreMitigation
+from core.db.models.mitre_software import MitreSoftware
+from core.db.models.mitre_tactic import MitreTactic
+from core.db.models.mitre_technique import MitreTechnique
 
-__all__ = ["IOC", "Evidence", "EvidenceStatus", "IOCStatus"]
+__all__ = [
+    "IOC",
+    "Evidence",
+    "EvidenceStatus",
+    "Finding",
+    "FindingMitreMapping",
+    "IOCStatus",
+    "MitreGroup",
+    "MitreMitigation",
+    "MitreSoftware",
+    "MitreTactic",
+    "MitreTechnique",
+]

@@ -110,6 +110,27 @@ class Settings(BaseSettings):
     opencti_base_url: str | None = Field(default=None, alias="OPENCTI_BASE_URL")
     opencti_api_key: str | None = Field(default=None, alias="OPENCTI_API_KEY")
 
+    # --- MITRE ATT&CK knowledge (core/knowledge/mitre, core/findings) ---
+    mitre_attack_data_path: Path = Field(
+        default=Path("./data/mitre/raw/attack-enterprise-15.1.json"),
+        alias="MITRE_ATTACK_DATA_PATH",
+    )
+    mitre_attack_version: str = Field(default="15.1", alias="MITRE_ATTACK_VERSION")
+
+    # --- Finding & MITRE mapping engine (core/findings, core/services/finding_service.py) ---
+    finding_mapping_min_confidence: float = Field(
+        default=0.3, ge=0.0, le=1.0, alias="FINDING_MAPPING_MIN_CONFIDENCE"
+    )
+    finding_dedup_similarity_threshold: float = Field(
+        default=0.6, ge=0.0, le=1.0, alias="FINDING_DEDUP_SIMILARITY_THRESHOLD"
+    )
+    finding_dedup_time_window_minutes: int = Field(
+        default=60, gt=0, alias="FINDING_DEDUP_TIME_WINDOW_MINUTES"
+    )
+    finding_max_candidates_per_case: int = Field(
+        default=2_000, alias="FINDING_MAX_CANDIDATES_PER_CASE"
+    )
+
     # --- Frontend / API ---
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     api_base_url: str = Field(default="http://localhost:8000", alias="API_BASE_URL")

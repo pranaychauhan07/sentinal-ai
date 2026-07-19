@@ -1,0 +1,473 @@
+{
+  "type": "bundle",
+  "id": "bundle--a1000000-0000-4000-8000-000000000001",
+  "spec_version": "2.1",
+  "x_mitre_attack_spec_version": "15.1",
+  "objects": [
+    {
+      "type": "x-mitre-collection",
+      "id": "x-mitre-collection--a1000000-0000-4000-8000-000000000000",
+      "name": "Enterprise ATT&CK (curated subset)",
+      "description": "A curated, hand-authored subset of the official MITRE ATT&CK Enterprise matrix, vendored for the Cyber Defense Copilot's offline Finding & MITRE ATT&CK Intelligence Engine. See data/mitre/README.md for provenance and scope.",
+      "x_mitre_version": "15.1"
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000001",
+      "name": "Reconnaissance",
+      "x_mitre_shortname": "reconnaissance",
+      "description": "The adversary is trying to gather information they can use to plan future operations.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0043", "url": "https://attack.mitre.org/tactics/TA0043"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000002",
+      "name": "Resource Development",
+      "x_mitre_shortname": "resource-development",
+      "description": "The adversary is trying to establish resources they can use to support operations.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0042", "url": "https://attack.mitre.org/tactics/TA0042"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000003",
+      "name": "Initial Access",
+      "x_mitre_shortname": "initial-access",
+      "description": "The adversary is trying to get into your network.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0001", "url": "https://attack.mitre.org/tactics/TA0001"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000004",
+      "name": "Execution",
+      "x_mitre_shortname": "execution",
+      "description": "The adversary is trying to run malicious code.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0002", "url": "https://attack.mitre.org/tactics/TA0002"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000005",
+      "name": "Persistence",
+      "x_mitre_shortname": "persistence",
+      "description": "The adversary is trying to maintain their foothold.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0003", "url": "https://attack.mitre.org/tactics/TA0003"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000006",
+      "name": "Privilege Escalation",
+      "x_mitre_shortname": "privilege-escalation",
+      "description": "The adversary is trying to gain higher-level permissions.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0004", "url": "https://attack.mitre.org/tactics/TA0004"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000007",
+      "name": "Defense Evasion",
+      "x_mitre_shortname": "defense-evasion",
+      "description": "The adversary is trying to avoid being detected.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0005", "url": "https://attack.mitre.org/tactics/TA0005"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000008",
+      "name": "Credential Access",
+      "x_mitre_shortname": "credential-access",
+      "description": "The adversary is trying to steal account names and passwords.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0006", "url": "https://attack.mitre.org/tactics/TA0006"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000009",
+      "name": "Discovery",
+      "x_mitre_shortname": "discovery",
+      "description": "The adversary is trying to figure out your environment.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0007", "url": "https://attack.mitre.org/tactics/TA0007"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000010",
+      "name": "Lateral Movement",
+      "x_mitre_shortname": "lateral-movement",
+      "description": "The adversary is trying to move through your environment.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0008", "url": "https://attack.mitre.org/tactics/TA0008"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000011",
+      "name": "Collection",
+      "x_mitre_shortname": "collection",
+      "description": "The adversary is trying to gather data of interest to their goal.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0009", "url": "https://attack.mitre.org/tactics/TA0009"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000012",
+      "name": "Command and Control",
+      "x_mitre_shortname": "command-and-control",
+      "description": "The adversary is trying to communicate with compromised systems to control them.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0011", "url": "https://attack.mitre.org/tactics/TA0011"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000013",
+      "name": "Exfiltration",
+      "x_mitre_shortname": "exfiltration",
+      "description": "The adversary is trying to steal data.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0010", "url": "https://attack.mitre.org/tactics/TA0010"}]
+    },
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--10000000-0000-4000-8000-000000000014",
+      "name": "Impact",
+      "x_mitre_shortname": "impact",
+      "description": "The adversary is trying to manipulate, interrupt, or destroy your systems and data.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0040", "url": "https://attack.mitre.org/tactics/TA0040"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000001",
+      "name": "Brute Force",
+      "description": "Adversaries may use brute force techniques to gain access to accounts when passwords are unknown or when password hashes are obtained.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1110", "url": "https://attack.mitre.org/techniques/T1110"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000002",
+      "name": "Command and Scripting Interpreter",
+      "description": "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "execution"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1059", "url": "https://attack.mitre.org/techniques/T1059"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000003",
+      "name": "Phishing",
+      "description": "Adversaries may send phishing messages to gain access to victim systems, often via malicious attachments or links.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "initial-access"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1566", "url": "https://attack.mitre.org/techniques/T1566"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000004",
+      "name": "Valid Accounts",
+      "description": "Adversaries may obtain and abuse credentials of existing accounts to gain initial access, persistence, privilege escalation, or defense evasion.",
+      "kill_chain_phases": [
+        {"kill_chain_name": "mitre-attack", "phase_name": "defense-evasion"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "persistence"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "privilege-escalation"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "initial-access"}
+      ],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1078", "url": "https://attack.mitre.org/techniques/T1078"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000005",
+      "name": "Remote Services",
+      "description": "Adversaries may use valid accounts to log into a service specifically designed to accept remote connections, such as RDP or SSH.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "lateral-movement"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1021", "url": "https://attack.mitre.org/techniques/T1021"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000006",
+      "name": "Obfuscated Files or Information",
+      "description": "Adversaries may attempt to make an executable or file difficult to discover or analyze by encrypting, encoding, or otherwise obfuscating its contents.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "defense-evasion"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1027", "url": "https://attack.mitre.org/techniques/T1027"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000007",
+      "name": "Scheduled Task/Job",
+      "description": "Adversaries may abuse task scheduling functionality to facilitate initial or recurring execution of malicious code.",
+      "kill_chain_phases": [
+        {"kill_chain_name": "mitre-attack", "phase_name": "execution"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "persistence"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "privilege-escalation"}
+      ],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1053", "url": "https://attack.mitre.org/techniques/T1053"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000008",
+      "name": "Process Injection",
+      "description": "Adversaries may inject code into processes to evade process-based defenses and elevate privileges.",
+      "kill_chain_phases": [
+        {"kill_chain_name": "mitre-attack", "phase_name": "defense-evasion"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "privilege-escalation"}
+      ],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1055", "url": "https://attack.mitre.org/techniques/T1055"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000009",
+      "name": "Application Layer Protocol",
+      "description": "Adversaries may communicate using OSI application layer protocols to blend in with existing traffic and avoid detection.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "command-and-control"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1071", "url": "https://attack.mitre.org/techniques/T1071"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000010",
+      "name": "Ingress Tool Transfer",
+      "description": "Adversaries may transfer tools or other files from an external system into a compromised environment.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "command-and-control"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1105", "url": "https://attack.mitre.org/techniques/T1105"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000011",
+      "name": "Exfiltration Over C2 Channel",
+      "description": "Adversaries may steal data by exfiltrating it over an existing command and control channel.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "exfiltration"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1041", "url": "https://attack.mitre.org/techniques/T1041"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000012",
+      "name": "Data Encrypted for Impact",
+      "description": "Adversaries may encrypt data on target systems or on large numbers of systems to interrupt availability, such as in a ransomware attack.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "impact"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1486", "url": "https://attack.mitre.org/techniques/T1486"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000013",
+      "name": "Network Service Discovery",
+      "description": "Adversaries may attempt to get a listing of services running on remote hosts, including those that may be vulnerable to remote exploitation.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "discovery"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1046", "url": "https://attack.mitre.org/techniques/T1046"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000014",
+      "name": "System Information Discovery",
+      "description": "Adversaries may attempt to get detailed information about the operating system and hardware, including version, patches, and architecture.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "discovery"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1082", "url": "https://attack.mitre.org/techniques/T1082"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000015",
+      "name": "OS Credential Dumping",
+      "description": "Adversaries may attempt to dump credentials to obtain account login information in the form of a hash or clear text password.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1003", "url": "https://attack.mitre.org/techniques/T1003"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000016",
+      "name": "Masquerading",
+      "description": "Adversaries may attempt to manipulate features of their artifacts to make them appear legitimate or benign to users and security tools.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "defense-evasion"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1036", "url": "https://attack.mitre.org/techniques/T1036"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000017",
+      "name": "Boot or Logon Autostart Execution",
+      "description": "Adversaries may configure system settings to automatically execute a program during system boot or logon to maintain persistence or gain higher-level privileges.",
+      "kill_chain_phases": [
+        {"kill_chain_name": "mitre-attack", "phase_name": "persistence"},
+        {"kill_chain_name": "mitre-attack", "phase_name": "privilege-escalation"}
+      ],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1547", "url": "https://attack.mitre.org/techniques/T1547"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000018",
+      "name": "User Execution",
+      "description": "Adversaries may rely on a user performing an action, such as opening a malicious attachment or clicking a link, to gain execution.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "execution"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1204", "url": "https://attack.mitre.org/techniques/T1204"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000019",
+      "name": "Proxy",
+      "description": "Adversaries may use a connection proxy to direct network traffic between systems or act as an intermediary for network communications to avoid direct connections.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "command-and-control"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1090", "url": "https://attack.mitre.org/techniques/T1090"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--20000000-0000-4000-8000-000000000020",
+      "name": "Remote System Discovery",
+      "description": "Adversaries may attempt to get a listing of other systems by IP address, hostname, or other logical identifier on a network.",
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "discovery"}],
+      "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1018", "url": "https://attack.mitre.org/techniques/T1018"}]
+    },
+    {
+      "type": "tool",
+      "id": "tool--30000000-0000-4000-8000-000000000001",
+      "name": "Mimikatz",
+      "description": "Mimikatz is a credential dumper capable of obtaining plaintext Windows account logins and passwords, along with many other features.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "S0002", "url": "https://attack.mitre.org/software/S0002"}]
+    },
+    {
+      "type": "tool",
+      "id": "tool--30000000-0000-4000-8000-000000000002",
+      "name": "Cobalt Strike",
+      "description": "Cobalt Strike is a commercial, full-featured penetration testing and adversary simulation tool widely abused as post-exploitation and command-and-control software.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "S0154", "url": "https://attack.mitre.org/software/S0154"}]
+    },
+    {
+      "type": "tool",
+      "id": "tool--30000000-0000-4000-8000-000000000003",
+      "name": "Empire",
+      "description": "Empire is an open-source, cross-platform post-exploitation framework that supports scripted execution and C2 communication.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "S0363", "url": "https://attack.mitre.org/software/S0363"}]
+    },
+    {
+      "type": "tool",
+      "id": "tool--30000000-0000-4000-8000-000000000004",
+      "name": "PsExec",
+      "description": "PsExec is a Windows Sysinternals tool for executing commands on remote systems, frequently abused for lateral movement.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "S0029", "url": "https://attack.mitre.org/software/S0029"}]
+    },
+    {
+      "type": "malware",
+      "id": "malware--30000000-0000-4000-8000-000000000005",
+      "name": "PlugX",
+      "description": "PlugX is a modular remote access tool used by multiple threat groups for command-and-control and file transfer.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "S0013", "url": "https://attack.mitre.org/software/S0013"}]
+    },
+    {
+      "type": "intrusion-set",
+      "id": "intrusion-set--40000000-0000-4000-8000-000000000001",
+      "name": "APT28",
+      "description": "APT28 is a threat group attributed to Russia's GRU that has been active since at least 2004, known for phishing and credential-theft operations.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "G0007", "url": "https://attack.mitre.org/groups/G0007"}]
+    },
+    {
+      "type": "intrusion-set",
+      "id": "intrusion-set--40000000-0000-4000-8000-000000000002",
+      "name": "APT29",
+      "description": "APT29 is a threat group attributed to Russia's SVR, known for stealthy, long-term intelligence-gathering campaigns.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "G0016", "url": "https://attack.mitre.org/groups/G0016"}]
+    },
+    {
+      "type": "intrusion-set",
+      "id": "intrusion-set--40000000-0000-4000-8000-000000000003",
+      "name": "Lazarus Group",
+      "description": "Lazarus Group is a North Korean state-sponsored threat group known for destructive attacks and financially motivated operations.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "G0032", "url": "https://attack.mitre.org/groups/G0032"}]
+    },
+    {
+      "type": "intrusion-set",
+      "id": "intrusion-set--40000000-0000-4000-8000-000000000004",
+      "name": "FIN7",
+      "description": "FIN7 is a financially motivated threat group known for targeting the retail and hospitality sectors via phishing and point-of-sale malware.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "G0046", "url": "https://attack.mitre.org/groups/G0046"}]
+    },
+    {
+      "type": "intrusion-set",
+      "id": "intrusion-set--40000000-0000-4000-8000-000000000005",
+      "name": "Carbanak",
+      "description": "Carbanak is a financially motivated threat group that has targeted financial institutions using tailored malware and living-off-the-land techniques.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "G0008", "url": "https://attack.mitre.org/groups/G0008"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--50000000-0000-4000-8000-000000000001",
+      "name": "Multi-factor Authentication",
+      "description": "Use two or more pieces of evidence to authenticate to a system, such as a combination of a password and a physical token.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1032", "url": "https://attack.mitre.org/mitigations/M1032"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--50000000-0000-4000-8000-000000000002",
+      "name": "Network Segmentation",
+      "description": "Architect sections of the network to isolate critical systems, functions, or resources.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1030", "url": "https://attack.mitre.org/mitigations/M1030"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--50000000-0000-4000-8000-000000000003",
+      "name": "Antivirus/Antimalware",
+      "description": "Use signatures or heuristics to detect malicious software.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1049", "url": "https://attack.mitre.org/mitigations/M1049"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--50000000-0000-4000-8000-000000000004",
+      "name": "Execution Prevention",
+      "description": "Block execution of code on a system through application control, allow-listing, or similar mechanisms.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1038", "url": "https://attack.mitre.org/mitigations/M1038"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--50000000-0000-4000-8000-000000000005",
+      "name": "Privileged Account Management",
+      "description": "Manage the creation, modification, use, and permissions associated with privileged accounts.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1026", "url": "https://attack.mitre.org/mitigations/M1026"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--50000000-0000-4000-8000-000000000006",
+      "name": "User Training",
+      "description": "Train users to identify and report suspicious activity, such as phishing attempts.",
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1017", "url": "https://attack.mitre.org/mitigations/M1017"}]
+    },
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000001", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000001", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000003", "description": "APT28 uses spearphishing to gain initial access."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000002", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000001", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000004", "description": "APT28 uses valid accounts obtained via credential theft."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000003", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000001", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000010", "description": "APT28 transfers tools into compromised environments."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000004", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000001", "target_ref": "tool--30000000-0000-4000-8000-000000000002", "description": "APT28 uses Cobalt Strike for post-exploitation."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000005", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000004", "description": "APT29 uses valid accounts for stealthy access."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000006", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000009", "description": "APT29 blends C2 traffic into application layer protocols."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000007", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000002", "target_ref": "tool--30000000-0000-4000-8000-000000000002", "description": "APT29 uses Cobalt Strike."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000008", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000002", "target_ref": "tool--30000000-0000-4000-8000-000000000001", "description": "APT29 uses Mimikatz for credential dumping."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000009", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000003", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000012", "description": "Lazarus Group deploys ransomware for destructive impact."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000010", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000003", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000006", "description": "Lazarus Group obfuscates its payloads."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000011", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000003", "target_ref": "malware--30000000-0000-4000-8000-000000000005", "description": "Lazarus Group uses PlugX for command-and-control."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000012", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000004", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000018", "description": "FIN7 relies on user execution of malicious attachments."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000013", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000004", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000002", "description": "FIN7 executes scripts on compromised point-of-sale systems."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000014", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000004", "target_ref": "tool--30000000-0000-4000-8000-000000000002", "description": "FIN7 uses Cobalt Strike."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000015", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000004", "target_ref": "tool--30000000-0000-4000-8000-000000000004", "description": "FIN7 uses PsExec for lateral movement."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000016", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000005", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000007", "description": "Carbanak schedules tasks for persistence."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000017", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000005", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000015", "description": "Carbanak dumps OS credentials to move laterally."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000018", "relationship_type": "uses", "source_ref": "intrusion-set--40000000-0000-4000-8000-000000000005", "target_ref": "tool--30000000-0000-4000-8000-000000000002", "description": "Carbanak uses Cobalt Strike."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000019", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000001", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000015", "description": "Mimikatz implements OS credential dumping."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000020", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000009", "description": "Cobalt Strike's Beacon uses application layer protocols for C2."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000021", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000010", "description": "Cobalt Strike transfers additional tooling to targets."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000022", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000008", "description": "Cobalt Strike supports process injection for evasion."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000023", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000003", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000002", "description": "Empire executes PowerShell scripts on target hosts."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000024", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000003", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000006", "description": "Empire obfuscates its staged payloads."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000025", "relationship_type": "uses", "source_ref": "tool--30000000-0000-4000-8000-000000000004", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000005", "description": "PsExec is abused as a remote service for lateral movement."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000026", "relationship_type": "uses", "source_ref": "malware--30000000-0000-4000-8000-000000000005", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000010", "description": "PlugX transfers additional modules from its C2 server."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000027", "relationship_type": "uses", "source_ref": "malware--30000000-0000-4000-8000-000000000005", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000006", "description": "PlugX obfuscates its configuration and payloads."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000028", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000001", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000001", "description": "MFA reduces the impact of successful brute-force attempts."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000029", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000001", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000004", "description": "MFA reduces the value of a single stolen credential."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000030", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000005", "description": "Network segmentation limits reachable remote services."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000031", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000002", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000013", "description": "Network segmentation reduces the surface visible to service discovery."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000032", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000003", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000006", "description": "Antivirus/antimalware can detect known obfuscation packers."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000033", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000003", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000010", "description": "Antivirus/antimalware can flag known tool-transfer payloads."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000034", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000004", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000002", "description": "Execution prevention/allow-listing blocks unauthorized interpreters."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000035", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000004", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000018", "description": "Execution prevention blocks user-launched malicious payloads."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000036", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000005", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000004", "description": "Privileged account management limits abuse of valid accounts."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000037", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000005", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000015", "description": "Privileged account management restricts what dumped credentials can access."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000038", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000006", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000003", "description": "User training reduces phishing susceptibility."},
+    {"type": "relationship", "id": "relationship--60000000-0000-4000-8000-000000000039", "relationship_type": "mitigates", "source_ref": "course-of-action--50000000-0000-4000-8000-000000000006", "target_ref": "attack-pattern--20000000-0000-4000-8000-000000000018", "description": "User training reduces the likelihood of a user executing malicious content."}
+  ]
+}
