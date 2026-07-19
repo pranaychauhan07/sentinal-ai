@@ -10,7 +10,7 @@ jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -51,7 +51,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://cdc:cdc@localhost:5432/cyber_defense_copilot
       LLM_PROVIDER: ollama   # CI never calls a real LLM; unit tests mock providers
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
