@@ -39,6 +39,9 @@ logs/*
 data/reports_out/*
 !data/reports_out/.gitkeep
 !data/reports_out/README.md
+data/evidence_uploads/*
+!data/evidence_uploads/.gitkeep
+!data/evidence_uploads/README.md
 
 # --- IDE ---
 .vscode/

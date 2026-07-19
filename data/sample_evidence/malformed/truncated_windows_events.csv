@@ -1,0 +1,4 @@
+EventID,TimeCreated,Computer,Account,SourceIP,LogonType,Message
+4625,2026-07-18T02:11:02Z,DC01,Administrator,203.0.113.44,3,An account failed to log on
+,,,,,,
+4624,2026-07-18T02:11:20Z,DC01,Administrator,203.0.113.44,3,An account was successfully logged on

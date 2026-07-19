@@ -1,0 +1,5 @@
+[Sat Jul 18 02:13:40.123456 2026] [core:error] [pid 8821:tid 1234] [client 203.0.113.44:51422] AH00126: Invalid URI in request GET /wp-login.php HTTP/1.1
+[Sat Jul 18 02:13:41.654321 2026] [auth:error] [pid 8822:tid 1235] [client 203.0.113.44:51423] AH01797: client denied by server configuration: /var/www/html/wp-login.php
+[Sat Jul 18 03:05:12.001122 2026] [php:warn] [pid 9011:tid 2001] [client 198.51.100.201:44210] PHP Warning: Undefined array key "id" in /var/www/html/products.php on line 42
+[Sat Jul 18 03:05:18.223344 2026] [core:crit] [pid 9011:tid 2001] [client 198.51.100.201:44210] AH00558: httpd: Could not reliably determine the server's fully qualified domain name
+[Sat Jul 18 03:20:01.445566 2026] [core:error] [pid 9102:tid 3001] [client 192.0.2.77:33221] AH00126: Invalid URI in request GET /../../../../etc/passwd HTTP/1.1

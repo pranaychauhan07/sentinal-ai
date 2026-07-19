@@ -1,0 +1,40 @@
+%% Evidence Ingestion & Parser Framework — the ten-stage pipeline
+%% (docs/adr/0011-evidence-ingestion-pipeline-shape.md).
+%% Render with `mmdc -i evidence-ingestion-pipeline.mmd -o evidence-ingestion-pipeline.png`.
+%% No Case model or apps/api route exists yet — "Caller" below is a test
+%% harness today; Milestone M1 wires a real /api/v1 route to the same
+%% core.services.evidence_service.ingest_evidence() call, nothing else changes.
+
+sequenceDiagram
+    participant Caller as Caller (future apps/api route)
+    participant Pipeline as EvidencePipeline
+    participant Validation as core.parsers.validation
+    participant Detection as core.parsers.detection
+    participant Registry as ParserRegistry
+    participant Parser as BaseParser subclass
+    participant Repo as EvidenceRepository
+    participant Events as ParserEventPublisher
+    participant Memory as CaseMemory (advisory)
+
+    Caller->>Pipeline: ingest_evidence(case_id, filename, content)
+    Pipeline->>Pipeline: upload() -> RawEvidenceInput
+    Pipeline->>Validation: validate() [size, extension, path traversal]
+    alt validation fails
+        Validation-->>Pipeline: raises ParserError subclass
+        Pipeline-->>Caller: propagates typed exception (audit-logged REJECTED)
+    else validation passes
+        Pipeline->>Pipeline: fingerprint() -> SHA-256
+        Pipeline->>Detection: extract_metadata() [MIME, encoding]
+        Pipeline->>Detection: select_parser_for() [decode for sniffing]
+        Pipeline->>Registry: find_by_evidence_type / find_by_extension
+        Registry-->>Pipeline: highest-priority matching BaseParser
+        Pipeline->>Parser: parse(raw)
+        Note over Parser: __call__ owns decode, validate_content,<br/>parse_content, and the degrade-not-crash<br/>contract (see parser-lifecycle.mmd)
+        Parser-->>Pipeline: NormalizedEvidence (confidence-scored)
+        Pipeline->>Pipeline: normalize() [record-count cap]
+        Pipeline->>Repo: persist() [write file, insert/update Evidence row]
+        Repo-->>Pipeline: Evidence (status=PARSED)
+        Pipeline->>Events: publish_event(PARSED | DEGRADED)
+        Pipeline->>Memory: notify_memory() [advisory, never raises]
+        Pipeline-->>Caller: EvidenceIngestionResult
+    end

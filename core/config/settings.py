@@ -69,6 +69,18 @@ class Settings(BaseSettings):
     # --- Security ---
     prompt_guard_extra_patterns: str = Field(default="", alias="PROMPT_GUARD_EXTRA_PATTERNS")
 
+    # --- Evidence ingestion (core/parsers, core/services/evidence_service.py) ---
+    evidence_max_upload_bytes: int = Field(
+        default=25 * 1024 * 1024, alias="EVIDENCE_MAX_UPLOAD_BYTES"
+    )
+    evidence_allowed_extensions: str = Field(
+        default=".log,.txt,.csv,.json,.xml,.evtx",
+        alias="EVIDENCE_ALLOWED_EXTENSIONS",
+    )
+    evidence_storage_dir: Path = Field(
+        default=Path("./data/evidence_uploads"), alias="EVIDENCE_STORAGE_DIR"
+    )
+
     # --- Frontend / API ---
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     api_base_url: str = Field(default="http://localhost:8000", alias="API_BASE_URL")
@@ -90,6 +102,11 @@ class Settings(BaseSettings):
     def prompt_guard_extra_pattern_list(self) -> list[str]:
         """Parsed comma-separated extra prompt-injection patterns."""
         return [p.strip() for p in self.prompt_guard_extra_patterns.split(",") if p.strip()]
+
+    @property
+    def evidence_allowed_extension_list(self) -> list[str]:
+        """Parsed comma-separated allowlist of upload extensions."""
+        return [e.strip().lower() for e in self.evidence_allowed_extensions.split(",") if e.strip()]
 
     @property
     def is_sqlite(self) -> bool:

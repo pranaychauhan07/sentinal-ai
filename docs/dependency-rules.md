@@ -12,7 +12,7 @@ apps/web , apps/api            (frontends — presentation only)
 core/services                  (orchestration for frontends)
         ↓ may import
 core/graph                     (LangGraph workflow)
-        ↓ may import
+        ↓ may import           ↘ core/parsers, core/memory (evidence ingestion only — rule 4a)
 core/agents                    (specialist agents)
         ↓ may import
 core/tools , core/parsers       (deterministic functions)
@@ -36,6 +36,18 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    function per user action. If you find yourself writing an `if` statement
    that makes a security/business decision inside a Streamlit page or a
    FastAPI router, that logic belongs in `core/services` or below.
+
+4a. **`core/services/evidence_service.py` may import `core/parsers` and
+   `core/memory` directly** — the one documented exception to "services only
+   call `core/graph`." Evidence ingestion (upload, validate, fingerprint,
+   parse, normalize, persist) is deterministic, pre-investigation processing
+   with no agent/LLM reasoning involved (blueprint §9 steps 1-3 happen
+   *before* the Coordinator/graph); routing it through `core/graph` for no
+   reason would be architecture-for-its-own-sake. See
+   `docs/adr/0011-evidence-ingestion-pipeline-shape.md`. No other
+   `core/services` module gets this exception without its own ADR — this is
+   scoped to evidence ingestion specifically, not a general services→parsers
+   license.
 
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to

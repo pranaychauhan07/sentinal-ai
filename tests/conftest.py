@@ -24,6 +24,7 @@ def test_settings(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Setting
     monkeypatch.setenv("LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("APP_ENV", "testing")
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("EVIDENCE_STORAGE_DIR", str(tmp_path / "evidence_uploads"))
 
     get_settings.cache_clear()
     settings = get_settings()

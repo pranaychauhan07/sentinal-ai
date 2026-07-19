@@ -32,11 +32,29 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       tested `/health`, `/ready`, `/version` API with OpenAPI docs at `/docs`.*
 
 - [ ] **M1 — First real module, single agent, no orchestration.** Domain
-      models (`Case`, `Evidence`, `Finding`, `MitreTechnique`,
-      `TimelineEvent`, `Report` — blueprint §8) + first Alembic migration,
-      syslog/firewall log parser + SOC Analyst Agent as a standalone
-      single-node LangGraph + risk scoring (`core/tools/scoring.py`) +
-      persistence via `core/db/base_repository.py`.
+      models (`Case`, `Finding`, `MitreTechnique`, `TimelineEvent`, `Report` —
+      blueprint §8) + their Alembic migration, SOC Analyst Agent as a
+      standalone single-node LangGraph + risk scoring
+      (`core/tools/scoring.py`), constructed with a real
+      `core.memory.case_memory.SQLiteCaseMemory`.
+      **Built ahead of schedule** (`docs/adr/0011-evidence-ingestion-pipeline-shape.md`):
+      the reusable Evidence Ingestion & Parser Framework — plugin-capable
+      `ParserRegistry` (aliases, priority, versioning, enable/disable,
+      `importlib.metadata` plugin discovery), deterministic
+      `select_parser` factory, upload validation (size/extension/path-
+      traversal), stdlib-only MIME/encoding detection, SHA-256
+      fingerprinting, self-contained parser metrics/events, audit logging,
+      and nine concrete parsers (`ssh_auth`, `apache_access`,
+      `apache_error`, `syslog`, `windows_event` [CSV/XML EVTX abstraction],
+      `json_evidence`, `csv_evidence`, `nmap_xml` [via `defusedxml`, XXE-safe],
+      `plain_text`) producing the canonical `NormalizedEvidence` contract —
+      plus the first real domain table, `Evidence` (`core/db/models/
+      evidence.py`, `case_id` a plain UUID pending M1's `Case` model per the
+      ADR-0010 precedent), its repository, and the ten-stage
+      `EvidencePipeline` (`core/services/evidence_service.py`). 107 new
+      tests, mypy/ruff/dependency-rules clean. Still not checked off: `Case`/
+      `Finding`/etc. domain models, any concrete specialist agent, and the
+      `/api/v1` route wiring `ingest_evidence()` to a real endpoint.
       *Demo: upload a firewall log → get a real, saved, severity-classified finding.*
 
 - [ ] **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE

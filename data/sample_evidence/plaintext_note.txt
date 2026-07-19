@@ -1,0 +1,10 @@
+Analyst note (2026-07-18, shift handover):
+
+Noticed repeated failed SSH logins against web-prod-01 from 203.0.113.44
+starting around 02:14 UTC, followed by a successful root login. Also saw
+what looks like SQLi probing against the product search endpoint from
+198.51.100.201 in the Apache access log around 03:05 UTC. Flagging both for
+the morning shift to correlate against the Windows DC01 security events
+(same source IP, 203.0.113.44, shows up there too around 02:11 UTC).
+
+No PDF report generated yet — waiting on the Vulnerability Assessment module.

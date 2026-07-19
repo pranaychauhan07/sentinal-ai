@@ -121,6 +121,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     `KnowledgeSourceRegistry`, and a deterministic
     `KeywordKnowledgeRetriever`.
   - 70 new tests (228 total), full mypy/ruff/dependency-rule pass.
+- Evidence Ingestion & Parser Framework
+  (`docs/adr/0011-evidence-ingestion-pipeline-shape.md`) — built ahead of
+  the milestone schedule (normally part of M1) as reusable, agent-independent
+  infrastructure, with zero investigation/MITRE/agent logic:
+  - `core/parsers/models.py`: the canonical evidence contract —
+    `EvidenceType`, `Severity`, `EvidenceRecord` (per-event), `NormalizedEvidence`
+    (per-artifact container with `ChainOfCustody`), every parser's one output shape.
+  - `core/parsers/base.py`: `BaseParser` template method (mirrors
+    `BaseTool`/`BaseAgent`'s shape) — owns encoding detection, fingerprinting,
+    timing, metrics, logging, and the degrade-not-crash contract
+    (a malformed artifact returns a zero-confidence result with the whole
+    artifact preserved in `unparsed_fragments`, never a crash and never
+    silently dropped data).
+  - `core/parsers/registry.py`: plugin-capable `ParserRegistry` — aliases,
+    versioning, priority-based tie-breaking, enable/disable, and
+    `load_plugins()` via `importlib.metadata` entry points (`cdc.parsers`
+    group) as a real, working external-extension seam.
+  - `core/parsers/factory.py`: deterministic `select_parser` (declared type
+    → extension → content-sniff ranking → `UnsupportedFormatError`).
+  - `core/parsers/detection.py`, `validation.py`, `fingerprint.py`: stdlib-only
+    MIME/encoding detection (no `chardet`/`python-magic` dependency added),
+    upload-boundary validation (size caps, extension allowlist, path-traversal
+    guard), and SHA-256 fingerprinting.
+  - `core/parsers/metrics.py`, `events.py`, `audit.py`: self-contained parser
+    metrics/event-publisher (independent of `core.graph.events.EventBus`, per
+    the same leaf-layering reasoning as `core/memory/metrics.py`), and
+    structured chain-of-custody audit logging.
+  - Nine concrete parsers, each a `BaseParser` subclass: `ssh_auth`,
+    `apache_access`, `apache_error`, `syslog` (generic RFC3164-ish fallback),
+    `windows_event` (a CSV/XML **EVTX abstraction** — binary `.evtx` parsing
+    is a documented future extension), `json_evidence`, `csv_evidence`,
+    `nmap_xml` (via `defusedxml` — XXE/entity-expansion-safe, verified against
+    an XXE-attempt fixture), `plain_text` (deterministic last-resort fallback).
+  - `core/db/models/` (new package, first domain persistence): `Evidence`
+    ORM model + `EvidenceStatus`, `case_id` a plain UUID column pending
+    Milestone M1's `Case` model (extending the exact ADR-0010 precedent),
+    plus its first Alembic migration and `core/db/evidence_repository.py`
+    (`find_by_case`, `find_by_sha256` dedup, `mark_parsed`, `mark_failed`).
+  - `core/services/evidence_service.py`: `EvidencePipeline`, the ten explicit
+    stages (upload → validate → fingerprint → extract_metadata →
+    select_parser → parse → normalize → persist → publish_event →
+    notify_memory) + `ingest_evidence()` orchestrator. `core/services`
+    importing `core/parsers`/`core/memory` directly is a documented,
+    scoped exception to the "services only call `core/graph`" rule (ADR-0011),
+    since evidence ingestion is deterministic and pre-investigation.
+  - Two new mermaid diagrams (`docs/diagrams/evidence-ingestion-pipeline.mmd`,
+    `parser-lifecycle.mmd`).
+  - 107 new tests (352 total, up from 245), including adversarial fixtures
+    (an XXE-attempt Nmap XML, truncated/malformed CSV and JSON, path
+    traversal filenames, oversized/empty uploads, non-UTF8 byte content).
+    mypy (strict on `core/`), `ruff check`/`format`, and
+    `scripts/check_dependency_rules.py` all pass; the one new
+    `core/services → core/parsers` edge was verified by manual grep to be
+    exactly as scoped.
+  - New dependency: `defusedxml` (runtime, XXE protection for
+    `nmap_parser.py`) + `types-defusedxml` (dev, mypy stubs).
 
 <!--
 Template for future entries:

@@ -1,0 +1,36 @@
+%% Parser Lifecycle & Normalization — how one BaseParser subclass turns raw
+%% bytes into a confidence-scored NormalizedEvidence, and how the framework
+%% never lets a single artifact crash ingestion or silently lose data
+%% (constitution §1.7; docs/adr/0011-evidence-ingestion-pipeline-shape.md).
+%% Render with `mmdc -i parser-lifecycle.mmd -o parser-lifecycle.png`.
+
+stateDiagram-v2
+    [*] --> Registered: registry.register(parser, aliases, priority, enabled)
+    Registered --> Selected: factory.select_parser() [declared_type > extension > content sniff]
+    Selected --> Decoding: BaseParser.__call__ decodes bytes (detect_encoding)
+    Decoding --> Validating: validate_content(raw, decoded_text)
+
+    Validating --> Parsing: content is structurally valid
+    Validating --> Degraded: MalformedEvidenceError raised
+
+    Parsing --> Parsed: parse_content() returns NormalizedEvidence
+    Parsing --> Degraded: MalformedEvidenceError raised mid-parse
+
+    Degraded --> [*]: confidence=0.0, whole artifact preserved\nin unparsed_fragments (never dropped)
+    Parsed --> [*]: confidence in (0.0, 1.0], records + any\nunparsed_fragments returned together
+
+    note right of Selected
+        Registered but disabled parsers are
+        never selected (registry.disable()).
+        A tie between equal-priority candidates
+        is broken by each parser's own sniff()
+        confidence (core.parsers.factory).
+    end note
+
+    note right of Degraded
+        This is the ONLY path a parser-level
+        exception takes. UnsupportedFormatError /
+        ParserValidationError (upload-boundary
+        failures) happen before this diagram even
+        starts — see evidence-ingestion-pipeline.mmd.
+    end note

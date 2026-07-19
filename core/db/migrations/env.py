@@ -3,10 +3,10 @@
 ``sqlalchemy.url`` in ``alembic.ini`` — see core/db/migrations/README.md and
 docs/adr/0004-relational-database.md.
 
-No domain models are imported into ``target_metadata`` yet — there are none
-until Milestone M1 (docs/roadmap.md). Once ``core/db/models.py`` exists, add
-``from core.db import models  # noqa: F401`` below so Alembic's autogenerate
-can see them via ``Base.metadata``.
+``core.db.models`` is imported for its side effect of registering every
+domain table onto ``Base.metadata`` before autogeneration inspects it — a
+new domain module (Milestone M1's ``Case``/``Finding``/etc.) only needs to
+be imported from ``core/db/models/__init__.py``, not from here.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 from alembic import context
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+import core.db.models  # noqa: F401 - registers domain tables onto Base.metadata
 from core.config import get_settings
 from core.db.session import Base, create_engine
 
