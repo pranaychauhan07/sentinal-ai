@@ -116,3 +116,152 @@ def test_upload_evidence_for_missing_case_returns_404(client: TestClient) -> Non
         files={"file": ("x.log", b"hello", "text/plain")},
     )
     assert response.status_code == 404
+
+
+def test_create_case_defaults_to_medium_priority(client: TestClient) -> None:
+    response = client.post("/api/v1/cases", json={"title": "Priority default"})
+    body = response.json()
+    assert body["priority"] == "medium"
+    assert body["risk_score"] is None
+    # `owner_id` defaults to the creating analyst (ADR-0015 point 4);
+    # `assignee_id` has no default until explicitly assigned.
+    assert body["owner_id"] == "local-analyst"
+    assert body["assignee_id"] is None
+
+
+def test_create_case_rejects_exact_duplicate(client: TestClient) -> None:
+    client.post("/api/v1/cases", json={"title": "Dup case"})
+    response = client.post("/api/v1/cases", json={"title": "Dup case"})
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "BUSINESS_RULE_VIOLATION"
+
+
+def test_update_case_status_rejects_illegal_transition(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Illegal jump"}).json()
+    response = client.patch(f"/api/v1/cases/{created['id']}", json={"status": "archived"})
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "BUSINESS_RULE_VIOLATION"
+
+    unchanged = client.get(f"/api/v1/cases/{created['id']}").json()
+    assert unchanged["status"] == "open"
+
+
+def test_update_case_status_still_allows_legal_transition(client: TestClient) -> None:
+    """Regression: the still-legal transition path this endpoint already
+    supported before ADR-0015's validation was added must keep working."""
+    created = client.post("/api/v1/cases", json={"title": "Still works"}).json()
+    response = client.patch(f"/api/v1/cases/{created['id']}", json={"status": "investigating"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "investigating"
+
+
+def test_update_case_details(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Original"}).json()
+    response = client.patch(
+        f"/api/v1/cases/{created['id']}/details",
+        json={"title": "Renamed", "description": "new description"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Renamed"
+    assert body["description"] == "new description"
+
+
+def test_update_case_assignment(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Assign me"}).json()
+    response = client.patch(
+        f"/api/v1/cases/{created['id']}/assignment",
+        json={"owner_id": "owner-1", "assignee_id": "assignee-1"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["owner_id"] == "owner-1"
+    assert body["assignee_id"] == "assignee-1"
+
+
+def test_update_case_priority(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Priority me"}).json()
+    response = client.patch(
+        f"/api/v1/cases/{created['id']}/priority", json={"priority": "critical"}
+    )
+    assert response.status_code == 200
+    assert response.json()["priority"] == "critical"
+
+
+def test_update_case_labels(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Labels me"}).json()
+    response = client.patch(
+        f"/api/v1/cases/{created['id']}/labels", json={"labels": {"env": "prod"}}
+    )
+    assert response.status_code == 200
+
+
+def test_case_tag_crud(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Tag me"}).json()
+    case_id = created["id"]
+
+    add_response = client.post(f"/api/v1/cases/{case_id}/tags", json={"tag": "phishing"})
+    assert add_response.status_code == 201
+    assert add_response.json()["tag"] == "phishing"
+
+    list_response = client.get(f"/api/v1/cases/{case_id}/tags")
+    assert [t["tag"] for t in list_response.json()["items"]] == ["phishing"]
+
+    remove_response = client.delete(f"/api/v1/cases/{case_id}/tags/phishing")
+    assert remove_response.status_code == 204
+
+    empty_list = client.get(f"/api/v1/cases/{case_id}/tags")
+    assert empty_list.json()["items"] == []
+
+
+def test_remove_nonexistent_tag_returns_404(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "No tag"}).json()
+    response = client.delete(f"/api/v1/cases/{created['id']}/tags/missing")
+    assert response.status_code == 404
+
+
+def test_case_note_crud(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Note me"}).json()
+    case_id = created["id"]
+
+    add_response = client.post(f"/api/v1/cases/{case_id}/notes", json={"body": "first note"})
+    assert add_response.status_code == 201
+    note_id = add_response.json()["id"]
+    assert add_response.json()["author_id"] == "local-analyst"
+
+    update_response = client.patch(
+        f"/api/v1/cases/{case_id}/notes/{note_id}", json={"body": "edited note"}
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["body"] == "edited note"
+
+    list_response = client.get(f"/api/v1/cases/{case_id}/notes")
+    assert len(list_response.json()["items"]) == 1
+
+    delete_response = client.delete(f"/api/v1/cases/{case_id}/notes/{note_id}")
+    assert delete_response.status_code == 204
+
+    empty_list = client.get(f"/api/v1/cases/{case_id}/notes")
+    assert empty_list.json()["items"] == []
+
+    timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
+    manual_notes = [e for e in timeline["items"] if e["event_type"] == "manual_note"]
+    assert len(manual_notes) == 3
+
+
+def test_update_note_for_wrong_case_returns_404(client: TestClient) -> None:
+    case_one = client.post("/api/v1/cases", json={"title": "Case One"}).json()
+    case_two = client.post("/api/v1/cases", json={"title": "Case Two"}).json()
+    note = client.post(
+        f"/api/v1/cases/{case_one['id']}/notes", json={"body": "belongs to one"}
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/cases/{case_two['id']}/notes/{note['id']}", json={"body": "hijack attempt"}
+    )
+    assert response.status_code == 404
+
+    # The note's body must be unchanged — the 404 must be raised before any
+    # mutation, not after (a real correctness hazard if checked post-write).
+    unchanged = client.get(f"/api/v1/cases/{case_one['id']}/notes").json()
+    assert unchanged["items"][0]["body"] == "belongs to one"

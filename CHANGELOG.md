@@ -389,6 +389,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     via `TestClient` covering the 404 path, pagination, and the full
     upload-through-timeline flow. mypy (strict on `core/`), `ruff check`/
     `format`, and `scripts/check_dependency_rules.py` all pass.
+- Case Management Extension (`docs/adr/0015-case-management-extension.md`)
+  — a hardening/extension pass over Milestone M1's `Case` subsystem, not a
+  new milestone:
+  - `CaseStatus` extended additively with `ESCALATED`/`ON_HOLD`/
+    `CONTAINED`/`RESOLVED`/`ARCHIVED` (the original `open`/`investigating`/
+    `closed` values are unchanged); new `CasePriority` enum; `Case` gained
+    `priority`, `risk_score`, `owner_id`/`assignee_id`, and `labels`
+    (freeform, unindexed JSON metadata) columns.
+  - Two new domain tables: `CaseNote` (editable analyst commentary, a
+    distinct entity from `TimelineEvent.MANUAL_NOTE`'s immutable audit
+    record — every note create/update/delete records a paired
+    `TimelineEvent`) and `CaseTag` (an indexed, unique-constrained
+    `(case_id, tag)` join table, dialect-portable across PostgreSQL/SQLite).
+    New `TimelineEventType.CASE_ASSIGNED`.
+  - Two new migrations verified end-to-end (upgrade/downgrade/re-upgrade
+    against a throwaway SQLite DB): dialect-branching enum extension
+    (`ALTER TYPE ... ADD VALUE` on PostgreSQL, `batch_alter_table` rebuild
+    on SQLite) plus the two new tables.
+  - `core/services/case_lifecycle.py`: a pure, exhaustively-tested
+    `CaseStatus` transition table — `core/services/case_service.py::
+    update_case_status` now validates every transition (raising the
+    existing `BusinessRuleError`, no new exception class) *before* calling
+    `CaseRepository.update_status`, which itself remains unconditional CRUD
+    (transition validation cannot live in `core/db`, which must never
+    import `core/services`).
+  - `core/services/case_events.py` (`CaseEvent`/`CaseEventPublisher`, eight
+    event types) and `core/services/case_metrics.py`
+    (`CaseMetricsCollector` + `compute_case_risk_score`, a rollup of
+    already-persisted `Finding.risk_score` values) — both mirror
+    `core.findings.events`/`core.findings.metrics`'s shape exactly, living
+    in `core/services/` rather than a new `core/cases/` leaf package.
+  - `case_service.py` gained `update_case_details/_assignment/_priority/
+    _labels`, `add/update/delete/list_case_note(s)`, `add/remove/
+    list_case_tags`, `recompute_case_risk_score`, and an exact-match
+    `(title, analyst_id)` duplicate-case guard on `create_case` (raises
+    `BusinessRuleError`, `409`).
+  - Ten new `/api/v1/cases/{id}/...` routes (`details`, `assignment`,
+    `priority`, `labels`, `tags` GET/POST/DELETE, `notes`
+    GET/POST/PATCH/DELETE). The existing `PATCH /cases/{id}` (status)
+    endpoint now returns `409` on an illegal lifecycle transition instead of
+    unconditionally succeeding — a behavior change to a shipped endpoint,
+    not a schema/contract break.
+  - 114 new tests (776 total): exhaustive transition-table coverage (every
+    legal and illegal `CaseStatus` pair), repository/event/metrics unit
+    tests, and integration tests covering the full escalation lifecycle,
+    duplicate-case rejection, the note create/edit/delete audit trail, and
+    the new API routes' success/404/409 paths. mypy (strict on `core/`),
+    `ruff check`/`format`, and `scripts/check_dependency_rules.py` all pass.
 
 ### Fixed
 - Re-verification pass over the Evidence Ingestion & Parser Framework

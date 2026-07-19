@@ -1,7 +1,8 @@
 # core/db — Persistence (SQLAlchemy ORM)
 
 **Purpose:** The Database Layer (`context/01_blueprint.md` §4). `models/` is a
-package, one module per table (`models/case.py`, `models/evidence.py`,
+package, one module per table (`models/case.py`, `models/case_note.py`,
+`models/case_tag.py`, `models/evidence.py`,
 `models/ioc.py`, `models/finding.py`, `models/finding_mitre_mapping.py`,
 `models/mitre_tactic.py`, `models/mitre_technique.py`,
 `models/mitre_software.py`, `models/mitre_group.py`,
@@ -10,6 +11,19 @@ package, one module per table (`models/case.py`, `models/evidence.py`,
 blueprint §8 specifies — blueprint §8's full schema list is now complete.
 `session.py` provides the async SQLAlchemy session factory. `migrations/`
 holds Alembic migrations.
+
+**ADR-0015 (Case Management Extension)** additively extended `Case` with
+`priority` (`CasePriority`), `risk_score`, `owner_id`/`assignee_id`, and
+`labels` (freeform, unindexed JSON), and extended `CaseStatus` with five new
+values (`escalated`/`on_hold`/`contained`/`resolved`/`archived` — the
+original three are unchanged). Two new tables: `CaseNote` (editable analyst
+commentary, distinct from `TimelineEvent.MANUAL_NOTE`'s immutable audit
+record) and `CaseTag` (an indexed, unique-constrained `(case_id, tag)` join
+table — deliberately not a Postgres-only `ARRAY` column, since this project
+supports both PostgreSQL and SQLite). `CaseRepository.update_status` remains
+unconditional CRUD; transition validation lives one layer up in
+`core/services/case_lifecycle.py`, never inside `core/db` (which cannot
+import `core/services` without a circular, upward dependency).
 
 **`Evidence.case_id`, `IOC.case_id`, and `Finding.case_id` are now real
 foreign keys** to `cases.id` — the follow-up migration ADR-0011/0012/0013

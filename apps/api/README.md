@@ -16,6 +16,16 @@ full ingest → extract → generate → analyze pipeline via
 and `routers/findings.py` (read-only lists). No `routers/reports.py` yet —
 report generation is Milestone M5.
 
+**ADR-0015 (Case Management Extension)** added to `routers/cases.py`:
+`PATCH /cases/{id}/details|assignment|priority|labels`, `GET`/`POST
+/cases/{id}/tags`, `DELETE /cases/{id}/tags/{tag}`, `GET`/`POST
+/cases/{id}/notes`, `PATCH`/`DELETE /cases/{id}/notes/{note_id}`. The
+existing `PATCH /cases/{id}` (status) endpoint now returns `409` via the
+standard error envelope on an illegal lifecycle transition instead of
+unconditionally succeeding — a genuine behavior change to a shipped
+endpoint, not a schema/contract break (documented in the ADR and
+`CHANGELOG.md`).
+
 **Why it exists:** Guarantees the frontend can be swapped or a second consumer
 (CLI, external integration) added without touching `core/`.
 

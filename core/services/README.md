@@ -35,6 +35,20 @@ it composes `evidence_service`, `threat_intel_service`, `finding_service`,
 and a `core/graph` run of `SocAnalystAgent` into one blueprint §9 pipeline,
 recording a `TimelineEvent` at each stage.
 
+**ADR-0015 (Case Management Extension):** `case_service.py` gained case
+ownership/priority/tags/notes mutation functions and case-level risk-score
+recomputation, plus lifecycle-transition validation on `update_case_status`
+(delegating to the new `case_lifecycle.py`). Three new sibling modules —
+`case_lifecycle.py` (pure, exhaustively-tested `CaseStatus` transition
+table), `case_events.py` (`CaseEvent`/`CaseEventPublisher`, mirroring
+`core.findings.events`'s shape), and `case_metrics.py`
+(`CaseMetricsCollector` + `compute_case_risk_score`, mirroring
+`core.findings.metrics`'s shape) — live here rather than a new `core/cases/`
+leaf package, since `Case` (unlike Evidence/IOC/Finding) has no multi-stage
+deterministic engine of its own; its logic is orchestration, already this
+layer's job. No new `docs/dependency-rules.md` exception was needed — see
+`docs/adr/0015-case-management-extension.md`.
+
 **Why it exists:** Guarantees Streamlit pages and FastAPI routers stay
 interchangeable front doors to the same behavior — see `docs/dependency-rules.md`.
 

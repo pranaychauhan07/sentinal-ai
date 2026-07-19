@@ -22,7 +22,12 @@ class TimelineEventType(StrEnum):
     """Closed set of pipeline stages this milestone's orchestration
     (`core/services/case_service.py`) actually produces. Additive — a future
     agent/milestone extends this enum rather than freeform strings
-    (constitution §2, "Enums")."""
+    (constitution §2, "Enums").
+
+    ADR-0015 adds `CASE_ASSIGNED` (ownership/assignment changes — a distinct
+    concern from a status transition). Escalation/hold/containment/
+    resolution/closure are all `Case.status` transitions and are recorded via
+    the existing `CASE_STATUS_CHANGED`, not a new type per status value."""
 
     CASE_OPENED = "case_opened"
     EVIDENCE_INGESTED = "evidence_ingested"
@@ -31,6 +36,7 @@ class TimelineEventType(StrEnum):
     AGENT_ANALYSIS = "agent_analysis"
     CASE_STATUS_CHANGED = "case_status_changed"
     MANUAL_NOTE = "manual_note"
+    CASE_ASSIGNED = "case_assigned"
 
 
 class TimelineEvent(Entity):

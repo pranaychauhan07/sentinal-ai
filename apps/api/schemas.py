@@ -16,7 +16,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.db.models.case import CaseStatus
+from core.db.models.case import CasePriority, CaseStatus
 from core.db.models.evidence import EvidenceStatus
 from core.db.models.ioc import IOCStatus
 from core.db.models.timeline_event import TimelineEventType
@@ -36,10 +36,57 @@ class CaseCreateRequest(ApiSchema):
     title: str = Field(min_length=1, max_length=500)
     description: str = ""
     severity: Severity = Severity.INFO
+    priority: CasePriority = CasePriority.MEDIUM
 
 
 class CaseStatusUpdateRequest(ApiSchema):
     status: CaseStatus
+
+
+class CaseDetailsUpdateRequest(ApiSchema):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
+
+
+class CaseAssignmentUpdateRequest(ApiSchema):
+    owner_id: str | None = None
+    assignee_id: str | None = None
+
+
+class CasePriorityUpdateRequest(ApiSchema):
+    priority: CasePriority
+
+
+class CaseLabelsUpdateRequest(ApiSchema):
+    labels: dict[str, str]
+
+
+class CaseTagRequest(ApiSchema):
+    tag: str = Field(min_length=1, max_length=100)
+
+
+class CaseNoteCreateRequest(ApiSchema):
+    body: str = Field(min_length=1)
+
+
+class CaseNoteUpdateRequest(ApiSchema):
+    body: str = Field(min_length=1)
+
+
+class CaseNoteResponse(ApiSchema):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    author_id: str
+    body: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CaseTagResponse(ApiSchema):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    tag: str
+    created_at: datetime
 
 
 class CaseResponse(ApiSchema):
@@ -48,7 +95,11 @@ class CaseResponse(ApiSchema):
     description: str
     status: CaseStatus
     severity: Severity
+    priority: CasePriority
+    risk_score: float | None
     analyst_id: str
+    owner_id: str | None
+    assignee_id: str | None
     created_at: datetime
     updated_at: datetime
     closed_at: datetime | None

@@ -68,6 +68,18 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       severity-classified SOC finding plus extracted IOCs and MITRE-mapped
       Findings, all visible via `GET /api/v1/cases/{id}/...` on refresh.*
 
+      **2026-07-20 addendum** (`docs/adr/0015-case-management-extension.md`):
+      hardened/extended the Case subsystem M1 shipped — not a new milestone,
+      this milestone's own scope closed already. `CaseStatus` extended
+      additively (five new escalation-capable states), `CasePriority`,
+      case-level `risk_score` rollup, `owner_id`/`assignee_id`, `labels`,
+      a new `CaseNote` entity (distinct from `TimelineEvent.MANUAL_NOTE`),
+      a new `case_tags` join table, validated lifecycle transitions
+      (`core/services/case_lifecycle.py`), `CaseEvent` domain-event
+      publication (`core/services/case_events.py`), and case-level metrics
+      (`core/services/case_metrics.py`). Ten new `/api/v1/cases/{id}/...`
+      routes for assignment/priority/labels/tags/notes.
+
 - [ ] **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE
       Agent; Phishing Investigation Agent + email parser + prompt-injection
       guard (first attacker-controlled-text agent).
