@@ -27,6 +27,7 @@ pytestmark = pytest.mark.integration
 _SSH_AUTH_LOG = Path("data/sample_evidence/ssh_auth.log")
 _PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
 _LEGITIMATE_EMAIL = Path("data/sample_evidence/legitimate_sample_01.eml")
+_NESSUS_SCAN = Path("data/sample_evidence/nessus_scan.nessus")
 
 
 @pytest.fixture
@@ -149,6 +150,48 @@ async def test_legitimate_email_upload_scores_low_risk(
 
     assert result.phishing_risk_score is not None
     assert result.phishing_risk_label in {"info", "low"}
+
+
+async def test_nessus_scan_upload_routes_to_vulnerability_agent_not_soc(
+    database: Database, test_settings: Settings
+) -> None:
+    """M4 demo criterion: a `.nessus` upload's evidence-type-based
+    capability routing (`case_service._required_capability_for`) fans out to
+    `VulnerabilityAssessmentAgent`, not `SocAnalystAgent` — and the CVE
+    reported on two hosts in the fixture is aggregated into one finding."""
+    content = _NESSUS_SCAN.read_bytes()
+
+    async with database.session_factory() as session:
+        case = await case_service.create_case(
+            session, title="Internal vulnerability scan", analyst_id="local-analyst"
+        )
+        await session.commit()
+
+    async with database.session_factory() as session:
+        result = await case_service.investigate_new_evidence(
+            session,
+            case_id=case.id,
+            filename="nessus_scan.nessus",
+            content=content,
+            settings=test_settings,
+            ingested_by="local-analyst",
+        )
+        await session.commit()
+
+    assert result.case_id == case.id
+    assert result.soc_risk_score is None
+    assert result.phishing_risk_score is None
+    assert result.vulnerability_finding_count is not None
+    assert result.vulnerability_finding_count > 0
+    assert result.highest_vulnerability_score is not None
+    assert result.highest_vulnerability_score > 0.0
+
+    async with database.session_factory() as session:
+        timeline = await case_service.list_timeline_for_case(session, case.id)
+        event_types = {event.event_type for event in timeline}
+        assert TimelineEventType.EVIDENCE_INGESTED in event_types
+        assert TimelineEventType.VULNERABILITY_ASSESSED in event_types
+        assert TimelineEventType.AGENT_ANALYSIS in event_types
 
 
 async def test_second_upload_does_not_revert_case_status(

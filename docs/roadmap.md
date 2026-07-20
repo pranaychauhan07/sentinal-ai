@@ -168,9 +168,37 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       point 3), its repository, and the nine-stage `IOCExtractionPipeline`
       (`core/services/threat_intel_service.py`). No MITRE mapping, incident
       correlation, or LLM reasoning — explicitly out of scope per the ADR.
-      Still not checked off: the milestone's own demo criterion (all 9
-      modules through the Coordinator) needs the concrete Vulnerability/
-      OWASP/Linux/Threat Hunting agents first, which don't exist yet.
+
+      **2026-07-20** (`docs/adr/0017-vulnerability-assessment-framework.md`):
+      closed the Vulnerability Assessment Agent piece — a third sibling leaf
+      package, `core/vulnerabilities/` (models, exceptions, CVE/CWE
+      extraction, validator, normalizer, configurable dedup, asset
+      correlation, a four-dimension confidence engine, severity/priority
+      assignment, a six-dimension threat scoring engine, finding generation,
+      metrics/events/audit, and an unimplemented
+      `VulnerabilityEnrichmentProvider` seam — mirrors `core/threat_intel`'s
+      shape exactly), `core/knowledge/cvss_calculator.py` (official CVSS
+      v2.0/v3.0/3.1 base-score formulas, hand-verified against FIRST's
+      published examples; CVSS v4.0 is vector-validation-only — no public
+      closed-form formula exists), four new parsers
+      (`nessus_parser.py`/`nessus_csv_parser.py`/`openvas_parser.py`/
+      `openvas_csv_parser.py`, four new additive `EvidenceType`s), the third
+      real domain table (`Vulnerability`, mirroring `IOC`'s shape, both FKs
+      real from the start), the ten-stage `VulnerabilityPipeline`
+      (`core/services/vulnerability_service.py`), `core/tools/vuln_tools.py`
+      (`VulnerabilityAssessmentTool`), and `core/agents/vulnerability_agent.py`
+      (`VulnerabilityAssessmentAgent`, capability `vulnerability_assessment`)
+      — the third concrete specialist agent, wired into
+      `core/graph/investigation_graph.py` with the same two-line pattern
+      `SocAnalystAgent`/`PhishingAgent` established.
+      `core/services/case_service.py`'s per-upload capability routing table
+      gained the four new `EvidenceType`s, so a `.nessus`/OpenVAS upload now
+      automatically fans out to `VulnerabilityAssessmentAgent` instead of
+      `SocAnalystAgent`. No remediation planning, Incident Response, or LLM
+      reasoning — explicitly out of scope per the ADR and this task's own
+      instruction. Still not checked off: the milestone's own demo criterion
+      (all 9 modules through the Coordinator) needs the concrete OWASP/
+      Linux/Threat Hunting agents first, which don't exist yet.
       *Demo: all 9 required modules functioning through the same Coordinator.*
 
 - [ ] **M5 — Incident Response synthesis + Reporting.** Incident Response

@@ -25,28 +25,37 @@ reaching *below* `core/graph` into `core/parsers`/`core/threat_intel`/
 
 **Rule 4d** (docs/dependency-rules.md, docs/adr/0014-case-model-and-first-api-
 routes-shape.md, extended by docs/adr/0016-phishing-agent-email-parser-
-prompt-guard.md): this module *does* import `core.agents.{registry,
-soc_analyst_agent, phishing_agent}` and `core.memory.{case_memory,repository}`
-directly, to build a session-scoped `SQLiteCaseMemory` and a *fresh* (never
-the process-wide cached) `AgentRegistry` before delegating execution to
+prompt-guard.md and docs/adr/0017-vulnerability-assessment-framework.md):
+this module *does* import `core.agents.{registry, soc_analyst_agent,
+phishing_agent, vulnerability_agent}` and
+`core.memory.{case_memory,repository}` directly, to build a session-scoped
+`SQLiteCaseMemory` and a *fresh* (never the process-wide cached)
+`AgentRegistry` before delegating execution to
 `core/graph/investigation_graph.py`. This is the one narrow reason: the
 cached `default_agent_registry()` singleton would otherwise permanently bake
 in whichever caller's `case_memory` (or lack of one) happened to register
-`SocAnalystAgent`/`PhishingAgent` first. It also imports `core.parsers.models.
-{EvidenceType, NormalizedEvidence, Severity}` directly for type reuse — the
-identical sideways leaf-model precedent `core/db/models/case.py` (and
-`evidence.py`) already established, not a new kind of exception. Reading
-`core.db.ioc_repository.IOCRepository` needs no new exception at all: every
-other `core/db` repository (`CaseRepository`, `CaseNoteRepository`, ...) is
-already imported directly here — `core/services` -> `core/db` is a normal,
-always-sanctioned edge (constitution §7), distinct from the 4a/4b/4c
-exceptions that are specifically about reaching into the deterministic leaf
-*processing* packages (`core/parsers`/`core/threat_intel`/`core/findings`).
+`SocAnalystAgent`/`PhishingAgent`/`VulnerabilityAssessmentAgent` first. It
+also imports `core.parsers.models.{EvidenceType, NormalizedEvidence,
+Severity}` directly for type reuse — the identical sideways leaf-model
+precedent `core/db/models/case.py` (and `evidence.py`) already established,
+not a new kind of exception. Reading `core.db.ioc_repository.IOCRepository`
+needs no new exception at all: every other `core/db` repository
+(`CaseRepository`, `CaseNoteRepository`, ...) is already imported directly
+here — `core/services` -> `core/db` is a normal, always-sanctioned edge
+(constitution §7), distinct from the 4a/4b/4c exceptions that are
+specifically about reaching into the deterministic leaf *processing*
+packages (`core/parsers`/`core/threat_intel`/`core/findings`).
 `PhishingAgent` needs its case's already-persisted, already-scored IOCs
 (`IOC.composite_score`) reduced to plain dicts before they're hydrated onto
 `CaseInvestigationState.extracted_indicators` — see `_hydrate_attributed_iocs`
 below and `core/agents/phishing_agent.py`'s docstring for why this stays
 string/dict-typed rather than a `core.threat_intel.models.ScoredIOC` import.
+Calling `core.services.vulnerability_service.assess_vulnerabilities()` is
+normal sibling-service composition (the same reasoning already covers
+`extract_threat_intelligence`/`generate_findings_for_case`); its already-
+generated `VulnerabilityFinding`s are reduced to plain dicts before being
+hydrated onto `CaseInvestigationState.vulnerability_records`, for the
+identical reason `core/agents/vulnerability_agent.py`'s docstring documents.
 """
 
 from __future__ import annotations
@@ -61,6 +70,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.registry import AgentRegistry
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
+from core.agents.vulnerability_agent import (
+    VulnerabilityAssessmentAgent,
+    default_vulnerability_agent_tool_registry,
+)
 from core.config import Settings
 from core.db.case_note_repository import CaseNoteRepository
 from core.db.case_repository import CaseRepository
@@ -84,6 +97,7 @@ from core.services.case_metrics import compute_case_risk_score
 from core.services.evidence_service import EvidencePipeline, ingest_evidence
 from core.services.finding_service import generate_findings_for_case
 from core.services.threat_intel_service import extract_threat_intelligence
+from core.services.vulnerability_service import assess_vulnerabilities
 
 _logger = get_logger(__name__)
 
@@ -95,11 +109,13 @@ _STATUS_TO_EVENT_TYPE: dict[CaseStatus, CaseEventType] = {
     CaseStatus.CLOSED: CaseEventType.CASE_CLOSED,
 }
 
-#: The capability names `SocAnalystAgent`/`PhishingAgent` declare — read from
-#: the classes rather than re-declared as string literals here, so these can
-#: never silently drift.
+#: The capability names `SocAnalystAgent`/`PhishingAgent`/
+#: `VulnerabilityAssessmentAgent` declare — read from the classes rather
+#: than re-declared as string literals here, so these can never silently
+#: drift.
 _SOC_ANALYST_CAPABILITY = SocAnalystAgent.capabilities[0].name
 _PHISHING_CAPABILITY = PhishingAgent.capabilities[0].name
+_VULNERABILITY_CAPABILITY = VulnerabilityAssessmentAgent.capabilities[0].name
 
 #: Which capability a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
@@ -111,7 +127,25 @@ _PHISHING_CAPABILITY = PhishingAgent.capabilities[0].name
 #: every log-shaped format this framework already parses.
 _EVIDENCE_TYPE_CAPABILITY: dict[EvidenceType, str] = {
     EvidenceType.EMAIL: _PHISHING_CAPABILITY,
+    EvidenceType.NESSUS_XML: _VULNERABILITY_CAPABILITY,
+    EvidenceType.NESSUS_CSV: _VULNERABILITY_CAPABILITY,
+    EvidenceType.OPENVAS_XML: _VULNERABILITY_CAPABILITY,
+    EvidenceType.OPENVAS_CSV: _VULNERABILITY_CAPABILITY,
 }
+
+#: Evidence types `assess_vulnerabilities()` is actually run against —
+#: running the vulnerability-extraction engine against a non-scan-report
+#: artifact (a log, an email) would only ever produce candidates that fail
+#: `VulnerabilityValidator`'s "has an identifying field" rule, wasted work
+#: for a guaranteed-empty result (docs/adr/0017).
+_VULNERABILITY_SCAN_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset(
+    {
+        EvidenceType.NESSUS_XML,
+        EvidenceType.NESSUS_CSV,
+        EvidenceType.OPENVAS_XML,
+        EvidenceType.OPENVAS_CSV,
+    }
+)
 
 
 def _required_capability_for(evidence_type: EvidenceType) -> str:
@@ -133,6 +167,8 @@ class CaseInvestigationResult(BaseModel):
     soc_risk_label: str | None = None
     phishing_risk_score: float | None = None
     phishing_risk_label: str | None = None
+    vulnerability_finding_count: int | None = None
+    highest_vulnerability_score: float | None = None
 
 
 async def create_case(
@@ -469,14 +505,16 @@ async def _run_specialist_agents(
     case_id: uuid.UUID,
     evidence_items: list[NormalizedEvidence],
     evidence_id: uuid.UUID,
+    vulnerability_records: list[dict[str, object]] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`. Registers both concrete specialist agents
-    built to date (`SocAnalystAgent`, `PhishingAgent`); which one(s) the
-    Coordinator actually fans out to is decided by `required_capabilities`,
-    computed per-artifact from its `EvidenceType` (`_required_capability_for`)
-    — this is what lets a log upload and an email upload to the same Case
+    delegating to `core/graph`. Registers all three concrete specialist
+    agents built to date (`SocAnalystAgent`, `PhishingAgent`,
+    `VulnerabilityAssessmentAgent`); which one(s) the Coordinator actually
+    fans out to is decided by `required_capabilities`, computed per-artifact
+    from its `EvidenceType` (`_required_capability_for`) — this is what lets
+    a log upload, an email upload, and a scan-report upload to the same Case
     each route to the correct specialist automatically."""
     case_memory = SQLiteCaseMemory(MemoryRepository(session))
     registry = AgentRegistry()
@@ -486,6 +524,11 @@ async def _run_specialist_agents(
     registry.register(
         PhishingAgent(tool_registry=default_phishing_agent_tool_registry(), case_memory=case_memory)
     )
+    registry.register(
+        VulnerabilityAssessmentAgent(
+            tool_registry=default_vulnerability_agent_tool_registry(), case_memory=case_memory
+        )
+    )
     engine = build_investigation_graph(agent_registry=registry)
 
     required_capability = _required_capability_for(evidence_items[0].evidence_type)
@@ -494,6 +537,7 @@ async def _run_specialist_agents(
         case_id=case_id,
         evidence=list(evidence_items),
         extracted_indicators=list(attributed_iocs),
+        vulnerability_records=list(vulnerability_records or []),
         metadata={"required_capabilities": [required_capability]},
     )
     return engine.run(state)
@@ -573,15 +617,48 @@ async def investigate_new_evidence(
                 )
             )
 
+        vulnerability_records: list[dict[str, object]] = []
+        if normalized.evidence_type in _VULNERABILITY_SCAN_EVIDENCE_TYPES:
+            assessment = await assess_vulnerabilities(
+                session, case_id=case_id, evidence=normalized, settings=settings
+            )
+            vulnerability_records = [
+                {
+                    "cve_id": finding.cve_id,
+                    "plugin_id": finding.plugin_id,
+                    "title": finding.title,
+                    "severity": finding.severity.value,
+                    "priority": finding.priority.value,
+                    "composite_score": finding.composite_score,
+                    "affected_asset_ids": list(finding.affected_asset_ids),
+                }
+                for finding in assessment.normalized_vulnerability_intel.findings
+            ]
+            await _record_timeline(
+                session,
+                case_id,
+                TimelineEventType.VULNERABILITY_ASSESSED,
+                f"{assessment.vulnerability_count} vulnerability record(s), "
+                f"{assessment.finding_count} finding(s) assessed from '{filename}'.",
+            )
+
         result_state = await _run_specialist_agents(
             session,
             case_id=case_id,
             evidence_items=[normalized],
             evidence_id=ingestion.evidence_id,
+            vulnerability_records=vulnerability_records,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
-        for agent_name in (SocAnalystAgent.name, PhishingAgent.name):
+        vulnerability_finding_count_from_agent, highest_vulnerability_score = (
+            _extract_vulnerability_assessment(result_state)
+        )
+        for agent_name in (
+            SocAnalystAgent.name,
+            PhishingAgent.name,
+            VulnerabilityAssessmentAgent.name,
+        ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
                 await _record_timeline(
@@ -606,6 +683,8 @@ async def investigate_new_evidence(
             soc_risk_label=soc_risk_label,
             phishing_risk_score=phishing_risk_score,
             phishing_risk_label=phishing_risk_label,
+            vulnerability_finding_count=vulnerability_finding_count_from_agent,
+            highest_vulnerability_score=highest_vulnerability_score,
         )
 
 
@@ -635,3 +714,18 @@ def _extract_phishing_risk(state: CaseInvestigationState) -> tuple[float | None,
         return None, None
     top = max(verdicts_payload, key=lambda v: v["risk_score"])
     return top["risk_score"], top["risk_label"]
+
+
+def _extract_vulnerability_assessment(
+    state: CaseInvestigationState,
+) -> tuple[int | None, float | None]:
+    """`VulnerabilityAssessmentAgent`'s counterpart to `_extract_soc_risk` —
+    reads the finding count and highest composite score out of this run's
+    `VulnerabilityAssessment` payload."""
+    vulnerability_output = state.agent_outputs.get(VulnerabilityAssessmentAgent.name)
+    if vulnerability_output is None:
+        return None, None
+    assessment = vulnerability_output.output.get("assessment")
+    if not assessment:
+        return None, None
+    return assessment["finding_count"], assessment["highest_composite_score"]

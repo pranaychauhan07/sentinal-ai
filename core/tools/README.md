@@ -29,8 +29,17 @@ engineering phrase density, high-risk attachment extensions, combined with
 the case's already-scored attributed URL/domain/email IOC composite scores.
 Never re-extracts an IOC or recomputes a threat score itself).
 
-No other concrete tool (`log_tools.py`, `vuln_tools.py`, `owasp_tools.py`,
-`linux_tools.py`, `ir_tools.py`, `mitre_tools.py`) exists yet.
+**Implemented (Milestone M4, `docs/adr/0017-vulnerability-assessment-framework.md`):**
+`vuln_tools.py` (`VulnerabilityAssessmentTool` — aggregates the case's
+already-generated `VulnerabilityFinding` data (severity, priority, CVSS,
+composite score — all computed by
+`core.services.vulnerability_service.VulnerabilityPipeline`) into a
+case-level summary: counts by severity, highest composite score, and a
+top-N list by priority. Never recomputes CVSS, severity, or a threat score
+itself).
+
+No other concrete tool (`log_tools.py`, `owasp_tools.py`, `linux_tools.py`,
+`ir_tools.py`, `mitre_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*
 tool to call and interpret the result, not to do the math itself.

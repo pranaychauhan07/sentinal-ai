@@ -57,6 +57,8 @@ async def upload_evidence(
         soc_risk_label=result.soc_risk_label,
         phishing_risk_score=result.phishing_risk_score,
         phishing_risk_label=result.phishing_risk_label,
+        vulnerability_finding_count=result.vulnerability_finding_count,
+        highest_vulnerability_score=result.highest_vulnerability_score,
     )
 
 

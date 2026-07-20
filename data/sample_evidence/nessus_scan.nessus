@@ -1,0 +1,47 @@
+<?xml version="1.0" ?>
+<NessusClientData_v2>
+  <Report name="Sample Internal Scan">
+    <ReportHost name="web01.example.com">
+      <HostProperties>
+        <tag name="host-ip">10.0.0.5</tag>
+        <tag name="host-fqdn">web01.example.com</tag>
+      </HostProperties>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="4"
+                  pluginID="156327" pluginName="Apache Log4Shell Remote Code Execution">
+        <description>The version of Apache Log4j installed on the remote host is affected by
+a remote code execution vulnerability due to insufficient protections against
+attacker-controlled JNDI lookups.</description>
+        <cve>CVE-2021-44228</cve>
+        <cwe>502</cwe>
+        <cvss_vector>AV:N/AC:M/Au:N/C:C/I:C/A:C</cvss_vector>
+        <cvss3_vector>CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H</cvss3_vector>
+        <see_also>https://nvd.nist.gov/vuln/detail/CVE-2021-44228</see_also>
+      </ReportItem>
+      <ReportItem port="22" svc_name="ssh" protocol="tcp" severity="0"
+                  pluginID="10267" pluginName="SSH Server Type and Version Information">
+        <description>It is possible to obtain information about the remote SSH server by
+sending an empty authentication request.</description>
+      </ReportItem>
+    </ReportHost>
+    <ReportHost name="db01.example.com">
+      <HostProperties>
+        <tag name="host-ip">10.0.0.6</tag>
+      </HostProperties>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="4"
+                  pluginID="156327" pluginName="Apache Log4Shell Remote Code Execution">
+        <description>The version of Apache Log4j installed on the remote host is affected by
+a remote code execution vulnerability.</description>
+        <cve>CVE-2021-44228</cve>
+        <cwe>502</cwe>
+        <cvss_vector>AV:N/AC:M/Au:N/C:C/I:C/A:C</cvss_vector>
+        <cvss3_vector>CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H</cvss3_vector>
+        <see_also>https://nvd.nist.gov/vuln/detail/CVE-2021-44228</see_also>
+      </ReportItem>
+      <ReportItem port="3306" svc_name="mysql" protocol="tcp" severity="2"
+                  pluginID="200001" pluginName="MySQL Weak Password Policy">
+        <description>The remote MySQL server does not enforce a strong password policy.</description>
+        <cwe>521</cwe>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>

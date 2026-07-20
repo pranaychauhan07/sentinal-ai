@@ -22,6 +22,7 @@ from core.db.models.mitre_tactic import MitreTactic
 from core.db.models.mitre_technique import MitreTechnique
 from core.db.models.report import Report, ReportType
 from core.db.models.timeline_event import TimelineEvent, TimelineEventType
+from core.db.models.vulnerability import Vulnerability, VulnerabilityStatus
 
 __all__ = [
     "IOC",
@@ -44,4 +45,6 @@ __all__ = [
     "ReportType",
     "TimelineEvent",
     "TimelineEventType",
+    "Vulnerability",
+    "VulnerabilityStatus",
 ]

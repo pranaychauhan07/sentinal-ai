@@ -45,6 +45,10 @@ class EvidenceType(StrEnum):
     NMAP_XML = "nmap_xml"
     PLAIN_TEXT = "plain_text"
     EMAIL = "email"
+    NESSUS_XML = "nessus_xml"
+    NESSUS_CSV = "nessus_csv"
+    OPENVAS_XML = "openvas_xml"
+    OPENVAS_CSV = "openvas_csv"
     UNKNOWN = "unknown"
 
 

@@ -22,6 +22,7 @@ pytestmark = pytest.mark.integration
 
 _SSH_AUTH_LOG = Path("data/sample_evidence/ssh_auth.log")
 _PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
+_NESSUS_SCAN = Path("data/sample_evidence/nessus_scan.nessus")
 
 
 @pytest.fixture
@@ -132,6 +133,31 @@ def test_upload_email_evidence_routes_to_phishing_agent(client: TestClient) -> N
 
     timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
     event_types = {item["event_type"] for item in timeline["items"]}
+    assert "agent_analysis" in event_types
+
+
+def test_upload_nessus_evidence_routes_to_vulnerability_agent(client: TestClient) -> None:
+    """Same single `POST /evidence` endpoint, zero router changes, now also
+    triages Nessus scan reports (M4 demo criterion)."""
+    created = client.post("/api/v1/cases", json={"title": "Vulnerability scan"}).json()
+    case_id = created["id"]
+
+    upload = client.post(
+        f"/api/v1/cases/{case_id}/evidence",
+        files={"file": ("nessus_scan.nessus", _NESSUS_SCAN.read_bytes(), "application/xml")},
+    )
+    assert upload.status_code == 201
+    body = upload.json()
+    assert body["case_id"] == case_id
+    assert body["soc_risk_score"] is None
+    assert body["phishing_risk_score"] is None
+    assert body["vulnerability_finding_count"] is not None
+    assert body["vulnerability_finding_count"] > 0
+    assert body["highest_vulnerability_score"] > 0.0
+
+    timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
+    event_types = {item["event_type"] for item in timeline["items"]}
+    assert "vulnerability_assessed" in event_types
     assert "agent_analysis" in event_types
 
 

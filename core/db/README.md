@@ -7,10 +7,30 @@ package, one module per table (`models/case.py`, `models/case_note.py`,
 `models/mitre_tactic.py`, `models/mitre_technique.py`,
 `models/mitre_software.py`, `models/mitre_group.py`,
 `models/mitre_mitigation.py`, `models/timeline_event.py`,
-`models/report.py`), re-exported from `models/__init__.py` exactly as
-blueprint §8 specifies — blueprint §8's full schema list is now complete.
-`session.py` provides the async SQLAlchemy session factory. `migrations/`
-holds Alembic migrations.
+`models/report.py`, `models/vulnerability.py`), re-exported from
+`models/__init__.py` exactly as blueprint §8 specifies — blueprint §8's full
+schema list is now complete, plus `Vulnerability` (docs/adr/0017). `session.py`
+provides the async SQLAlchemy session factory. `migrations/` holds Alembic
+migrations.
+
+**`Vulnerability` (docs/adr/0017-vulnerability-assessment-framework.md)**
+mirrors `IOC`'s shape exactly — one persisted, scored
+`core.vulnerabilities.models.ScoredVulnerability` per row, with both
+`case_id` and `evidence_id` real foreign keys from the start (unlike `IOC`'s
+original two-step tightening in ADR-0011/0014: `Case`/`Evidence` both
+already existed by the time this table was introduced). Three independent,
+optional CVSS slots (`cvss_v2_vector`/`cvss_v3_vector`/`cvss_v4_vector` +
+matching base-score columns) — a single scan-report row commonly carries
+both a v2 and a v3 score simultaneously. `core.db.vulnerability_repository.
+VulnerabilityRepository` mirrors `IOCRepository`'s shape (`find_by_case`,
+`find_by_evidence`, `find_by_cve`, `find_by_asset`, `mark_dismissed`,
+`mark_false_positive`, `increment_occurrence`).
+
+**`TimelineEventType` gained `VULNERABILITY_ASSESSED`** (docs/adr/0017),
+extended additively via migration `b2a6f1c3d8e4`, mirroring `031e35cdb9e7`'s
+identical dialect-branching pattern (`ALTER TYPE ... ADD VALUE` on
+PostgreSQL, `batch_alter_table` column rebuild on SQLite) — the original
+eight values are never renamed/removed.
 
 **ADR-0015 (Case Management Extension)** additively extended `Case` with
 `priority` (`CasePriority`), `risk_score`, `owner_id`/`assignee_id`, and

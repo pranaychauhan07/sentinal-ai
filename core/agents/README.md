@@ -46,9 +46,25 @@ already-scored, already-attributed URL/domain/email IOCs from
 `core.threat_intel.models.ScoredIOC` import, since `docs/dependency-rules.md`
 rule 4 grants `core/agents` no import edge onto `core/threat_intel`.
 
-No other specialist agent (Vulnerability, OWASP, Linux Security, Threat
-Hunting, Incident Response, ...) exists yet — see `docs/agent-design.md` for
-how to add one on top of this framework.
+**Implemented (Milestone M4, `docs/adr/0017-vulnerability-assessment-framework.md`):**
+`vulnerability_agent.py` — the third concrete specialist agent
+(`VulnerabilityAssessmentAgent`), declaring capability
+`vulnerability_assessment`. Deliberately thin: all CVSS scoring, severity
+classification, deduplication, asset correlation, and finding generation
+already happened in `core.services.vulnerability_service.
+VulnerabilityPipeline` *before* this agent runs (mirroring how IOC
+extraction precedes `SocAnalystAgent`). Calls
+`core.tools.vuln_tools.VulnerabilityAssessmentTool` to aggregate the case's
+already-generated `VulnerabilityFinding`s (read from
+`CaseInvestigationState.vulnerability_records` as plain `dict[str, object]`
+entries — same "no `core/threat_intel`/`core/vulnerabilities` import edge"
+reasoning `phishing_agent.py`'s docstring documents) into a case-level
+`VulnerabilityAssessment`, appended to `CaseInvestigationState.findings` the
+same way `SocFinding[]`/`PhishingVerdict[]` are.
+
+No other specialist agent (OWASP, Linux Security, Threat Hunting, Incident
+Response, ...) exists yet — see `docs/agent-design.md` for how to add one on
+top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

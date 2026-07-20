@@ -16,7 +16,9 @@ core/graph                     (LangGraph workflow)
 core/agents                    (specialist agents)
         ↓ may import           ↘ core/threat_intel, core/parsers (IOC extraction only — rule 4b)
                                 ↘ core/findings, core/knowledge (Finding/MITRE mapping only — rule 4c)
-core/tools , core/parsers , core/threat_intel , core/findings   (deterministic functions)
+                                ↘ (no edge onto core/vulnerabilities — rule 4e is services-only)
+core/tools , core/parsers , core/threat_intel , core/findings , core/vulnerabilities
+        (deterministic functions)
         ↓ may import
 core/knowledge , core/memory , core/security , core/db , core/reporting , core/config
         (leaf layers — import each other sparingly and only where documented below)
@@ -71,29 +73,42 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    `core/services` module gets this exception without its own ADR.
 
 4d. **`core/services/case_service.py` may import `core.agents.{registry,
-   soc_analyst_agent, phishing_agent}`, `core.memory.{case_memory,
-   repository}`, and `core.parsers.models` directly** — the fourth documented
-   exception to "services only call `core/graph`," worded identically to
-   4a/4b/4c. Every other `core/services` call in this module
-   (`evidence_service`, `threat_intel_service`, `finding_service`,
-   `core/graph/investigation_graph.py`) goes through the normal sanctioned
-   edges; this specific exception exists for one narrow reason: constructing
-   a session-scoped `CaseMemory` and a *fresh* (never the process-wide cached
+   soc_analyst_agent, phishing_agent, vulnerability_agent}`,
+   `core.memory.{case_memory, repository}`, and `core.parsers.models`
+   directly** — the fourth documented exception to "services only call
+   `core/graph`," worded identically to 4a/4b/4c. Every other `core/services`
+   call in this module (`evidence_service`, `threat_intel_service`,
+   `finding_service`, `vulnerability_service`, `core/graph/
+   investigation_graph.py`) goes through the normal sanctioned edges; this
+   specific exception exists for one narrow reason: constructing a
+   session-scoped `CaseMemory` and a *fresh* (never the process-wide cached
    `default_agent_registry()`) `AgentRegistry` before delegating to
    `core/graph`. Reusing the cached singleton here would permanently bake in
    whichever caller's `case_memory` (or lack of one) happened to register
-   `SocAnalystAgent`/`PhishingAgent` first — a real correctness hazard, not a
-   style preference. The `core.parsers.models` import is for type reuse only
-   (`EvidenceType`, `NormalizedEvidence`, `Severity`), the identical sideways
-   leaf-model precedent `core/db/models/case.py`/`evidence.py` already
-   established. See `docs/adr/0014-case-model-and-first-api-routes-shape.md`,
-   extended by `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`.
-   This module also reads `core.db.ioc_repository.IOCRepository` directly —
-   not a new exception, since `core/services` -> `core/db` is always
-   sanctioned (constitution §7) and every other repository this module needs
+   `SocAnalystAgent`/`PhishingAgent`/`VulnerabilityAssessmentAgent` first — a
+   real correctness hazard, not a style preference. The `core.parsers.models`
+   import is for type reuse only (`EvidenceType`, `NormalizedEvidence`,
+   `Severity`), the identical sideways leaf-model precedent
+   `core/db/models/case.py`/`evidence.py` already established. See
+   `docs/adr/0014-case-model-and-first-api-routes-shape.md`, extended by
+   `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md` and
+   `docs/adr/0017-vulnerability-assessment-framework.md`. This module also
+   reads `core.db.ioc_repository.IOCRepository` directly — not a new
+   exception, since `core/services` -> `core/db` is always sanctioned
+   (constitution §7) and every other repository this module needs
    (`CaseRepository`, `CaseNoteRepository`, ...) is already imported the same
    way. No other `core/services` module gets the agents/memory exception
    without its own ADR.
+
+4e. **`core/services/vulnerability_service.py` may import
+   `core/vulnerabilities`, `core/parsers`, and `core/memory` directly** — the
+   fifth documented exception to "services only call `core/graph`," worded
+   identically to 4b's precedent for `threat_intel_service.py`. Vulnerability
+   assessment (extract, validate, normalize, deduplicate, correlate, score,
+   generate findings, persist) is deterministic, pre-investigation
+   processing with no agent/LLM reasoning involved. See
+   `docs/adr/0017-vulnerability-assessment-framework.md`. No other
+   `core/services` module gets this exception without its own ADR.
 
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to
@@ -110,22 +125,26 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    through `core/services` or a repository function `core/graph` calls,
    keeping agents unaware of SQL/ORM details.
 
-5. **`core/tools`, `core/parsers`, `core/threat_intel`, and `core/findings`
-   may import `core/knowledge`** (e.g. a tool interpreting a CVSS vector uses
+5. **`core/tools`, `core/parsers`, `core/threat_intel`, `core/findings`, and
+   `core/vulnerabilities` may import `core/knowledge`** (e.g.
+   `core/vulnerabilities/severity.py`/`extractor.py` use
    `core/knowledge/cvss_calculator.py`; `core/findings`'s mapping engine uses
    `core/knowledge/mitre`) **but never `core/agents`, `core/graph`, or
    `core/memory`.** These are leaves — nothing calls up from them, and they
-   call nothing above them. `core/threat_intel` and `core/findings` are the
-   two documented exceptions allowed to import another leaf's *model*
-   contract sideways: `core/threat_intel` imports
+   call nothing above them. `core/threat_intel`, `core/findings`, and
+   `core/vulnerabilities` are the documented exceptions allowed to import
+   another leaf's *model* contract sideways: `core/threat_intel` imports
    `core.parsers.models.NormalizedEvidence` (its input type), matching the
    precedent `core/db/models/evidence.py` already set by importing
    `core.parsers.models.EvidenceType`; `core/findings` imports
    `core.threat_intel.models.ScoredIOC`/`IOCRecord`/`IOCType` (its input
-   type), the identical pattern applied once more — see
+   type); `core/vulnerabilities/extractor.py` imports
+   `core.parsers.models.{EvidenceRecord, NormalizedEvidence}` (its input
+   type), the identical pattern applied a third time — see
    `docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`
-   point 1 and `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`
-   point 2.
+   point 1, `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`
+   point 2, and `docs/adr/0017-vulnerability-assessment-framework.md`
+   point 5.
 
 6. **`core/memory` is the only layer allowed to import a vector-store client
    (ChromaDB).** No other layer talks to ChromaDB directly.

@@ -3,8 +3,8 @@
 **Purpose:** The Knowledge Layer (`context/01_blueprint.md` §4): the taxonomies
 the system reasons against. `mitre_attack.json` (local MITRE ATT&CK technique
 dataset), `owasp_top10.yaml` (OWASP Top-10 2021 taxonomy), `cvss_calculator.py`
-(CVSS v3.1 vector → score) — none of these datasets/tools exist yet; this
-milestone (ADR-0010) built only the reusable abstraction they'll plug into.
+(CVSS vector → score) — `mitre_attack.json`/`owasp_top10.yaml` don't exist yet;
+`cvss_calculator.py` does (see below).
 
 **Responsibility:** Read-only reference data plus the pure functions that
 interpret it. Never mutated at runtime — updates come from re-seeding, not
@@ -32,6 +32,17 @@ engine-shape.md):**
   loader, and `MitreLookup` fast in-memory lookups — see
   `core/knowledge/mitre/README.md`. Data is vendored offline
   (`data/mitre/raw/`), never fetched over the network.
+
+**Implemented (docs/adr/0017-vulnerability-assessment-framework.md):**
+- `cvss_calculator.py` — `CvssCalculator` (unified parse/score facade),
+  official published NVD/FIRST base-score formulas for CVSS v2.0 and
+  v3.0/3.1 (hand-verified against FIRST's own worked examples), plus
+  `CvssSeverity` (this module's own severity scale — never a reuse of a
+  sibling leaf's, per constitution §3). **CVSS v4.0 support is vector
+  parsing/format validation only** — no closed-form base-score formula
+  exists for v4.0 (FIRST's spec uses a ~90,000-row MacroVector lookup
+  table); a wrong reimplementation would be worse than the documented gap.
+  Consumed by `core/vulnerabilities/` (never duplicated there).
 
 **Not yet built, by explicit scope:** `OwaspTop10Source`, a threat-intel/
 playbook/detection-rule/investigation-template source, and any populated

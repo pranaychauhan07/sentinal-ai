@@ -2,15 +2,16 @@
 
 Wires the Coordinator (which internally delegates to the Planning Agent by
 direct call, not a graph edge — see `core/agents/coordinator.py`'s docstring
-for why) plus two concrete specialist agents (Milestone M1/M2):
-`SocAnalystAgent` (`log_analysis`) and `PhishingAgent` (`email_triage`). The
-Planning Agent's capability-matching decides which of them a given case's
-declared `required_capabilities` route to; the conditional edge out of the
+for why) plus three concrete specialist agents (Milestone M1/M2/M4):
+`SocAnalystAgent` (`log_analysis`), `PhishingAgent` (`email_triage`), and
+`VulnerabilityAssessmentAgent` (`vulnerability_assessment`). The Planning
+Agent's capability-matching decides which of them a given case's declared
+`required_capabilities` route to; the conditional edge out of the
 Coordinator resolves to whichever specialist(s) that plan names, or `END` if
 none.
 
 Adding another specialist agent later means exactly the same three steps
-these two followed: implement it (`core/agents/`), register it in the
+these three followed: implement it (`core/agents/`), register it in the
 `AgentRegistry` passed to `build_investigation_graph`, and add two lines
 here — `engine.add_agent_node(name)` and `engine.add_edge(name, END)`.
 `WorkflowEngine` and `router.py` need zero changes for that to work, which is
@@ -27,6 +28,10 @@ from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_too
 from core.agents.planning_agent import PlanningAgent
 from core.agents.registry import AgentRegistry, default_agent_registry
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
+from core.agents.vulnerability_agent import (
+    VulnerabilityAssessmentAgent,
+    default_vulnerability_agent_tool_registry,
+)
 from core.graph.events import EventBus
 from core.graph.failure_recovery import FailureRecoveryPolicy
 from core.graph.retry import RetryPolicy
@@ -84,6 +89,22 @@ def _ensure_phishing_agent_registered(
     )
 
 
+def _ensure_vulnerability_agent_registered(
+    registry: AgentRegistry, *, case_memory: CaseMemory | None
+) -> None:
+    """Mirrors `_ensure_soc_analyst_registered`'s idempotency/`case_memory`
+    contract exactly — same reasoning, same caveat about never calling this
+    against the process-wide cached `default_agent_registry()` with a real
+    `case_memory`."""
+    if registry.has(VulnerabilityAssessmentAgent.name):
+        return
+    registry.register(
+        VulnerabilityAssessmentAgent(
+            tool_registry=default_vulnerability_agent_tool_registry(), case_memory=case_memory
+        )
+    )
+
+
 def build_investigation_graph(
     *,
     agent_registry: AgentRegistry | None = None,
@@ -107,6 +128,7 @@ def build_investigation_graph(
     _ensure_framework_agents_registered(registry)
     _ensure_soc_analyst_registered(registry, case_memory=case_memory)
     _ensure_phishing_agent_registered(registry, case_memory=case_memory)
+    _ensure_vulnerability_agent_registered(registry, case_memory=case_memory)
 
     engine = WorkflowEngine(
         agent_registry=registry,
@@ -121,6 +143,8 @@ def build_investigation_graph(
     engine.add_edge(SocAnalystAgent.name, END)
     engine.add_agent_node(PhishingAgent.name)
     engine.add_edge(PhishingAgent.name, END)
+    engine.add_agent_node(VulnerabilityAssessmentAgent.name)
+    engine.add_edge(VulnerabilityAssessmentAgent.name, END)
     return engine
 
 

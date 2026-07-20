@@ -74,7 +74,7 @@ class Settings(BaseSettings):
         default=25 * 1024 * 1024, alias="EVIDENCE_MAX_UPLOAD_BYTES"
     )
     evidence_allowed_extensions: str = Field(
-        default=".log,.txt,.csv,.json,.xml,.evtx,.eml",
+        default=".log,.txt,.csv,.json,.xml,.evtx,.eml,.nessus",
         alias="EVIDENCE_ALLOWED_EXTENSIONS",
     )
     evidence_storage_dir: Path = Field(
@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     greynoise_api_key: str | None = Field(default=None, alias="GREYNOISE_API_KEY")
     opencti_base_url: str | None = Field(default=None, alias="OPENCTI_BASE_URL")
     opencti_api_key: str | None = Field(default=None, alias="OPENCTI_API_KEY")
+
+    # --- Vulnerability assessment (core/vulnerabilities, core/services/
+    # vulnerability_service.py) ---
+    vulnerability_max_records_per_artifact: int = Field(
+        default=20_000, alias="VULNERABILITY_MAX_RECORDS_PER_ARTIFACT"
+    )
 
     # --- MITRE ATT&CK knowledge (core/knowledge/mitre, core/findings) ---
     mitre_attack_data_path: Path = Field(

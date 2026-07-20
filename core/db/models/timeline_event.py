@@ -37,6 +37,7 @@ class TimelineEventType(StrEnum):
     CASE_STATUS_CHANGED = "case_status_changed"
     MANUAL_NOTE = "manual_note"
     CASE_ASSIGNED = "case_assigned"
+    VULNERABILITY_ASSESSED = "vulnerability_assessed"
 
 
 class TimelineEvent(Entity):

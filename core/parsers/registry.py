@@ -193,7 +193,11 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     from core.parsers.csv_evidence_parser import CsvEvidenceParser
     from core.parsers.email_parser import EmailParser
     from core.parsers.json_evidence_parser import JsonEvidenceParser
+    from core.parsers.nessus_csv_parser import NessusCsvParser
+    from core.parsers.nessus_parser import NessusXmlParser
     from core.parsers.nmap_parser import NmapXmlParser
+    from core.parsers.openvas_csv_parser import OpenVasCsvParser
+    from core.parsers.openvas_parser import OpenVasXmlParser
     from core.parsers.plaintext_parser import PlainTextParser
     from core.parsers.ssh_auth_parser import SshAuthParser
     from core.parsers.syslog_parser import SyslogParser
@@ -210,4 +214,8 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     registry.register(JsonEvidenceParser(), priority=5)
     registry.register(CsvEvidenceParser(), priority=1)
     registry.register(NmapXmlParser(), aliases=("nmap",), priority=10)
+    registry.register(NessusXmlParser(), aliases=("nessus",), priority=10)
+    registry.register(NessusCsvParser(), priority=8)
+    registry.register(OpenVasXmlParser(), aliases=("openvas",), priority=9)
+    registry.register(OpenVasCsvParser(), priority=7)
     registry.register(PlainTextParser(), priority=0)

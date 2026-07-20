@@ -106,6 +106,17 @@ class CaseInvestigationState(BaseModel):
     #: (Milestone M4) — kept generic here, this is framework infrastructure.
     extracted_indicators: Annotated[list[Any], operator.add] = Field(default_factory=list)
 
+    #: Already-generated `core.vulnerabilities.models.VulnerabilityFinding`
+    #: data (hydrated as plain ``dict[str, object]`` entries by
+    #: `core/services/case_service.py` from
+    #: `core.services.vulnerability_service.assess_vulnerabilities()`'s
+    #: result) for `core.agents.vulnerability_agent.VulnerabilityAssessmentAgent`
+    #: to summarize. Kept generic (``list[Any]``) for the same reason
+    #: ``extracted_indicators`` is: `core/agents` has no dependency-rules.md
+    #: import edge onto `core/vulnerabilities`, so this field is never a
+    #: typed `VulnerabilityFinding` list.
+    vulnerability_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

@@ -141,6 +141,11 @@ class EvidenceUploadResponse(ApiSchema):
     #: constitution §13's versioning rule (non-breaking, no `/api/v2` needed).
     phishing_risk_score: float | None = None
     phishing_risk_label: str | None = None
+    #: Populated only when this upload routed to `VulnerabilityAssessmentAgent`
+    #: (a Nessus/OpenVAS scan report) rather than `SocAnalystAgent` —
+    #: additive, per constitution §13's versioning rule.
+    vulnerability_finding_count: int | None = None
+    highest_vulnerability_score: float | None = None
 
 
 # --- IOC --------------------------------------------------------------------

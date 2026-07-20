@@ -488,6 +488,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     proving the single `POST /evidence` endpoint dispatches `.eml` uploads
     with zero router changes. mypy (strict on `core/`), `ruff check`/
     `format`, and `scripts/check_dependency_rules.py` all pass.
+- Vulnerability Assessment Framework
+  (`docs/adr/0017-vulnerability-assessment-framework.md`) — closes M4's
+  Vulnerability Assessment Agent piece, a third sibling leaf package to
+  `core/threat_intel`/`core/findings`:
+  - `core/knowledge/cvss_calculator.py` (new) — `CvssCalculator`, official
+    published NVD/FIRST base-score formulas for CVSS v2.0 and v3.0/3.1
+    (hand-verified against FIRST's own worked examples). CVSS v4.0 support
+    is deliberately scope-cut to vector parsing/format validation only — no
+    public closed-form base-score formula exists for v4.0.
+  - `core/vulnerabilities/` (new leaf package) — `models.py`,
+    `exceptions.py`, `cve_extractor.py` (CVE/CWE regex discovery + MITRE ID
+    syntax validation), `validator.py`, `normalizer.py` (asset-ID
+    derivation), `dedup.py` (configurable asset+CVE/asset+plugin/service/
+    port dedup keys), `asset_correlation.py`, `confidence_engine.py`
+    (four configurable, sum-to-1.0-validated dimensions), `severity.py`
+    (CVSS-to-severity mapping, scanner-code fallback, priority assignment),
+    `scoring.py` (`VulnerabilityThreatScoringEngine`, six configurable,
+    sum-to-1.0-validated dimensions), `finding_generator.py` (groups scored
+    vulnerabilities by CVE/plugin across assets — no remediation field),
+    `extractor.py` (`VulnerabilityExtractionEngine`, reads structured
+    scan-report fields, numeric-CVSS fallback for vector-less exports),
+    `metrics.py`/`events.py`/`audit.py`, `registry.py`/`interfaces.py`
+    (an unimplemented `VulnerabilityEnrichmentProvider` seam, mirroring
+    `core.threat_intel`'s identical honest scope cut). Its own
+    `VulnerabilitySeverity` scale (never a reuse of a sibling leaf's,
+    matching `ThreatSeverity`/`FindingSeverity`'s established precedent).
+  - Four new parsers: `nessus_parser.py`/`openvas_parser.py` (`.nessus`/
+    OpenVAS XML via `defusedxml`, XXE-safe) and their CSV counterparts
+    `nessus_csv_parser.py`/`openvas_csv_parser.py` (sharing a new
+    `csv_common.py` case-tolerant column lookup helper). Four new additive
+    `EvidenceType` values. All four place structured per-finding fields
+    into `EvidenceRecord.normalized_fields` — zero new extraction/scoring
+    code needed downstream.
+  - `core/db/models/vulnerability.py` (`Vulnerability`, mirroring `IOC`'s
+    shape, both `case_id`/`evidence_id` real FKs from the start) +
+    `core/db/vulnerability_repository.py` + two new migrations (create
+    `vulnerabilities` table; additively extend `timeline_event_type_enum`
+    with `vulnerability_assessed`), both verified end-to-end
+    (upgrade/downgrade/re-upgrade against a throwaway SQLite DB).
+  - `core/services/vulnerability_service.py` (`VulnerabilityPipeline`, the
+    ten-stage assessment pipeline: extract -> validate -> normalize ->
+    deduplicate -> correlate -> score -> generate_findings -> persist ->
+    publish_event -> notify_memory), mirroring
+    `threat_intel_service.IOCExtractionPipeline`'s shape exactly. Gated to
+    actual scan-report `EvidenceType`s only in `case_service.py`.
+  - `core/tools/vuln_tools.py` (`VulnerabilityAssessmentTool`) and
+    `core/agents/vulnerability_agent.py` (`VulnerabilityAssessmentAgent`,
+    capability `vulnerability_assessment`) — the third concrete specialist
+    agent, wired into `core/graph/investigation_graph.py` with the same
+    two-line pattern `SocAnalystAgent`/`PhishingAgent` established. Reads
+    `CaseInvestigationState.vulnerability_records` (new state field) as
+    plain `dict[str, object]` entries — never a typed
+    `core.vulnerabilities.models.VulnerabilityFinding` import (`core/agents`
+    has no dependency-rules.md edge onto `core/vulnerabilities`).
+  - `core/services/case_service.py`'s per-upload capability routing table
+    gained the four new `EvidenceType`s -> `vulnerability_assessment`; a
+    `.nessus`/OpenVAS upload now automatically fans out to
+    `VulnerabilityAssessmentAgent` instead of `SocAnalystAgent`.
+    `apps/api/schemas.py`'s `EvidenceUploadResponse` gained
+    `vulnerability_finding_count`/`highest_vulnerability_score` (both
+    `None`-defaulted, purely additive).
+  - 168 new tests (989 total): CVSS calculator unit tests against
+    hand-verified FIRST reference vectors, unit tests for every
+    `core/vulnerabilities` module, all four new parsers (including an XXE
+    payload test per scan-report XML format), the repository, the tool, the
+    agent, an integration test proving a real Nessus scan (two hosts
+    sharing one CVE) correctly deduplicates/correlates/aggregates end to
+    end, a malformed-report regression test, and an API `TestClient` test
+    proving the single `POST /evidence` endpoint dispatches `.nessus`
+    uploads with zero router changes. No remediation planning, Incident
+    Response, or LLM reasoning — explicitly out of scope. mypy (strict on
+    `core/`), `ruff check`/`format`, and `scripts/check_dependency_rules.py`
+    all pass.
 
 ### Fixed
 - Re-verification pass over the Evidence Ingestion & Parser Framework
