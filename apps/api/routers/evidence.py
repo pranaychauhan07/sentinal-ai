@@ -63,6 +63,8 @@ async def upload_evidence(
         highest_linux_security_risk_score=result.highest_linux_security_risk_score,
         linux_advisory_count=result.linux_advisory_count,
         highest_linux_advisory_risk_level=result.highest_linux_advisory_risk_level,
+        owasp_web_finding_count=result.owasp_web_finding_count,
+        highest_owasp_web_risk_level=result.highest_owasp_web_risk_level,
     )
 
 

@@ -24,6 +24,7 @@ _SSH_AUTH_LOG = Path("data/sample_evidence/ssh_auth.log")
 _PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
 _NESSUS_SCAN = Path("data/sample_evidence/nessus_scan.nessus")
 _LINUX_COMMANDS = Path("data/sample_evidence/linux_commands.txt")
+_HTTP_TRANSACTION = Path("data/sample_evidence/http_transaction.txt")
 
 
 @pytest.fixture
@@ -192,6 +193,35 @@ def test_upload_linux_command_evidence_routes_to_linux_security_agent(client: Te
     timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
     event_types = {item["event_type"] for item in timeline["items"]}
     assert "linux_advisory_assessed" in event_types
+    assert "agent_analysis" in event_types
+
+
+def test_upload_http_transaction_evidence_routes_to_web_security_agent(
+    client: TestClient,
+) -> None:
+    """Same single `POST /evidence` endpoint, zero router changes, now also
+    triages raw HTTP transaction transcripts (ADR-0020 demo criterion)."""
+    created = client.post("/api/v1/cases", json={"title": "Web app security review"}).json()
+    case_id = created["id"]
+
+    upload = client.post(
+        f"/api/v1/cases/{case_id}/evidence",
+        files={"file": ("http_transaction.txt", _HTTP_TRANSACTION.read_bytes(), "text/plain")},
+    )
+    assert upload.status_code == 201
+    body = upload.json()
+    assert body["case_id"] == case_id
+    assert body["soc_risk_score"] is None
+    assert body["phishing_risk_score"] is None
+    assert body["vulnerability_finding_count"] is None
+    assert body["linux_advisory_count"] is None
+    assert body["owasp_web_finding_count"] is not None
+    assert body["owasp_web_finding_count"] > 0
+    assert body["highest_owasp_web_risk_level"] in ("high", "critical")
+
+    timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
+    event_types = {item["event_type"] for item in timeline["items"]}
+    assert "owasp_web_assessed" in event_types
     assert "agent_analysis" in event_types
 
 

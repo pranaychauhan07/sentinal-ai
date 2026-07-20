@@ -6,7 +6,7 @@ fingerprinting, metrics, events, audit logging. Converts raw uploaded
 artifacts into the one canonical contract, `core.parsers.models.
 NormalizedEvidence` (see `docs/adr/0011-evidence-ingestion-pipeline-shape.md`).
 
-**Implemented parsers (fifteen, per the current milestone's scope):**
+**Implemented parsers (sixteen, per the current milestone's scope):**
 `ssh_auth_parser.py`, `apache_access_parser.py`, `apache_error_parser.py`,
 `syslog_parser.py` (generic RFC3164-ish fallback), `windows_event_parser.py`
 (a CSV/XML **EVTX abstraction** — binary `.evtx` parsing is a documented
@@ -37,6 +37,14 @@ one `EvidenceRecord` per non-blank line, no deep classification; a real
 above-`plaintext_parser.py` `sniff()` confidence when it recognizes an
 `ls -l` permission-string prefix, a shebang, or a security-relevant command
 name; backs `core.agents.linux_security_agent.LinuxSecurityAgent`).
+
+`http_transaction_parser.py` (Milestone M4,
+`docs/adr/0020-owasp-web-security-agent.md` — `HttpTransactionParser`, one
+`EvidenceRecord` per non-blank line of an HTTP request/response transcript,
+no deep classification; a real above-`plaintext_parser.py` `sniff()`
+confidence when it recognizes an HTTP request/status line, a `Set-Cookie`
+header, or a security-relevant header name; backs
+`core.agents.web_security_agent.WebSecurityAgent`).
 
 **Framework modules:** `registry.py` (plugin-capable `ParserRegistry` —
 aliases, priority, versioning, enable/disable, `importlib.metadata`

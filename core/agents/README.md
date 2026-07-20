@@ -100,8 +100,26 @@ collide) into a case-level `LinuxSecurityAdvice` (blueprint's exact named
 output type), appended to `CaseInvestigationState.findings` the same way
 every prior specialist agent's output is.
 
-No other specialist agent (OWASP, Incident Response, ...) exists yet — see
-`docs/agent-design.md` for how to add one on top of this framework.
+**Implemented (Milestone M4, `docs/adr/0020-owasp-web-security-agent.md`):**
+`web_security_agent.py` — the sixth concrete specialist agent
+(`WebSecurityAgent`), declaring capability `owasp_web_security_assessment`.
+A new, out-of-blueprint capability — **not** blueprint §7's OWASP Security
+Agent (the AST-based source-code/API static reviewer, still unbuilt; see
+ADR-0020 for why the two are deliberately separate). Reads HTTP traffic
+input via `EvidenceType.HTTP_TRANSACTION`. Deliberately thin: all header/
+cookie/JWT/misconfiguration analysis, OWASP category mapping, and risk
+scoring already happened in
+`core.services.web_security_service.assess_http_transaction` *before* this
+agent runs. Calls `core.tools.web_security_tools.WebSecurityAdvisoryTool` to
+aggregate the case's already-computed OWASP-mapped findings (read from
+`CaseInvestigationState.owasp_web_records` as plain `dict[str, object]`
+entries — a distinct field name from every other `*_records` field) into a
+case-level `WebSecurityAdvice`, appended to `CaseInvestigationState.findings`
+the same way every prior specialist agent's output is.
+
+No other specialist agent (blueprint §7's AST-based OWASP Security Agent,
+Incident Response, ...) exists yet — see `docs/agent-design.md` for how to
+add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

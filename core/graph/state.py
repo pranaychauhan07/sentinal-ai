@@ -144,6 +144,20 @@ class CaseInvestigationState(BaseModel):
     #: `LinuxSecurityAdvice` list.
     linux_advisory_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
 
+    #: Already-computed OWASP-mapped HTTP security advisory data (hydrated as
+    #: plain ``dict[str, object]`` entries by
+    #: `core/services/case_service.py` from
+    #: `core.services.web_security_service.assess_http_transaction()`'s
+    #: result) for `core.agents.web_security_agent.WebSecurityAgent` to
+    #: summarize. Deliberately a **different** field name from every other
+    #: ``*_records`` field — a new, distinct framework
+    #: (`docs/adr/0020-owasp-web-security-agent.md`) that must never be
+    #: confused with any prior one. Kept generic (``list[Any]``) for the same
+    #: reason ``linux_advisory_records`` is: `core/agents` has no
+    #: dependency-rules.md import edge onto `core/owasp_web`, so this field
+    #: is never a typed `WebSecurityAdvice` list.
+    owasp_web_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

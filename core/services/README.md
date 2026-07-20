@@ -10,11 +10,13 @@ Nessus/OpenVAS scan reports), `linux_security_service.py` (analyze SSH-auth/
 syslog evidence for brute force/sudo abuse/privilege escalation/persistence/
 suspicious processes), `linux_advisor_service.py` (analyze raw Linux
 command/`ls -l` input for dangerous commands, permission risks, and
-hardening recommendations — no DB persistence), `report_service.py`
+hardening recommendations — no DB persistence), `web_security_service.py`
+(analyze raw HTTP transaction transcripts for OWASP-mapped header/cookie/
+JWT/misconfiguration issues — no DB persistence), `report_service.py`
 (generate/fetch reports).
 
 **Responsibility:** Translates a frontend request into calls against
-`core/graph`, `core/db`, and `core/reporting` — and nothing else, with six
+`core/graph`, `core/db`, and `core/reporting` — and nothing else, with seven
 documented exceptions: `evidence_service.py` also calls `core/parsers`
 directly (evidence ingestion is deterministic, pre-investigation processing
 with no agent/LLM reasoning — see `docs/adr/0011-evidence-ingestion-pipeline-shape.md`
@@ -43,9 +45,12 @@ see `docs/adr/0014-case-model-and-first-api-routes-shape.md` and
 `docs/dependency-rules.md` rule 4f; and `linux_advisor_service.py` calls
 `core/linux_advisor` and `core/parsers` directly for the same reason — see
 `docs/adr/0019-linux-security-advisor-agent.md` and
-`docs/dependency-rules.md` rule 4g (this module, uniquely, never touches
-`core/memory` — it has no note-taking behavior and no DB session parameter,
-since this framework never persists anything). The other six also call
+`docs/dependency-rules.md` rule 4g; and `web_security_service.py` calls
+`core/owasp_web` and `core/parsers` directly for the same reason — see
+`docs/adr/0020-owasp-web-security-agent.md` and `docs/dependency-rules.md`
+rule 4h (these last two modules, uniquely, never touch `core/memory` — they
+have no note-taking behavior and no DB session parameter, since neither
+framework persists anything). The other six also call
 `core/memory` (the
 same "check Memory for similar past cases"/case-note pattern this README
 already documented as a services-level concern). This is the one place
@@ -85,6 +90,14 @@ each line -> analyze command/permission -> generate hardening
 recommendations -> assess overall risk -> emit audit events.
 `case_service.py` invokes it gated to `EvidenceType.LINUX_COMMAND_INPUT`
 only.
+
+**`web_security_service.py` (docs/adr/0020-owasp-web-security-agent.md):**
+`assess_http_transaction()` — a synchronous call (no DB session parameter,
+since this framework never persists) composing
+`core.owasp_web.advisory_engine.WebSecurityAdvisoryEngine`: classify each
+line (header/cookie/JWT/misconfiguration candidate) -> analyze -> normalize
+into unified `OwaspFinding`s -> assess overall risk -> emit audit events.
+`case_service.py` invokes it gated to `EvidenceType.HTTP_TRANSACTION` only.
 
 **ADR-0015 (Case Management Extension):** `case_service.py` gained case
 ownership/priority/tags/notes mutation functions and case-level risk-score

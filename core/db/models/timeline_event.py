@@ -49,6 +49,13 @@ class TimelineEventType(StrEnum):
     #: same generic pipeline-stage-completed event every other framework
     #: records, not a persisted finding.
     LINUX_ADVISORY_ASSESSED = "linux_advisory_assessed"
+    #: docs/adr/0020 (OWASP Web Security Agent) — recorded once per
+    #: `WebSecurityAdvice` produced by
+    #: `core/services/web_security_service.py`. This framework never
+    #: persists the advice itself (ADR-0020 point 3); this marker is the
+    #: same generic pipeline-stage-completed event every other framework
+    #: records, not a persisted finding.
+    OWASP_WEB_ASSESSED = "owasp_web_assessed"
 
 
 class TimelineEvent(Entity):

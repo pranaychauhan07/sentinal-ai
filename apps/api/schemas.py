@@ -156,6 +156,11 @@ class EvidenceUploadResponse(ApiSchema):
     #: versioning rule (docs/adr/0019-linux-security-advisor-agent.md).
     linux_advisory_count: int | None = None
     highest_linux_advisory_risk_level: str | None = None
+    #: Populated only when this upload routed to `WebSecurityAgent` (an HTTP
+    #: transaction transcript) — additive, per constitution §13's
+    #: versioning rule (docs/adr/0020-owasp-web-security-agent.md).
+    owasp_web_finding_count: int | None = None
+    highest_owasp_web_risk_level: str | None = None
 
 
 # --- IOC --------------------------------------------------------------------

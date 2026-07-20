@@ -62,6 +62,17 @@ score itself). Backs `core.agents.linux_security_agent.LinuxSecurityAgent` —
 **not** `linux_security_tools.py` above, which backs the different
 `ThreatHunterAgent`.
 
+**Implemented (Milestone M4, `docs/adr/0020-owasp-web-security-agent.md`):**
+`web_security_tools.py` (`WebSecurityAdvisoryTool` — aggregates the case's
+already-analyzed OWASP-mapped header/cookie/JWT/misconfiguration finding
+data (all computed by `core.services.web_security_service`/
+`core.owasp_web`) into a case-level summary: counts by OWASP category and
+severity, and the top-N highest-severity findings. Never recomputes a
+finding's severity, confidence, or the overall risk score itself). Backs
+`core.agents.web_security_agent.WebSecurityAgent` — **not** blueprint §7's
+still-unbuilt `owasp_tools.py` (the AST-based source-code static analyzer's
+tool), which this deliberately never touches or renames.
+
 No other concrete tool (`log_tools.py`, `owasp_tools.py`, `ir_tools.py`,
 `mitre_tools.py`) exists yet.
 

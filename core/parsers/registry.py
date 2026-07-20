@@ -192,6 +192,7 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     from core.parsers.apache_error_parser import ApacheErrorParser
     from core.parsers.csv_evidence_parser import CsvEvidenceParser
     from core.parsers.email_parser import EmailParser
+    from core.parsers.http_transaction_parser import HttpTransactionParser
     from core.parsers.json_evidence_parser import JsonEvidenceParser
     from core.parsers.linux_command_parser import LinuxCommandInputParser
     from core.parsers.nessus_csv_parser import NessusCsvParser
@@ -220,4 +221,5 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     registry.register(OpenVasXmlParser(), aliases=("openvas",), priority=9)
     registry.register(OpenVasCsvParser(), priority=7)
     registry.register(LinuxCommandInputParser(), aliases=("linux_command",), priority=3)
+    registry.register(HttpTransactionParser(), aliases=("http",), priority=3)
     registry.register(PlainTextParser(), priority=0)

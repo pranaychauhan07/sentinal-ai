@@ -210,6 +210,32 @@ class Settings(BaseSettings):
         default=0.1, ge=0.0, le=1.0, alias="LINUX_ADVISOR_RISK_WEIGHT_CORROBORATION"
     )
 
+    # --- OWASP Web Security Agent (core/owasp_web, core/services/
+    # web_security_service.py, core/agents/web_security_agent.py) ---
+    owasp_web_max_lines_per_artifact: int = Field(
+        default=5_000, alias="OWASP_WEB_MAX_LINES_PER_ARTIFACT"
+    )
+    owasp_web_max_chars_per_artifact: int = Field(
+        default=500_000, alias="OWASP_WEB_MAX_CHARS_PER_ARTIFACT"
+    )
+    # Overall risk-assessment weights (must sum to 1.0 — validated by
+    # core.owasp_web.risk_assessment.WebSecurityRiskWeights).
+    owasp_web_risk_weight_highest_severity: float = Field(
+        default=0.35, ge=0.0, le=1.0, alias="OWASP_WEB_RISK_WEIGHT_HIGHEST_SEVERITY"
+    )
+    owasp_web_risk_weight_highest_confidence: float = Field(
+        default=0.2, ge=0.0, le=1.0, alias="OWASP_WEB_RISK_WEIGHT_HIGHEST_CONFIDENCE"
+    )
+    owasp_web_risk_weight_finding_count: float = Field(
+        default=0.15, ge=0.0, le=1.0, alias="OWASP_WEB_RISK_WEIGHT_FINDING_COUNT"
+    )
+    owasp_web_risk_weight_critical_category: float = Field(
+        default=0.2, ge=0.0, le=1.0, alias="OWASP_WEB_RISK_WEIGHT_CRITICAL_CATEGORY"
+    )
+    owasp_web_risk_weight_corroboration: float = Field(
+        default=0.1, ge=0.0, le=1.0, alias="OWASP_WEB_RISK_WEIGHT_CORROBORATION"
+    )
+
     # --- MITRE ATT&CK knowledge (core/knowledge/mitre, core/findings) ---
     mitre_attack_data_path: Path = Field(
         default=Path("./data/mitre/raw/attack-enterprise-15.1.json"),

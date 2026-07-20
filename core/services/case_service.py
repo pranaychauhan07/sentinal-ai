@@ -52,18 +52,21 @@ exceptions that are specifically about reaching into the deterministic leaf
 below and `core/agents/phishing_agent.py`'s docstring for why this stays
 string/dict-typed rather than a `core.threat_intel.models.ScoredIOC` import.
 Calling `core.services.vulnerability_service.assess_vulnerabilities()`,
-`core.services.linux_security_service.assess_linux_security()`, and
-`core.services.linux_advisor_service.assess_linux_command_input()` is normal
+`core.services.linux_security_service.assess_linux_security()`,
+`core.services.linux_advisor_service.assess_linux_command_input()`, and
+`core.services.web_security_service.assess_http_transaction()` is normal
 sibling-service composition (the same reasoning already covers
 `extract_threat_intelligence`/`generate_findings_for_case`); their already-
-generated `VulnerabilityFinding`/`LinuxSecurityFinding`/`LinuxSecurityAdvice`
-data is reduced to plain dicts before being hydrated onto
+generated `VulnerabilityFinding`/`LinuxSecurityFinding`/`LinuxSecurityAdvice`/
+`WebSecurityAdvice` data is reduced to plain dicts before being hydrated onto
 `CaseInvestigationState.vulnerability_records`/`linux_security_records`/
-`linux_advisory_records`, for the identical reason
+`linux_advisory_records`/`owasp_web_records`, for the identical reason
 `core/agents/vulnerability_agent.py`'s, `core/agents/threat_hunter_agent.py`'s,
-and `core/agents/linux_security_agent.py`'s docstrings document.
-`assess_linux_command_input()` is synchronous (no DB session parameter) —
-ADR-0019's Linux Security Advisor Framework never persists anything.
+`core/agents/linux_security_agent.py`'s, and
+`core/agents/web_security_agent.py`'s docstrings document.
+`assess_linux_command_input()`/`assess_http_transaction()` are synchronous
+(no DB session parameter) — ADR-0019's Linux Security Advisor Framework and
+ADR-0020's OWASP Web Security Agent framework never persist anything.
 """
 
 from __future__ import annotations
@@ -89,6 +92,10 @@ from core.agents.threat_hunter_agent import (
 from core.agents.vulnerability_agent import (
     VulnerabilityAssessmentAgent,
     default_vulnerability_agent_tool_registry,
+)
+from core.agents.web_security_agent import (
+    WebSecurityAgent,
+    default_web_security_agent_tool_registry,
 )
 from core.config import Settings
 from core.db.case_note_repository import CaseNoteRepository
@@ -116,6 +123,7 @@ from core.services.linux_advisor_service import assess_linux_command_input
 from core.services.linux_security_service import assess_linux_security
 from core.services.threat_intel_service import extract_threat_intelligence
 from core.services.vulnerability_service import assess_vulnerabilities
+from core.services.web_security_service import assess_http_transaction
 
 _logger = get_logger(__name__)
 
@@ -136,6 +144,7 @@ _PHISHING_CAPABILITY = PhishingAgent.capabilities[0].name
 _VULNERABILITY_CAPABILITY = VulnerabilityAssessmentAgent.capabilities[0].name
 _THREAT_HUNTING_CAPABILITY = ThreatHunterAgent.capabilities[0].name
 _LINUX_ADVISORY_CAPABILITY = LinuxSecurityAgent.capabilities[0].name
+_OWASP_WEB_SECURITY_CAPABILITY = WebSecurityAgent.capabilities[0].name
 
 #: Which capabilities a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
@@ -160,6 +169,7 @@ _EVIDENCE_TYPE_CAPABILITIES: dict[EvidenceType, tuple[str, ...]] = {
     EvidenceType.SSH_AUTH: (_SOC_ANALYST_CAPABILITY, _THREAT_HUNTING_CAPABILITY),
     EvidenceType.SYSLOG: (_SOC_ANALYST_CAPABILITY, _THREAT_HUNTING_CAPABILITY),
     EvidenceType.LINUX_COMMAND_INPUT: (_LINUX_ADVISORY_CAPABILITY,),
+    EvidenceType.HTTP_TRANSACTION: (_OWASP_WEB_SECURITY_CAPABILITY,),
 }
 
 #: Evidence types `assess_vulnerabilities()` is actually run against —
@@ -196,6 +206,12 @@ _LINUX_ADVISOR_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset(
     {EvidenceType.LINUX_COMMAND_INPUT}
 )
 
+#: Evidence types `assess_http_transaction()` is actually run against — the
+#: OWASP Web Security Agent framework (docs/adr/0020), never overlapping any
+#: prior framework's evidence types: `HTTP_TRANSACTION` is raw HTTP
+#: request/response transcript text, not a log format.
+_WEB_SECURITY_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset({EvidenceType.HTTP_TRANSACTION})
+
 
 def _required_capabilities_for(evidence_type: EvidenceType) -> list[str]:
     return list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
@@ -222,6 +238,8 @@ class CaseInvestigationResult(BaseModel):
     highest_linux_security_risk_score: float | None = None
     linux_advisory_count: int | None = None
     highest_linux_advisory_risk_level: str | None = None
+    owasp_web_finding_count: int | None = None
+    highest_owasp_web_risk_level: str | None = None
 
 
 async def create_case(
@@ -561,13 +579,14 @@ async def _run_specialist_agents(
     vulnerability_records: list[dict[str, object]] | None = None,
     linux_security_records: list[dict[str, object]] | None = None,
     linux_advisory_records: list[dict[str, object]] | None = None,
+    owasp_web_records: list[dict[str, object]] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`. Registers all five concrete specialist
+    delegating to `core/graph`. Registers all six concrete specialist
     agents built to date (`SocAnalystAgent`, `PhishingAgent`,
     `VulnerabilityAssessmentAgent`, `ThreatHunterAgent`,
-    `LinuxSecurityAgent`); which one(s) the
+    `LinuxSecurityAgent`, `WebSecurityAgent`); which one(s) the
     Coordinator actually fans out to is decided by `required_capabilities`,
     computed per-artifact from its `EvidenceType`
     (`_required_capabilities_for`) — this is what lets a log upload, an
@@ -599,6 +618,11 @@ async def _run_specialist_agents(
             tool_registry=default_linux_security_agent_tool_registry(), case_memory=case_memory
         )
     )
+    registry.register(
+        WebSecurityAgent(
+            tool_registry=default_web_security_agent_tool_registry(), case_memory=case_memory
+        )
+    )
     engine = build_investigation_graph(agent_registry=registry)
 
     required_capabilities = _required_capabilities_for(evidence_items[0].evidence_type)
@@ -610,6 +634,7 @@ async def _run_specialist_agents(
         vulnerability_records=list(vulnerability_records or []),
         linux_security_records=list(linux_security_records or []),
         linux_advisory_records=list(linux_advisory_records or []),
+        owasp_web_records=list(owasp_web_records or []),
         metadata={"required_capabilities": required_capabilities},
     )
     return engine.run(state)
@@ -797,6 +822,42 @@ async def investigate_new_evidence(
                 f"'{filename}'; overall risk '{advice.overall_risk_level.value}'.",
             )
 
+        owasp_web_records: list[dict[str, object]] = []
+        if normalized.evidence_type in _WEB_SECURITY_EVIDENCE_TYPES:
+            web_security_assessment = assess_http_transaction(
+                case_id=case_id, evidence=normalized, settings=settings
+            )
+            web_advice = web_security_assessment.advice
+            for owasp_finding in web_advice.owasp_findings:
+                owasp_web_records.append(
+                    {
+                        "kind": "finding",
+                        "category": owasp_finding.category.value,
+                        "severity": owasp_finding.severity.value,
+                        "confidence": owasp_finding.confidence,
+                        "evidence_reference": owasp_finding.evidence_reference,
+                        "explanation": owasp_finding.explanation,
+                        "recommended_remediation": owasp_finding.recommended_remediation,
+                        "source": owasp_finding.source,
+                    }
+                )
+            owasp_web_records.append(
+                {
+                    "kind": "summary",
+                    "overall_risk_level": web_advice.overall_risk_level.value,
+                    "overall_confidence": web_advice.overall_confidence,
+                    "overall_explanation": web_advice.overall_explanation,
+                    "skipped_line_count": web_advice.skipped_line_count,
+                }
+            )
+            await _record_timeline(
+                session,
+                case_id,
+                TimelineEventType.OWASP_WEB_ASSESSED,
+                f"{len(web_advice.owasp_findings)} OWASP-mapped finding(s) assessed from "
+                f"'{filename}'; overall risk '{web_advice.overall_risk_level.value}'.",
+            )
+
         result_state = await _run_specialist_agents(
             session,
             case_id=case_id,
@@ -805,6 +866,7 @@ async def investigate_new_evidence(
             vulnerability_records=vulnerability_records,
             linux_security_records=linux_security_records,
             linux_advisory_records=linux_advisory_records,
+            owasp_web_records=owasp_web_records,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
@@ -817,12 +879,14 @@ async def investigate_new_evidence(
         linux_advisory_count, highest_linux_advisory_risk_level = _extract_linux_advisory(
             result_state
         )
+        owasp_web_finding_count, highest_owasp_web_risk_level = _extract_web_security(result_state)
         for agent_name in (
             SocAnalystAgent.name,
             PhishingAgent.name,
             VulnerabilityAssessmentAgent.name,
             ThreatHunterAgent.name,
             LinuxSecurityAgent.name,
+            WebSecurityAgent.name,
         ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
@@ -854,6 +918,8 @@ async def investigate_new_evidence(
             highest_linux_security_risk_score=highest_linux_security_risk_score,
             linux_advisory_count=linux_advisory_count,
             highest_linux_advisory_risk_level=highest_linux_advisory_risk_level,
+            owasp_web_finding_count=owasp_web_finding_count,
+            highest_owasp_web_risk_level=highest_owasp_web_risk_level,
         )
 
 
@@ -927,3 +993,16 @@ def _extract_linux_advisory(state: CaseInvestigationState) -> tuple[int | None, 
         return None, None
     count = advice["flagged_command_count"] + advice["flagged_permission_count"]
     return count, advice["overall_risk_level"]
+
+
+def _extract_web_security(state: CaseInvestigationState) -> tuple[int | None, str | None]:
+    """`WebSecurityAgent`'s counterpart to `_extract_linux_advisory` — reads
+    the total OWASP-mapped finding count and overall risk level out of this
+    run's `WebSecurityAdvice` payload."""
+    web_security_output = state.agent_outputs.get(WebSecurityAgent.name)
+    if web_security_output is None:
+        return None, None
+    advice = web_security_output.output.get("advice")
+    if not advice:
+        return None, None
+    return advice["finding_count"], advice["overall_risk_level"]

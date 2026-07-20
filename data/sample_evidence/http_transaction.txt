@@ -1,0 +1,11 @@
+GET /admin/dashboard HTTP/1.1
+Host: example.internal
+Authorization: Bearer eyJhbGciOiAibm9uZSIsICJ0eXAiOiAiSldUIn0.eyJzdWIiOiAiYWRtaW4ifQ.fakesignaturevalue
+HTTP/1.1 200 OK
+Content-Type: text/html
+Server: Apache/2.4.41
+Set-Cookie: session=abc123; Path=/
+Set-Cookie: csrftoken=xyz789; Secure; SameSite=None
+Content-Security-Policy: default-src 'self'; script-src 'unsafe-inline' *
+Index of /admin/backups
+admin/admin default password still enabled on /debug console

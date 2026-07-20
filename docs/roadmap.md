@@ -281,6 +281,47 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       needs the concrete OWASP Security Agent first, which does not exist
       yet.
 
+      **2026-07-21** (`docs/adr/0020-owasp-web-security-agent.md`): added a
+      new, out-of-blueprint **Web Security Agent** — a deterministic
+      analyzer of HTTP traffic artifacts (requests/responses, security
+      headers, cookies, JWT metadata, web server logs, API responses) mapped
+      to the OWASP Top 10 (2021) taxonomy. Deliberately **not** blueprint
+      §7's OWASP Security Agent (the AST-based source-code/API static
+      reviewer still named below), which remains completely unbuilt and
+      unmodified — this is a sixth sibling leaf package, `core/owasp_web/`
+      (its own `WebSecuritySeverity` scale, a first-class `OwaspCategory`
+      enum used directly on `rule_engine.Rule`, a generic data-driven
+      `RuleEngine`/`Rule` seam identical in shape to `core/linux_advisor`'s
+      but never imported from it, `header_rules.py`'s missing-header specs +
+      value-quality rules, `cookie_rules.py`'s pure structural checks,
+      `misconfig_rules.py`'s default pattern rules, `header_analyzer.py`/
+      `cookie_analyzer.py`/`jwt_analyzer.py`/`misconfiguration_detector.py`,
+      `category_mapper.py`, `finding_generator.py` normalizing every
+      analyzer's finding into the unified `OwaspFinding` shape,
+      `risk_assessment.py` (a configurable, sum-to-1.0-validated
+      five-dimension scoring engine), `advisory_engine.py` (the orchestrator,
+      with an oversized-input guard and log-injection sanitization), and
+      metrics/audit modules — deliberately **no** DB persistence and **no**
+      enrichment-provider seam, matching ADR-0019's "advisor" framing), a new
+      additive `EvidenceType.HTTP_TRANSACTION` +
+      `core/parsers/http_transaction_parser.py` (`HttpTransactionParser`),
+      the synchronous `core/services/web_security_service.py`
+      (`assess_http_transaction` — no DB session, since this framework never
+      persists), `core/tools/web_security_tools.py`
+      (`WebSecurityAdvisoryTool`), and `core/agents/web_security_agent.py`
+      (`WebSecurityAgent`, capability `owasp_web_security_assessment`) — the
+      sixth concrete specialist agent, wired into
+      `core/graph/investigation_graph.py` with the same two-line pattern the
+      other five established. `core/services/case_service.py`'s per-upload
+      capability routing table gained the new `EvidenceType`, so an HTTP
+      transaction upload now automatically fans out to `WebSecurityAgent`.
+      No penetration testing, active scanning, incident response, threat
+      hunting, MITRE mapping, automated exploitation, or LLM reasoning —
+      explicitly out of scope per the ADR and this task's own instruction.
+      **This does not close M4** — blueprint §7's AST-based OWASP Security
+      Agent (source code/API static review) remains the milestone's only
+      unbuilt, outstanding piece.
+
 - [ ] **M5 — Incident Response synthesis + Reporting.** Incident Response
       Agent (case-wide synthesis), Report Generator Agent with Jinja2/
       ReportLab templates per module + executive report, Plotly charts.

@@ -19,8 +19,9 @@ core/agents                    (specialist agents)
                                 ↘ (no edge onto core/vulnerabilities — rule 4e is services-only)
                                 ↘ (no edge onto core/linux_security — rule 4f is services-only)
                                 ↘ (no edge onto core/linux_advisor — rule 4g is services-only)
+                                ↘ (no edge onto core/owasp_web — rule 4h is services-only)
 core/tools , core/parsers , core/threat_intel , core/findings , core/vulnerabilities ,
-core/linux_security , core/linux_advisor
+core/linux_security , core/linux_advisor , core/owasp_web
         (deterministic functions)
         ↓ may import
 core/knowledge , core/memory , core/security , core/db , core/reporting , core/config
@@ -136,6 +137,18 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    persistence"). See `docs/adr/0019-linux-security-advisor-agent.md`. No
    other `core/services` module gets this exception without its own ADR.
 
+4h. **`core/services/web_security_service.py` may import `core/owasp_web`
+   and `core/parsers` directly** — the eighth documented exception to
+   "services only call `core/graph`," worded identically to 4g's precedent.
+   OWASP-mapped HTTP traffic analysis (header analysis, cookie analysis,
+   JWT analysis, misconfiguration detection, finding generation, risk
+   assessment) is deterministic, pre-investigation processing with no
+   agent/LLM reasoning involved. Like 4g, this module never touches
+   `core/memory` (no note-taking behavior — see
+   `docs/adr/0020-owasp-web-security-agent.md` point 3, "no DB
+   persistence"). See `docs/adr/0020-owasp-web-security-agent.md`. No other
+   `core/services` module gets this exception without its own ADR.
+
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to
    "leaves never call up" — `core/graph/state.py` specifically (not
@@ -152,8 +165,8 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    keeping agents unaware of SQL/ORM details.
 
 5. **`core/tools`, `core/parsers`, `core/threat_intel`, `core/findings`,
-   `core/vulnerabilities`, `core/linux_security`, and `core/linux_advisor`
-   may import `core/knowledge`** (e.g. `core/vulnerabilities/severity.py`/`extractor.py`
+   `core/vulnerabilities`, `core/linux_security`, `core/linux_advisor`, and
+   `core/owasp_web` may import `core/knowledge`** (e.g. `core/vulnerabilities/severity.py`/`extractor.py`
    use `core/knowledge/cvss_calculator.py`; `core/findings`'s mapping engine
    uses `core/knowledge/mitre`) **but never `core/agents`, `core/graph`, or
    `core/memory`.** These are leaves — nothing calls up from them, and they
@@ -164,7 +177,12 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    list exercises every permission it's granted. `core/linux_advisor`
    likewise imports neither `core/knowledge` nor `core/memory` — it has no
    reference-data dependency and no advisory/note-taking behavior
-   (`docs/adr/0019-linux-security-advisor-agent.md` point 3). `core/threat_intel`,
+   (`docs/adr/0019-linux-security-advisor-agent.md` point 3). `core/owasp_web`
+   imports neither `core/knowledge` nor `core/memory` for the identical
+   reason (`docs/adr/0020-owasp-web-security-agent.md` point 3) — its OWASP
+   category name/description lookup (`category_mapper.py`) is small enough
+   to live inside the package itself rather than in `core/knowledge`.
+   `core/threat_intel`,
    `core/findings`, and `core/vulnerabilities` are the documented exceptions
    allowed to import another leaf's *model* contract sideways: `core/threat_intel`
    imports `core.parsers.models.NormalizedEvidence` (its input type), matching
