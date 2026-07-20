@@ -38,8 +38,32 @@ case-level summary: counts by severity, highest composite score, and a
 top-N list by priority. Never recomputes CVSS, severity, or a threat score
 itself).
 
-No other concrete tool (`log_tools.py`, `owasp_tools.py`, `linux_tools.py`,
-`ir_tools.py`, `mitre_tools.py`) exists yet.
+**Implemented (Milestone M4, `docs/adr/0018-linux-security-threat-hunting-framework.md`):**
+`linux_security_tools.py` (`LinuxSecurityAssessmentTool` — aggregates the
+case's already-generated `LinuxSecurityFinding` data (category, severity,
+composite score — all computed by
+`core.services.linux_security_service.LinuxSecurityPipeline`) into a
+case-level summary: counts by category/severity, highest composite score,
+and a top-N list by severity. Never recomputes a detection, confidence, or
+risk score itself). Backs `core.agents.threat_hunter_agent.ThreatHunterAgent`
+(blueprint §7's Threat Hunting Agent) — not the same as the still-unbuilt
+`linux_tools.py` (blueprint §7's narrow Linux Security Agent: command
+explainer, permission-string analyzer).
+
+**Implemented (Milestone M4, `docs/adr/0019-linux-security-advisor-agent.md`):**
+`linux_tools.py` (`LinuxSecurityAdvisoryTool` — blueprint §7's actual named
+file for the Linux Security Agent. Aggregates the case's already-analyzed
+command/permission risk data and hardening recommendations (all computed by
+`core.services.linux_advisor_service`/`core.linux_advisor`) into a
+case-level summary: counts by severity, hardening recommendation counts
+(baseline vs. finding-triggered), and the top-N highest-severity findings.
+Never recomputes a command's risk, a permission's risk, or the overall risk
+score itself). Backs `core.agents.linux_security_agent.LinuxSecurityAgent` —
+**not** `linux_security_tools.py` above, which backs the different
+`ThreatHunterAgent`.
+
+No other concrete tool (`log_tools.py`, `owasp_tools.py`, `ir_tools.py`,
+`mitre_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*
 tool to call and interpret the result, not to do the math itself.

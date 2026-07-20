@@ -117,6 +117,33 @@ class CaseInvestigationState(BaseModel):
     #: typed `VulnerabilityFinding` list.
     vulnerability_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
 
+    #: Already-generated `core.linux_security.models.LinuxSecurityFinding`
+    #: data (hydrated as plain ``dict[str, object]`` entries by
+    #: `core/services/case_service.py` from
+    #: `core.services.linux_security_service.assess_linux_security()`'s
+    #: result) for `core.agents.threat_hunter_agent.ThreatHunterAgent` to
+    #: summarize. Kept generic (``list[Any]``) for the same reason
+    #: ``vulnerability_records`` is: `core/agents` has no dependency-rules.md
+    #: import edge onto `core/linux_security`, so this field is never a
+    #: typed `LinuxSecurityFinding` list.
+    linux_security_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
+
+    #: Already-computed Linux command/permission advisory data (hydrated as
+    #: plain ``dict[str, object]`` entries by
+    #: `core/services/case_service.py` from
+    #: `core.services.linux_advisor_service.assess_linux_command_input()`'s
+    #: result) for `core.agents.linux_security_agent.LinuxSecurityAgent` to
+    #: summarize. Deliberately a **different** field name from
+    #: ``linux_security_records`` (which `ThreatHunterAgent` already uses) to
+    #: avoid any collision between ADR-0018's Linux Security *Threat
+    #: Hunting* Framework and ADR-0019's Linux Security *Advisor* Framework
+    #: — two separate packages that must never be confused. Kept generic
+    #: (``list[Any]``) for the same reason ``vulnerability_records`` is:
+    #: `core/agents` has no dependency-rules.md import edge onto
+    #: `core/linux_advisor`, so this field is never a typed
+    #: `LinuxSecurityAdvice` list.
+    linux_advisory_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

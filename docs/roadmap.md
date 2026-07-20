@@ -196,10 +196,90 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       automatically fans out to `VulnerabilityAssessmentAgent` instead of
       `SocAnalystAgent`. No remediation planning, Incident Response, or LLM
       reasoning — explicitly out of scope per the ADR and this task's own
-      instruction. Still not checked off: the milestone's own demo criterion
-      (all 9 modules through the Coordinator) needs the concrete OWASP/
-      Linux/Threat Hunting agents first, which don't exist yet.
+      instruction.
+
+      **2026-07-20** (`docs/adr/0018-linux-security-threat-hunting-framework.md`):
+      closed the Threat Hunting Agent piece — a fourth sibling leaf package,
+      `core/linux_security/` (models incl. a single shared
+      `LinuxSecurityCandidate` shape across fifteen detection categories,
+      exceptions, normalizer with a documented journald best-effort
+      supplement, `ssh_auth_analyzer.py` — brute force/failed-login spike/
+      root login/compromise-after-brute-force, `sudo_analyzer.py` —
+      sensitive-file access/shell-escape/repeated auth failures,
+      `privilege_escalation.py` — new user/deletion/password change/group
+      escalation/su-to-root plus a combined new-user-then-escalation
+      pattern, `cron_analyzer.py`/`service_analyzer.py` — suspicious cron
+      jobs and service starts, `process_detector.py` — the single shared
+      reverse-shell regex set every other analyzer delegates to,
+      `persistence_detector.py` — cross-category aggregation into
+      persistence findings, `authentication_timeline.py` — this run's own
+      auth reconstruction, a confidence engine and a seven-dimension threat
+      scoring engine (both configurable, sum-to-1.0-validated), finding
+      generation, metrics/events/audit, and an unimplemented
+      `LinuxSecurityEnrichmentProvider` seam — mirrors
+      `core/vulnerabilities`'s shape exactly), the fourth real domain table
+      (`LinuxSecurityFindingRow`, mirroring `Vulnerability`'s shape, both FKs
+      real from the start), the ten-stage `LinuxSecurityPipeline`
+      (`core/services/linux_security_service.py`, gated to
+      `SSH_AUTH`/`SYSLOG` evidence only — deliberately not `JSON`),
+      `core/tools/linux_security_tools.py` (`LinuxSecurityAssessmentTool`),
+      and `core/agents/threat_hunter_agent.py` (`ThreatHunterAgent`,
+      capability `cross_log_threat_hunting`) — the fourth concrete
+      specialist agent, wired into `core/graph/investigation_graph.py` with
+      the same two-line pattern the other three established.
+      `core/services/case_service.py`'s per-upload capability routing table
+      changed shape (`dict[EvidenceType, str]` -> `dict[EvidenceType,
+      tuple[str, ...]]`): `SSH_AUTH`/`SYSLOG` now route to *both*
+      `SocAnalystAgent` and `ThreatHunterAgent`, proving a single evidence
+      type can require more than one specialist capability without any
+      Planning Agent/routing framework change. No Incident Response,
+      remediation, or LLM reasoning — explicitly out of scope per the ADR
+      and this task's own instruction. Still not checked off: the
+      milestone's own demo criterion (all 9 modules through the Coordinator)
+      needs the concrete OWASP Security Agent and the blueprint §7-scoped
+      Linux command/permission-string advisor Agent first, which don't
+      exist yet (the user explicitly declined to build the latter this
+      session in favor of the Threat Hunting Agent).
       *Demo: all 9 required modules functioning through the same Coordinator.*
+
+      **2026-07-20** (`docs/adr/0019-linux-security-advisor-agent.md`):
+      closed the blueprint §7-scoped Linux Security Agent piece (the
+      narrow command/permission advisor, explicitly distinct from
+      ADR-0018's Threat Hunting Agent) — a fifth sibling leaf package,
+      `core/linux_advisor/` (models with its own `LinuxAdvisorSeverity`
+      scale, exceptions, a generic data-driven `RuleEngine`/`Rule` seam
+      supporting regex/literal-substring/callable-signature matchers,
+      `command_rules.py`'s default dangerous-command rule set — `rm -rf`,
+      `chmod 777`/`666`, `curl|wget` piped to a shell, unrestricted sudo,
+      insecure `chown`/`chgrp` of sensitive files, world-writable directory
+      creation — `permission_parser.py`'s pure octal/rwx/`ls -l`/symbolic-
+      mode/umask conversions, `command_analyzer.py`/`permission_analyzer.py`,
+      `hardening_advisor.py` (finding-triggered + baseline recommendations
+      across eight named categories), `risk_assessment.py` (a configurable,
+      sum-to-1.0-validated five-dimension scoring engine), `advisory_engine.py`
+      (the orchestrator, with an oversized-input guard and log-injection
+      sanitization), and metrics/audit modules — deliberately **no** DB
+      persistence and **no** enrichment-provider seam, unlike
+      `core/vulnerabilities`/`core/linux_security`, matching blueprint's
+      original "advisor" framing), a new additive `EvidenceType.LINUX_COMMAND_INPUT`
+      + `core/parsers/linux_command_parser.py` (`LinuxCommandInputParser`),
+      the five-stage `core/services/linux_advisor_service.py`
+      (`assess_linux_command_input`, synchronous — no DB session, since this
+      framework never persists), `core/tools/linux_tools.py`
+      (`LinuxSecurityAdvisoryTool`), and `core/agents/linux_security_agent.py`
+      (`LinuxSecurityAgent`, capability `linux_security_advisory`, output
+      type `LinuxSecurityAdvice`) — the fifth concrete specialist agent,
+      wired into `core/graph/investigation_graph.py` with the same two-line
+      pattern the other four established. `core/services/case_service.py`'s
+      per-upload capability routing table gained the new `EvidenceType`, so
+      a raw command/`ls -l` upload now automatically fans out to
+      `LinuxSecurityAgent`. No log analysis, threat hunting, SOC analysis,
+      IOC extraction, timeline generation, finding correlation, Incident
+      Response, remediation, or LLM reasoning — explicitly out of scope per
+      the ADR and this task's own instruction. Still not checked off: the
+      milestone's own demo criterion (all 9 modules through the Coordinator)
+      needs the concrete OWASP Security Agent first, which does not exist
+      yet.
 
 - [ ] **M5 — Incident Response synthesis + Reporting.** Incident Response
       Agent (case-wide synthesis), Report Generator Agent with Jinja2/

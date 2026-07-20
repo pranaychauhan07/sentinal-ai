@@ -7,11 +7,12 @@ package, one module per table (`models/case.py`, `models/case_note.py`,
 `models/mitre_tactic.py`, `models/mitre_technique.py`,
 `models/mitre_software.py`, `models/mitre_group.py`,
 `models/mitre_mitigation.py`, `models/timeline_event.py`,
-`models/report.py`, `models/vulnerability.py`), re-exported from
-`models/__init__.py` exactly as blueprint §8 specifies — blueprint §8's full
-schema list is now complete, plus `Vulnerability` (docs/adr/0017). `session.py`
-provides the async SQLAlchemy session factory. `migrations/` holds Alembic
-migrations.
+`models/report.py`, `models/vulnerability.py`,
+`models/linux_security_finding.py`), re-exported from `models/__init__.py`
+exactly as blueprint §8 specifies — blueprint §8's full schema list is now
+complete, plus `Vulnerability` (docs/adr/0017) and `LinuxSecurityFindingRow`
+(docs/adr/0018). `session.py` provides the async SQLAlchemy session factory.
+`migrations/` holds Alembic migrations.
 
 **`Vulnerability` (docs/adr/0017-vulnerability-assessment-framework.md)**
 mirrors `IOC`'s shape exactly — one persisted, scored
@@ -31,6 +32,19 @@ extended additively via migration `b2a6f1c3d8e4`, mirroring `031e35cdb9e7`'s
 identical dialect-branching pattern (`ALTER TYPE ... ADD VALUE` on
 PostgreSQL, `batch_alter_table` column rebuild on SQLite) — the original
 eight values are never renamed/removed.
+
+**`LinuxSecurityFindingRow` (docs/adr/0018-linux-security-threat-hunting-
+framework.md)** mirrors `Vulnerability`'s shape exactly — one persisted,
+scored `core.linux_security.models.LinuxSecurityFinding` per row (grouped by
+`(category, subject)`), with both `case_id` and `evidence_id` real foreign
+keys from the start. `core.db.linux_security_finding_repository.
+LinuxSecurityFindingRepository` mirrors `VulnerabilityRepository`'s shape
+(`find_by_case`, `find_by_evidence`, `find_by_subject`, `mark_dismissed`,
+`mark_false_positive`, `increment_occurrence`). **`TimelineEventType` gained
+`LINUX_SECURITY_FINDING_DETECTED`**, extended additively via migration
+`7f3d9a1b5c2e` (after `9c1e2a7d4b6f` creates the table), the same
+dialect-branching pattern as `VULNERABILITY_ASSESSED`'s migration — the
+original nine values are never renamed/removed.
 
 **ADR-0015 (Case Management Extension)** additively extended `Case` with
 `priority` (`CasePriority`), `risk_score`, `owner_id`/`assignee_id`, and

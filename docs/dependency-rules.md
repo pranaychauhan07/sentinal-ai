@@ -17,7 +17,10 @@ core/agents                    (specialist agents)
         ↓ may import           ↘ core/threat_intel, core/parsers (IOC extraction only — rule 4b)
                                 ↘ core/findings, core/knowledge (Finding/MITRE mapping only — rule 4c)
                                 ↘ (no edge onto core/vulnerabilities — rule 4e is services-only)
-core/tools , core/parsers , core/threat_intel , core/findings , core/vulnerabilities
+                                ↘ (no edge onto core/linux_security — rule 4f is services-only)
+                                ↘ (no edge onto core/linux_advisor — rule 4g is services-only)
+core/tools , core/parsers , core/threat_intel , core/findings , core/vulnerabilities ,
+core/linux_security , core/linux_advisor
         (deterministic functions)
         ↓ may import
 core/knowledge , core/memory , core/security , core/db , core/reporting , core/config
@@ -110,6 +113,29 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    `docs/adr/0017-vulnerability-assessment-framework.md`. No other
    `core/services` module gets this exception without its own ADR.
 
+4f. **`core/services/linux_security_service.py` may import
+   `core/linux_security`, `core/parsers`, and `core/memory` directly** — the
+   sixth documented exception to "services only call `core/graph`," worded
+   identically to 4b/4e's precedent. Linux security / threat-hunting
+   analysis (evidence normalization, authentication/privilege/persistence
+   analysis, behavior detection, scoring, finding generation, persist,
+   publish, notify) is deterministic, pre-investigation processing with no
+   agent/LLM reasoning involved. See
+   `docs/adr/0018-linux-security-threat-hunting-framework.md`. No other
+   `core/services` module gets this exception without its own ADR.
+
+4g. **`core/services/linux_advisor_service.py` may import
+   `core/linux_advisor` and `core/parsers` directly** — the seventh
+   documented exception to "services only call `core/graph`," worded
+   identically to 4e/4f's precedent. Linux command/permission advisory
+   analysis (command analysis, permission analysis, hardening
+   recommendation, risk assessment) is deterministic, pre-investigation
+   processing with no agent/LLM reasoning involved. Unlike 4e/4f, this
+   module never touches `core/memory` (it has no note-taking behavior — see
+   `docs/adr/0019-linux-security-advisor-agent.md` point 3, "no DB
+   persistence"). See `docs/adr/0019-linux-security-advisor-agent.md`. No
+   other `core/services` module gets this exception without its own ADR.
+
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to
    "leaves never call up" — `core/graph/state.py` specifically (not
@@ -125,26 +151,36 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    through `core/services` or a repository function `core/graph` calls,
    keeping agents unaware of SQL/ORM details.
 
-5. **`core/tools`, `core/parsers`, `core/threat_intel`, `core/findings`, and
-   `core/vulnerabilities` may import `core/knowledge`** (e.g.
-   `core/vulnerabilities/severity.py`/`extractor.py` use
-   `core/knowledge/cvss_calculator.py`; `core/findings`'s mapping engine uses
-   `core/knowledge/mitre`) **but never `core/agents`, `core/graph`, or
+5. **`core/tools`, `core/parsers`, `core/threat_intel`, `core/findings`,
+   `core/vulnerabilities`, `core/linux_security`, and `core/linux_advisor`
+   may import `core/knowledge`** (e.g. `core/vulnerabilities/severity.py`/`extractor.py`
+   use `core/knowledge/cvss_calculator.py`; `core/findings`'s mapping engine
+   uses `core/knowledge/mitre`) **but never `core/agents`, `core/graph`, or
    `core/memory`.** These are leaves — nothing calls up from them, and they
-   call nothing above them. `core/threat_intel`, `core/findings`, and
-   `core/vulnerabilities` are the documented exceptions allowed to import
-   another leaf's *model* contract sideways: `core/threat_intel` imports
-   `core.parsers.models.NormalizedEvidence` (its input type), matching the
-   precedent `core/db/models/evidence.py` already set by importing
+   call nothing above them. `core/linux_security` does not currently import
+   `core/knowledge` — unlike `core/vulnerabilities`'s CVSS dependency, no
+   module in this package needs reference data from that layer; this is
+   noted here only so a future contributor doesn't assume every leaf in this
+   list exercises every permission it's granted. `core/linux_advisor`
+   likewise imports neither `core/knowledge` nor `core/memory` — it has no
+   reference-data dependency and no advisory/note-taking behavior
+   (`docs/adr/0019-linux-security-advisor-agent.md` point 3). `core/threat_intel`,
+   `core/findings`, and `core/vulnerabilities` are the documented exceptions
+   allowed to import another leaf's *model* contract sideways: `core/threat_intel`
+   imports `core.parsers.models.NormalizedEvidence` (its input type), matching
+   the precedent `core/db/models/evidence.py` already set by importing
    `core.parsers.models.EvidenceType`; `core/findings` imports
    `core.threat_intel.models.ScoredIOC`/`IOCRecord`/`IOCType` (its input
    type); `core/vulnerabilities/extractor.py` imports
    `core.parsers.models.{EvidenceRecord, NormalizedEvidence}` (its input
-   type), the identical pattern applied a third time — see
+   type), the identical pattern applied a third time; `core/linux_security`
+   applies the same pattern a fourth time, importing
+   `core.parsers.models.{EvidenceRecord, NormalizedEvidence}` in
+   `normalizer.py` — see
    `docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`
    point 1, `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`
-   point 2, and `docs/adr/0017-vulnerability-assessment-framework.md`
-   point 5.
+   point 2, `docs/adr/0017-vulnerability-assessment-framework.md` point 5,
+   and `docs/adr/0018-linux-security-threat-hunting-framework.md`.
 
 6. **`core/memory` is the only layer allowed to import a vector-store client
    (ChromaDB).** No other layer talks to ChromaDB directly.

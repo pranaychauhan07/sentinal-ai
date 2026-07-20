@@ -146,6 +146,16 @@ class EvidenceUploadResponse(ApiSchema):
     #: additive, per constitution §13's versioning rule.
     vulnerability_finding_count: int | None = None
     highest_vulnerability_score: float | None = None
+    #: Populated only when this upload routed to `ThreatHunterAgent` (an
+    #: SSH-auth/syslog artifact) — additive, per constitution §13's
+    #: versioning rule (docs/adr/0018-linux-security-threat-hunting-framework.md).
+    linux_security_finding_count: int | None = None
+    highest_linux_security_risk_score: float | None = None
+    #: Populated only when this upload routed to `LinuxSecurityAgent` (a raw
+    #: command/`ls -l` artifact) — additive, per constitution §13's
+    #: versioning rule (docs/adr/0019-linux-security-advisor-agent.md).
+    linux_advisory_count: int | None = None
+    highest_linux_advisory_risk_level: str | None = None
 
 
 # --- IOC --------------------------------------------------------------------

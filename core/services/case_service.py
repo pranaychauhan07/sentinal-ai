@@ -25,37 +25,45 @@ reaching *below* `core/graph` into `core/parsers`/`core/threat_intel`/
 
 **Rule 4d** (docs/dependency-rules.md, docs/adr/0014-case-model-and-first-api-
 routes-shape.md, extended by docs/adr/0016-phishing-agent-email-parser-
-prompt-guard.md and docs/adr/0017-vulnerability-assessment-framework.md):
-this module *does* import `core.agents.{registry, soc_analyst_agent,
-phishing_agent, vulnerability_agent}` and
+prompt-guard.md, docs/adr/0017-vulnerability-assessment-framework.md, and
+docs/adr/0018-linux-security-threat-hunting-framework.md): this module *does*
+import `core.agents.{registry, soc_analyst_agent, phishing_agent,
+vulnerability_agent, threat_hunter_agent}` and
 `core.memory.{case_memory,repository}` directly, to build a session-scoped
 `SQLiteCaseMemory` and a *fresh* (never the process-wide cached)
 `AgentRegistry` before delegating execution to
 `core/graph/investigation_graph.py`. This is the one narrow reason: the
 cached `default_agent_registry()` singleton would otherwise permanently bake
 in whichever caller's `case_memory` (or lack of one) happened to register
-`SocAnalystAgent`/`PhishingAgent`/`VulnerabilityAssessmentAgent` first. It
-also imports `core.parsers.models.{EvidenceType, NormalizedEvidence,
-Severity}` directly for type reuse — the identical sideways leaf-model
-precedent `core/db/models/case.py` (and `evidence.py`) already established,
-not a new kind of exception. Reading `core.db.ioc_repository.IOCRepository`
-needs no new exception at all: every other `core/db` repository
-(`CaseRepository`, `CaseNoteRepository`, ...) is already imported directly
-here — `core/services` -> `core/db` is a normal, always-sanctioned edge
-(constitution §7), distinct from the 4a/4b/4c exceptions that are
-specifically about reaching into the deterministic leaf *processing*
-packages (`core/parsers`/`core/threat_intel`/`core/findings`).
+`SocAnalystAgent`/`PhishingAgent`/`VulnerabilityAssessmentAgent`/
+`ThreatHunterAgent` first. It also imports `core.parsers.models.{EvidenceType,
+NormalizedEvidence, Severity}` directly for type reuse — the identical
+sideways leaf-model precedent `core/db/models/case.py` (and `evidence.py`)
+already established, not a new kind of exception. Reading
+`core.db.ioc_repository.IOCRepository` needs no new exception at all: every
+other `core/db` repository (`CaseRepository`, `CaseNoteRepository`, ...) is
+already imported directly here — `core/services` -> `core/db` is a normal,
+always-sanctioned edge (constitution §7), distinct from the 4a/4b/4c
+exceptions that are specifically about reaching into the deterministic leaf
+*processing* packages (`core/parsers`/`core/threat_intel`/`core/findings`).
 `PhishingAgent` needs its case's already-persisted, already-scored IOCs
 (`IOC.composite_score`) reduced to plain dicts before they're hydrated onto
 `CaseInvestigationState.extracted_indicators` — see `_hydrate_attributed_iocs`
 below and `core/agents/phishing_agent.py`'s docstring for why this stays
 string/dict-typed rather than a `core.threat_intel.models.ScoredIOC` import.
-Calling `core.services.vulnerability_service.assess_vulnerabilities()` is
-normal sibling-service composition (the same reasoning already covers
-`extract_threat_intelligence`/`generate_findings_for_case`); its already-
-generated `VulnerabilityFinding`s are reduced to plain dicts before being
-hydrated onto `CaseInvestigationState.vulnerability_records`, for the
-identical reason `core/agents/vulnerability_agent.py`'s docstring documents.
+Calling `core.services.vulnerability_service.assess_vulnerabilities()`,
+`core.services.linux_security_service.assess_linux_security()`, and
+`core.services.linux_advisor_service.assess_linux_command_input()` is normal
+sibling-service composition (the same reasoning already covers
+`extract_threat_intelligence`/`generate_findings_for_case`); their already-
+generated `VulnerabilityFinding`/`LinuxSecurityFinding`/`LinuxSecurityAdvice`
+data is reduced to plain dicts before being hydrated onto
+`CaseInvestigationState.vulnerability_records`/`linux_security_records`/
+`linux_advisory_records`, for the identical reason
+`core/agents/vulnerability_agent.py`'s, `core/agents/threat_hunter_agent.py`'s,
+and `core/agents/linux_security_agent.py`'s docstrings document.
+`assess_linux_command_input()` is synchronous (no DB session parameter) —
+ADR-0019's Linux Security Advisor Framework never persists anything.
 """
 
 from __future__ import annotations
@@ -67,9 +75,17 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.agents.linux_security_agent import (
+    LinuxSecurityAgent,
+    default_linux_security_agent_tool_registry,
+)
 from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.registry import AgentRegistry
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
+from core.agents.threat_hunter_agent import (
+    ThreatHunterAgent,
+    default_threat_hunter_agent_tool_registry,
+)
 from core.agents.vulnerability_agent import (
     VulnerabilityAssessmentAgent,
     default_vulnerability_agent_tool_registry,
@@ -96,6 +112,8 @@ from core.services.case_lifecycle import validate_transition
 from core.services.case_metrics import compute_case_risk_score
 from core.services.evidence_service import EvidencePipeline, ingest_evidence
 from core.services.finding_service import generate_findings_for_case
+from core.services.linux_advisor_service import assess_linux_command_input
+from core.services.linux_security_service import assess_linux_security
 from core.services.threat_intel_service import extract_threat_intelligence
 from core.services.vulnerability_service import assess_vulnerabilities
 
@@ -110,27 +128,38 @@ _STATUS_TO_EVENT_TYPE: dict[CaseStatus, CaseEventType] = {
 }
 
 #: The capability names `SocAnalystAgent`/`PhishingAgent`/
-#: `VulnerabilityAssessmentAgent` declare — read from the classes rather
-#: than re-declared as string literals here, so these can never silently
-#: drift.
+#: `VulnerabilityAssessmentAgent`/`ThreatHunterAgent` declare — read from the
+#: classes rather than re-declared as string literals here, so these can
+#: never silently drift.
 _SOC_ANALYST_CAPABILITY = SocAnalystAgent.capabilities[0].name
 _PHISHING_CAPABILITY = PhishingAgent.capabilities[0].name
 _VULNERABILITY_CAPABILITY = VulnerabilityAssessmentAgent.capabilities[0].name
+_THREAT_HUNTING_CAPABILITY = ThreatHunterAgent.capabilities[0].name
+_LINUX_ADVISORY_CAPABILITY = LinuxSecurityAgent.capabilities[0].name
 
-#: Which capability a newly-ingested artifact's `EvidenceType` requires —
+#: Which capabilities a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
 #: right specialist(s) automatically (blueprint §7's Coordinator/Planning
 #: Agent responsibility, closing M3's own demo criterion:
 #: "upload mixed evidence to one Case and watch the Coordinator fan out to
-#: both agents automatically"). Additive: any `EvidenceType` not listed here
-#: falls back to `_SOC_ANALYST_CAPABILITY`, matching the pre-M2 behavior for
-#: every log-shaped format this framework already parses.
-_EVIDENCE_TYPE_CAPABILITY: dict[EvidenceType, str] = {
-    EvidenceType.EMAIL: _PHISHING_CAPABILITY,
-    EvidenceType.NESSUS_XML: _VULNERABILITY_CAPABILITY,
-    EvidenceType.NESSUS_CSV: _VULNERABILITY_CAPABILITY,
-    EvidenceType.OPENVAS_XML: _VULNERABILITY_CAPABILITY,
-    EvidenceType.OPENVAS_CSV: _VULNERABILITY_CAPABILITY,
+#: both agents automatically"). A tuple, not a single string: `SSH_AUTH`/
+#: `SYSLOG` now require *both* `_SOC_ANALYST_CAPABILITY` and
+#: `_THREAT_HUNTING_CAPABILITY` (docs/adr/0018 point 6) — the Planning Agent
+#: already fans out to every matched capability independently
+#: (`core/agents/planning_agent.py`), so a single evidence type mapping to
+#: more than one capability needed no framework change. Additive: any
+#: `EvidenceType` not listed here falls back to `(_SOC_ANALYST_CAPABILITY,)`,
+#: matching the pre-M2 behavior for every log-shaped format this framework
+#: already parses.
+_EVIDENCE_TYPE_CAPABILITIES: dict[EvidenceType, tuple[str, ...]] = {
+    EvidenceType.EMAIL: (_PHISHING_CAPABILITY,),
+    EvidenceType.NESSUS_XML: (_VULNERABILITY_CAPABILITY,),
+    EvidenceType.NESSUS_CSV: (_VULNERABILITY_CAPABILITY,),
+    EvidenceType.OPENVAS_XML: (_VULNERABILITY_CAPABILITY,),
+    EvidenceType.OPENVAS_CSV: (_VULNERABILITY_CAPABILITY,),
+    EvidenceType.SSH_AUTH: (_SOC_ANALYST_CAPABILITY, _THREAT_HUNTING_CAPABILITY),
+    EvidenceType.SYSLOG: (_SOC_ANALYST_CAPABILITY, _THREAT_HUNTING_CAPABILITY),
+    EvidenceType.LINUX_COMMAND_INPUT: (_LINUX_ADVISORY_CAPABILITY,),
 }
 
 #: Evidence types `assess_vulnerabilities()` is actually run against —
@@ -147,9 +176,29 @@ _VULNERABILITY_SCAN_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset(
     }
 )
 
+#: Evidence types `assess_linux_security()` is actually run against —
+#: deliberately **not** `EvidenceType.JSON`, even though a journald JSON
+#: export is a plausible future Linux-security input: `JSON` evidence is
+#: used generically elsewhere for arbitrary structured exports (e.g. EDR
+#: alerts), so forcing Linux-security analysis onto every JSON upload would
+#: be wrong (docs/adr/0018, mirroring ADR-0017 point 9's identical
+#: scan-type gating reasoning).
+_LINUX_SECURITY_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset(
+    {EvidenceType.SSH_AUTH, EvidenceType.SYSLOG}
+)
 
-def _required_capability_for(evidence_type: EvidenceType) -> str:
-    return _EVIDENCE_TYPE_CAPABILITY.get(evidence_type, _SOC_ANALYST_CAPABILITY)
+#: Evidence types `assess_linux_command_input()` is actually run against —
+#: the Linux Security *Advisor* Framework (ADR-0019), deliberately distinct
+#: from `_LINUX_SECURITY_EVIDENCE_TYPES` above (ADR-0018's *Threat Hunting*
+#: Framework). Never overlapping: `LINUX_COMMAND_INPUT` is raw command/
+#: permission text, not a log format.
+_LINUX_ADVISOR_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset(
+    {EvidenceType.LINUX_COMMAND_INPUT}
+)
+
+
+def _required_capabilities_for(evidence_type: EvidenceType) -> list[str]:
+    return list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
 
 
 class CaseInvestigationResult(BaseModel):
@@ -169,6 +218,10 @@ class CaseInvestigationResult(BaseModel):
     phishing_risk_label: str | None = None
     vulnerability_finding_count: int | None = None
     highest_vulnerability_score: float | None = None
+    linux_security_finding_count: int | None = None
+    highest_linux_security_risk_score: float | None = None
+    linux_advisory_count: int | None = None
+    highest_linux_advisory_risk_level: str | None = None
 
 
 async def create_case(
@@ -506,16 +559,23 @@ async def _run_specialist_agents(
     evidence_items: list[NormalizedEvidence],
     evidence_id: uuid.UUID,
     vulnerability_records: list[dict[str, object]] | None = None,
+    linux_security_records: list[dict[str, object]] | None = None,
+    linux_advisory_records: list[dict[str, object]] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`. Registers all three concrete specialist
+    delegating to `core/graph`. Registers all five concrete specialist
     agents built to date (`SocAnalystAgent`, `PhishingAgent`,
-    `VulnerabilityAssessmentAgent`); which one(s) the Coordinator actually
-    fans out to is decided by `required_capabilities`, computed per-artifact
-    from its `EvidenceType` (`_required_capability_for`) — this is what lets
-    a log upload, an email upload, and a scan-report upload to the same Case
-    each route to the correct specialist automatically."""
+    `VulnerabilityAssessmentAgent`, `ThreatHunterAgent`,
+    `LinuxSecurityAgent`); which one(s) the
+    Coordinator actually fans out to is decided by `required_capabilities`,
+    computed per-artifact from its `EvidenceType`
+    (`_required_capabilities_for`) — this is what lets a log upload, an
+    email upload, a scan-report upload, and an SSH-auth/syslog upload to the
+    same Case each route to the correct specialist(s) automatically. A
+    single evidence type can now require more than one capability
+    (`SSH_AUTH`/`SYSLOG` route to both `SocAnalystAgent` and
+    `ThreatHunterAgent` — docs/adr/0018 point 6)."""
     case_memory = SQLiteCaseMemory(MemoryRepository(session))
     registry = AgentRegistry()
     registry.register(
@@ -529,16 +589,28 @@ async def _run_specialist_agents(
             tool_registry=default_vulnerability_agent_tool_registry(), case_memory=case_memory
         )
     )
+    registry.register(
+        ThreatHunterAgent(
+            tool_registry=default_threat_hunter_agent_tool_registry(), case_memory=case_memory
+        )
+    )
+    registry.register(
+        LinuxSecurityAgent(
+            tool_registry=default_linux_security_agent_tool_registry(), case_memory=case_memory
+        )
+    )
     engine = build_investigation_graph(agent_registry=registry)
 
-    required_capability = _required_capability_for(evidence_items[0].evidence_type)
+    required_capabilities = _required_capabilities_for(evidence_items[0].evidence_type)
     attributed_iocs = await _hydrate_attributed_iocs(session, evidence_id=evidence_id)
     state = CaseInvestigationState(
         case_id=case_id,
         evidence=list(evidence_items),
         extracted_indicators=list(attributed_iocs),
         vulnerability_records=list(vulnerability_records or []),
-        metadata={"required_capabilities": [required_capability]},
+        linux_security_records=list(linux_security_records or []),
+        linux_advisory_records=list(linux_advisory_records or []),
+        metadata={"required_capabilities": required_capabilities},
     )
     return engine.run(state)
 
@@ -554,10 +626,11 @@ async def investigate_new_evidence(
     event_publisher: CaseEventPublisher | None = None,
 ) -> CaseInvestigationResult:
     """The full blueprint §9 data-flow pipeline for one uploaded artifact:
-    ingest -> extract IOCs -> generate Findings -> run SOC analysis,
-    recording a `TimelineEvent` at each stage. Composes three already-
-    complete, independently-tested pipelines plus this milestone's
-    `SocAnalystAgent` run.
+    ingest -> extract IOCs -> generate Findings -> (conditionally) assess
+    vulnerabilities -> (conditionally) assess Linux security -> run
+    specialist agents, recording a `TimelineEvent` at each stage. Composes
+    several already-complete, independently-tested pipelines plus this
+    milestone's specialist-agent run.
 
     A case moves from `OPEN` to `INVESTIGATING` automatically on its first
     evidence artifact (blueprint §8's lifecycle) — never on later uploads.
@@ -642,22 +715,114 @@ async def investigate_new_evidence(
                 f"{assessment.finding_count} finding(s) assessed from '{filename}'.",
             )
 
+        linux_security_records: list[dict[str, object]] = []
+        if normalized.evidence_type in _LINUX_SECURITY_EVIDENCE_TYPES:
+            linux_assessment = await assess_linux_security(
+                session, case_id=case_id, evidence=normalized, settings=settings
+            )
+            linux_security_records = [
+                {
+                    "category": finding.category.value,
+                    "subject": finding.subject,
+                    "subject_type": finding.subject_type,
+                    "title": finding.title,
+                    "severity": finding.severity.value,
+                    "composite_score": finding.composite_score,
+                    "occurrence_count": finding.occurrence_count,
+                }
+                for finding in linux_assessment.normalized_linux_security_intel.findings
+            ]
+            await _record_timeline(
+                session,
+                case_id,
+                TimelineEventType.LINUX_SECURITY_FINDING_DETECTED,
+                f"{linux_assessment.candidate_count} Linux security candidate(s), "
+                f"{linux_assessment.finding_count} finding(s) detected from '{filename}'.",
+            )
+
+        linux_advisory_records: list[dict[str, object]] = []
+        if normalized.evidence_type in _LINUX_ADVISOR_EVIDENCE_TYPES:
+            advisory_assessment = assess_linux_command_input(
+                case_id=case_id, evidence=normalized, settings=settings
+            )
+            advice = advisory_assessment.advice
+            for command_risk in advice.analyzed_commands:
+                linux_advisory_records.append(
+                    {
+                        "kind": "command",
+                        "command_name": command_risk.command.command_name,
+                        "raw_text": command_risk.command.raw_text,
+                        "severity": command_risk.severity.value,
+                        "confidence": command_risk.confidence,
+                        "explanation": command_risk.explanation,
+                        "matched_rule_count": len(command_risk.matched_rule_ids),
+                    }
+                )
+            for permission_risk in advice.permission_analyses:
+                linux_advisory_records.append(
+                    {
+                        "kind": "permission",
+                        "filename": permission_risk.permission.filename,
+                        "raw_text": permission_risk.permission.raw_text,
+                        "severity": permission_risk.severity.value,
+                        "confidence": permission_risk.confidence,
+                        "explanation": permission_risk.explanation,
+                        "matched_rule_count": len(permission_risk.matched_rule_ids),
+                    }
+                )
+            for recommendation in advice.hardening_recommendations:
+                linux_advisory_records.append(
+                    {
+                        "kind": "hardening",
+                        "category": recommendation.category.value,
+                        "recommendation": recommendation.recommendation,
+                        "is_baseline": recommendation.is_baseline,
+                    }
+                )
+            linux_advisory_records.append(
+                {
+                    "kind": "summary",
+                    "overall_risk_level": advice.overall_risk_level.value,
+                    "overall_confidence": advice.overall_confidence,
+                    "overall_explanation": advice.overall_explanation,
+                    "skipped_line_count": advice.skipped_line_count,
+                }
+            )
+            await _record_timeline(
+                session,
+                case_id,
+                TimelineEventType.LINUX_ADVISORY_ASSESSED,
+                f"{len(advice.analyzed_commands)} command(s), "
+                f"{len(advice.permission_analyses)} permission entr(ies) advised on from "
+                f"'{filename}'; overall risk '{advice.overall_risk_level.value}'.",
+            )
+
         result_state = await _run_specialist_agents(
             session,
             case_id=case_id,
             evidence_items=[normalized],
             evidence_id=ingestion.evidence_id,
             vulnerability_records=vulnerability_records,
+            linux_security_records=linux_security_records,
+            linux_advisory_records=linux_advisory_records,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
         vulnerability_finding_count_from_agent, highest_vulnerability_score = (
             _extract_vulnerability_assessment(result_state)
         )
+        linux_security_finding_count, highest_linux_security_risk_score = _extract_threat_hunting(
+            result_state
+        )
+        linux_advisory_count, highest_linux_advisory_risk_level = _extract_linux_advisory(
+            result_state
+        )
         for agent_name in (
             SocAnalystAgent.name,
             PhishingAgent.name,
             VulnerabilityAssessmentAgent.name,
+            ThreatHunterAgent.name,
+            LinuxSecurityAgent.name,
         ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
@@ -685,6 +850,10 @@ async def investigate_new_evidence(
             phishing_risk_label=phishing_risk_label,
             vulnerability_finding_count=vulnerability_finding_count_from_agent,
             highest_vulnerability_score=highest_vulnerability_score,
+            linux_security_finding_count=linux_security_finding_count,
+            highest_linux_security_risk_score=highest_linux_security_risk_score,
+            linux_advisory_count=linux_advisory_count,
+            highest_linux_advisory_risk_level=highest_linux_advisory_risk_level,
         )
 
 
@@ -729,3 +898,32 @@ def _extract_vulnerability_assessment(
     if not assessment:
         return None, None
     return assessment["finding_count"], assessment["highest_composite_score"]
+
+
+def _extract_threat_hunting(
+    state: CaseInvestigationState,
+) -> tuple[int | None, float | None]:
+    """`ThreatHunterAgent`'s counterpart to `_extract_vulnerability_assessment`
+    — reads the finding count and highest composite score out of this run's
+    `ThreatHuntingReport` payload."""
+    threat_hunting_output = state.agent_outputs.get(ThreatHunterAgent.name)
+    if threat_hunting_output is None:
+        return None, None
+    report = threat_hunting_output.output.get("report")
+    if not report:
+        return None, None
+    return report["finding_count"], report["highest_composite_score"]
+
+
+def _extract_linux_advisory(state: CaseInvestigationState) -> tuple[int | None, str | None]:
+    """`LinuxSecurityAgent`'s counterpart to `_extract_threat_hunting` —
+    reads the total flagged-finding count and overall risk level out of
+    this run's `LinuxSecurityAdvice` payload."""
+    linux_advisory_output = state.agent_outputs.get(LinuxSecurityAgent.name)
+    if linux_advisory_output is None:
+        return None, None
+    advice = linux_advisory_output.output.get("advice")
+    if not advice:
+        return None, None
+    count = advice["flagged_command_count"] + advice["flagged_permission_count"]
+    return count, advice["overall_risk_level"]

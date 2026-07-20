@@ -116,6 +116,100 @@ class Settings(BaseSettings):
         default=20_000, alias="VULNERABILITY_MAX_RECORDS_PER_ARTIFACT"
     )
 
+    # --- Linux security / Threat Hunting (core/linux_security, core/services/
+    # linux_security_service.py, core/agents/threat_hunter_agent.py) ---
+    linux_security_max_records_per_artifact: int = Field(
+        default=20_000, alias="LINUX_SECURITY_MAX_RECORDS_PER_ARTIFACT"
+    )
+    linux_security_brute_force_threshold: int = Field(
+        default=5, gt=0, alias="LINUX_SECURITY_BRUTE_FORCE_THRESHOLD"
+    )
+    linux_security_brute_force_window_minutes: int = Field(
+        default=10, gt=0, alias="LINUX_SECURITY_BRUTE_FORCE_WINDOW_MINUTES"
+    )
+    linux_security_failed_login_spike_threshold: int = Field(
+        default=20, gt=0, alias="LINUX_SECURITY_FAILED_LOGIN_SPIKE_THRESHOLD"
+    )
+    linux_security_failed_login_spike_min_sources: int = Field(
+        default=3, gt=0, alias="LINUX_SECURITY_FAILED_LOGIN_SPIKE_MIN_SOURCES"
+    )
+    linux_security_sudo_failure_threshold: int = Field(
+        default=3, gt=0, alias="LINUX_SECURITY_SUDO_FAILURE_THRESHOLD"
+    )
+    linux_security_sudo_failure_window_minutes: int = Field(
+        default=10, gt=0, alias="LINUX_SECURITY_SUDO_FAILURE_WINDOW_MINUTES"
+    )
+    linux_security_escalation_chain_window_minutes: int = Field(
+        default=15, gt=0, alias="LINUX_SECURITY_ESCALATION_CHAIN_WINDOW_MINUTES"
+    )
+    # Confidence engine weights (must sum to 1.0 — validated at construction
+    # time by core.linux_security.confidence_engine.LinuxSecurityConfidenceWeights).
+    linux_security_confidence_weight_pattern_match: float = Field(
+        default=0.3, ge=0.0, le=1.0, alias="LINUX_SECURITY_CONFIDENCE_WEIGHT_PATTERN_MATCH"
+    )
+    linux_security_confidence_weight_occurrence: float = Field(
+        default=0.25, ge=0.0, le=1.0, alias="LINUX_SECURITY_CONFIDENCE_WEIGHT_OCCURRENCE"
+    )
+    linux_security_confidence_weight_evidence_completeness: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        alias="LINUX_SECURITY_CONFIDENCE_WEIGHT_EVIDENCE_COMPLETENESS",
+    )
+    linux_security_confidence_weight_corroboration: float = Field(
+        default=0.2, ge=0.0, le=1.0, alias="LINUX_SECURITY_CONFIDENCE_WEIGHT_CORROBORATION"
+    )
+    # Threat scoring engine weights — the task's seven named dimensions
+    # (must sum to 1.0 — validated by
+    # core.linux_security.scoring.LinuxSecurityScoringWeights).
+    linux_security_scoring_weight_detection_confidence: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_DETECTION_CONFIDENCE"
+    )
+    linux_security_scoring_weight_event_frequency: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_EVENT_FREQUENCY"
+    )
+    linux_security_scoring_weight_severity: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_SEVERITY"
+    )
+    linux_security_scoring_weight_evidence_quality: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_EVIDENCE_QUALITY"
+    )
+    linux_security_scoring_weight_source_reliability: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_SOURCE_RELIABILITY"
+    )
+    linux_security_scoring_weight_ioc_correlation: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_IOC_CORRELATION"
+    )
+    linux_security_scoring_weight_existing_findings: float = Field(
+        default=1 / 7, ge=0.0, le=1.0, alias="LINUX_SECURITY_SCORING_WEIGHT_EXISTING_FINDINGS"
+    )
+
+    # --- Linux Security Advisor (core/linux_advisor, core/services/
+    # linux_advisor_service.py, core/agents/linux_security_agent.py) ---
+    linux_advisor_max_lines_per_artifact: int = Field(
+        default=5_000, alias="LINUX_ADVISOR_MAX_LINES_PER_ARTIFACT"
+    )
+    linux_advisor_max_chars_per_artifact: int = Field(
+        default=500_000, alias="LINUX_ADVISOR_MAX_CHARS_PER_ARTIFACT"
+    )
+    # Overall risk-assessment weights (must sum to 1.0 — validated by
+    # core.linux_advisor.risk_assessment.LinuxAdvisorRiskWeights).
+    linux_advisor_risk_weight_highest_severity: float = Field(
+        default=0.35, ge=0.0, le=1.0, alias="LINUX_ADVISOR_RISK_WEIGHT_HIGHEST_SEVERITY"
+    )
+    linux_advisor_risk_weight_highest_confidence: float = Field(
+        default=0.2, ge=0.0, le=1.0, alias="LINUX_ADVISOR_RISK_WEIGHT_HIGHEST_CONFIDENCE"
+    )
+    linux_advisor_risk_weight_finding_count: float = Field(
+        default=0.15, ge=0.0, le=1.0, alias="LINUX_ADVISOR_RISK_WEIGHT_FINDING_COUNT"
+    )
+    linux_advisor_risk_weight_critical_category: float = Field(
+        default=0.2, ge=0.0, le=1.0, alias="LINUX_ADVISOR_RISK_WEIGHT_CRITICAL_CATEGORY"
+    )
+    linux_advisor_risk_weight_corroboration: float = Field(
+        default=0.1, ge=0.0, le=1.0, alias="LINUX_ADVISOR_RISK_WEIGHT_CORROBORATION"
+    )
+
     # --- MITRE ATT&CK knowledge (core/knowledge/mitre, core/findings) ---
     mitre_attack_data_path: Path = Field(
         default=Path("./data/mitre/raw/attack-enterprise-15.1.json"),

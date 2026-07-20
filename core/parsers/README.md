@@ -6,7 +6,7 @@ fingerprinting, metrics, events, audit logging. Converts raw uploaded
 artifacts into the one canonical contract, `core.parsers.models.
 NormalizedEvidence` (see `docs/adr/0011-evidence-ingestion-pipeline-shape.md`).
 
-**Implemented parsers (fourteen, per the current milestone's scope):**
+**Implemented parsers (fifteen, per the current milestone's scope):**
 `ssh_auth_parser.py`, `apache_access_parser.py`, `apache_error_parser.py`,
 `syslog_parser.py` (generic RFC3164-ish fallback), `windows_event_parser.py`
 (a CSV/XML **EVTX abstraction** — binary `.evtx` parsing is a documented
@@ -30,6 +30,13 @@ without re-parsing — never extracting IOCs, computing CVSS, or rendering a
 verdict themselves. Every parser subclasses `base.py::BaseParser` and
 reports a confidence score plus an explicit `unparsed_fragments` list rather
 than silently dropping data (constitution §1.7).
+
+`linux_command_parser.py` (Milestone M4,
+`docs/adr/0019-linux-security-advisor-agent.md` — `LinuxCommandInputParser`,
+one `EvidenceRecord` per non-blank line, no deep classification; a real
+above-`plaintext_parser.py` `sniff()` confidence when it recognizes an
+`ls -l` permission-string prefix, a shebang, or a security-relevant command
+name; backs `core.agents.linux_security_agent.LinuxSecurityAgent`).
 
 **Framework modules:** `registry.py` (plugin-capable `ParserRegistry` —
 aliases, priority, versioning, enable/disable, `importlib.metadata`

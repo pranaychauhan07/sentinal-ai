@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **Linux Security Advisor Agent** (`docs/adr/0019-linux-security-advisor-agent.md`)
+  — blueprint §7's actual Linux Security Agent (command/permission advisor),
+  explicitly distinct from ADR-0018's Linux Security *Threat Hunting*
+  Framework: new leaf package `core/linux_advisor/` (own
+  `LinuxAdvisorSeverity` scale, a generic data-driven `RuleEngine`/`Rule` seam
+  supporting regex/literal-substring/callable-signature matchers, default
+  dangerous-command rules, pure octal/rwx/`ls -l`/symbolic-mode/umask
+  conversions, command/permission analyzers, a hardening advisor across
+  eight categories, a configurable five-dimension risk-assessment engine, an
+  orchestrating advisory engine with an oversized-input guard and
+  log/command-injection sanitization, metrics, and audit — deliberately no
+  DB persistence and no enrichment-provider seam); new additive
+  `EvidenceType.LINUX_COMMAND_INPUT` + `core/parsers/linux_command_parser.py`
+  (`LinuxCommandInputParser`); `core/services/linux_advisor_service.py`
+  (`assess_linux_command_input`, synchronous, no DB session);
+  `core/tools/linux_tools.py` (`LinuxSecurityAdvisoryTool`); and
+  `core/agents/linux_security_agent.py` (`LinuxSecurityAgent`, capability
+  `linux_security_advisory`, output type `LinuxSecurityAdvice`) — the fifth
+  concrete specialist agent, wired into `core/graph/investigation_graph.py`.
+  `core/services/case_service.py`'s per-upload capability routing table
+  gained the new `EvidenceType`; `CaseInvestigationState` gained
+  `linux_advisory_records`; `apps/api/schemas.py`/`routers/evidence.py`
+  gained the two new additive response fields. New `TimelineEventType.
+  LINUX_ADVISORY_ASSESSED` + Alembic migration extending
+  `timeline_event_type_enum` additively.
 - Repository foundation: full directory skeleton with per-folder purpose
   documentation, root engineering/config files, documentation set (including
   ADRs 0001–0008), GitHub governance files, and realistic sample evidence
@@ -561,6 +586,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
     Response, or LLM reasoning — explicitly out of scope. mypy (strict on
     `core/`), `ruff check`/`format`, and `scripts/check_dependency_rules.py`
     all pass.
+- Linux Security Threat Hunting Framework
+  (`docs/adr/0018-linux-security-threat-hunting-framework.md`) — closes M4's
+  Threat Hunting Agent piece (blueprint §7's "identify multi-stage patterns
+  (recon -> exploitation -> persistence)"), a fourth sibling leaf package to
+  `core/threat_intel`/`core/findings`/`core/vulnerabilities`. **Not** the
+  blueprint §7 Linux Security Agent (a narrow command/permission-string
+  explainer), which remains unbuilt, separate, still-open M4 scope:
+  - `core/linux_security/` (new leaf package) — `models.py` (a single shared
+    `LinuxSecurityCandidate` shape across fifteen detection categories,
+    rather than fifteen near-identical models; its own
+    `LinuxSecuritySeverity` scale), `exceptions.py`, `normalizer.py`
+    (`EvidenceRecord` -> `LinuxLogEvent`, a documented best-effort journald
+    `_`-field supplement, a log-injection guard stripping control
+    characters), `ssh_auth_analyzer.py` (sliding-window brute force,
+    failed-login spike, root login, compromise-after-brute-force),
+    `sudo_analyzer.py` (sensitive-file access, shell-escape-to-root,
+    repeated sudo auth failures), `privilege_escalation.py` (new user/
+    deletion/password change/group escalation/su-to-root, plus a combined
+    new-user-then-escalation multi-step pattern), `cron_analyzer.py`/
+    `service_analyzer.py` (suspicious cron jobs and service starts;
+    `service_analyzer.py`'s heuristic is honestly documented as weaker —
+    syslog rarely carries full unit-file content), `process_detector.py`
+    (the single shared reverse-shell/suspicious-command regex set every
+    other analyzer delegates to), `persistence_detector.py` (cross-category
+    aggregation into `persistence_mechanism` findings),
+    `authentication_timeline.py` (this run's own auth reconstruction —
+    explicitly documented as distinct from the blueprint §13 Threat Timeline
+    UI feature, which stays M6), `confidence_engine.py`/`scoring.py`
+    (a confidence engine and a seven-dimension `LinuxThreatScoringEngine`,
+    both configurable and sum-to-1.0-validated), `finding_generator.py`
+    (groups scored candidates by `(category, subject)` — no remediation
+    field), `extractor.py` (`LinuxSecurityAnalysisEngine`, the orchestrating
+    engine with an oversized-evidence guard), `metrics.py`/`events.py`/
+    `audit.py`, `registry.py`/`interfaces.py` (an unimplemented
+    `LinuxSecurityEnrichmentProvider` seam, mirroring
+    `core.vulnerabilities`'s identical honest scope cut).
+  - No new parsers or `EvidenceType` values needed — `SshAuthParser`/
+    `SyslogParser` already emit everything this package's analyzers read.
+  - `core/db/models/linux_security_finding.py` (`LinuxSecurityFindingRow`,
+    mirroring `Vulnerability`'s shape, both `case_id`/`evidence_id` real FKs
+    from the start) + `core/db/linux_security_finding_repository.py` + two
+    new migrations (create `linux_security_findings` table; additively
+    extend `timeline_event_type_enum` with
+    `linux_security_finding_detected`), both verified end-to-end.
+  - `core/services/linux_security_service.py` (`LinuxSecurityPipeline`, the
+    ten-stage analysis pipeline: Evidence Normalization -> Authentication
+    Analysis -> Privilege Analysis -> Persistence Analysis -> Behavior
+    Detection -> Threat Scoring -> Finding Generation -> Persistence ->
+    Event Publication -> Case/Timeline Notification), mirroring
+    `vulnerability_service.VulnerabilityPipeline`'s shape exactly. Gated to
+    `SSH_AUTH`/`SYSLOG` evidence only in `case_service.py` — deliberately
+    not `EvidenceType.JSON` (documented scope decision, mirrors ADR-0017
+    point 9).
+  - `core/tools/linux_security_tools.py` (`LinuxSecurityAssessmentTool`) and
+    `core/agents/threat_hunter_agent.py` (`ThreatHunterAgent`, capability
+    `cross_log_threat_hunting`, output `ThreatHuntingReport`) — the fourth
+    concrete specialist agent, wired into
+    `core/graph/investigation_graph.py` with the same two-line pattern the
+    other three established. Reads
+    `CaseInvestigationState.linux_security_records` (new state field) as
+    plain `dict[str, object]` entries — never a typed
+    `core.linux_security.models.LinuxSecurityFinding` import (`core/agents`
+    has no dependency-rules.md edge onto `core/linux_security`).
+  - `core/services/case_service.py`'s per-upload capability routing table
+    changed shape (`dict[EvidenceType, str]` -> `dict[EvidenceType,
+    tuple[str, ...]]`): `SSH_AUTH`/`SYSLOG` now route to *both*
+    `SocAnalystAgent` and `ThreatHunterAgent` — a single evidence type
+    requiring more than one specialist capability, proven end-to-end with
+    zero Planning Agent/routing framework changes.
+    `apps/api/schemas.py`'s `EvidenceUploadResponse` gained
+    `linux_security_finding_count`/`highest_linux_security_risk_score`
+    (both `None`-defaulted, purely additive).
+  - 138 new tests (1127 total): unit tests for every `core/linux_security`
+    module (including a malformed/adversarial-input case per module —
+    corrupted log lines, invalid timestamps, log-injection-shaped input,
+    an oversized-artifact guard test), the repository, the tool, the agent,
+    two integration tests proving a real `ssh_auth.log` (brute force +
+    compromise) and a crafted syslog fixture (sudo `/etc/shadow` access,
+    new-user-then-`usermod -aG sudo` escalation, cron piping curl to bash)
+    detect end-to-end through persistence, a malformed-log regression test,
+    an API `TestClient` test proving an `auth.log` upload now also routes to
+    `ThreatHunterAgent` alongside `SocAnalystAgent`, and a performance test
+    processing 40,000 synthetic log records within a bounded time. No
+    Incident Response, remediation, or LLM reasoning — explicitly out of
+    scope. mypy (strict on `core/`), `ruff check`/`format`, and
+    `scripts/check_dependency_rules.py` all pass.
 
 ### Fixed
 - Re-verification pass over the Evidence Ingestion & Parser Framework

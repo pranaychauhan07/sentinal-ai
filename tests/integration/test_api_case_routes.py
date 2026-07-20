@@ -23,6 +23,7 @@ pytestmark = pytest.mark.integration
 _SSH_AUTH_LOG = Path("data/sample_evidence/ssh_auth.log")
 _PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
 _NESSUS_SCAN = Path("data/sample_evidence/nessus_scan.nessus")
+_LINUX_COMMANDS = Path("data/sample_evidence/linux_commands.txt")
 
 
 @pytest.fixture
@@ -96,6 +97,12 @@ def test_upload_evidence_runs_full_pipeline_and_updates_timeline(client: TestCli
     assert body["case_id"] == case_id
     assert body["ioc_count"] > 0
     assert body["soc_risk_score"] is not None
+    # docs/adr/0018: SSH_AUTH now also routes to ThreatHunterAgent (a real
+    # SSH brute-force -> compromise pattern is present in this fixture) —
+    # both SocAnalystAgent and ThreatHunterAgent run for this one upload.
+    assert body["linux_security_finding_count"] is not None
+    assert body["linux_security_finding_count"] > 0
+    assert body["highest_linux_security_risk_score"] > 0.0
 
     case_after = client.get(f"/api/v1/cases/{case_id}").json()
     assert case_after["status"] == "investigating"
@@ -110,6 +117,7 @@ def test_upload_evidence_runs_full_pipeline_and_updates_timeline(client: TestCli
     event_types = {item["event_type"] for item in timeline["items"]}
     assert "evidence_ingested" in event_types
     assert "agent_analysis" in event_types
+    assert "linux_security_finding_detected" in event_types
 
 
 def test_upload_email_evidence_routes_to_phishing_agent(client: TestClient) -> None:
@@ -158,6 +166,32 @@ def test_upload_nessus_evidence_routes_to_vulnerability_agent(client: TestClient
     timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
     event_types = {item["event_type"] for item in timeline["items"]}
     assert "vulnerability_assessed" in event_types
+    assert "agent_analysis" in event_types
+
+
+def test_upload_linux_command_evidence_routes_to_linux_security_agent(client: TestClient) -> None:
+    """Same single `POST /evidence` endpoint, zero router changes, now also
+    triages raw Linux command/permission input (ADR-0019 demo criterion)."""
+    created = client.post("/api/v1/cases", json={"title": "Linux hardening review"}).json()
+    case_id = created["id"]
+
+    upload = client.post(
+        f"/api/v1/cases/{case_id}/evidence",
+        files={"file": ("linux_commands.txt", _LINUX_COMMANDS.read_bytes(), "text/plain")},
+    )
+    assert upload.status_code == 201
+    body = upload.json()
+    assert body["case_id"] == case_id
+    assert body["soc_risk_score"] is None
+    assert body["phishing_risk_score"] is None
+    assert body["vulnerability_finding_count"] is None
+    assert body["linux_advisory_count"] is not None
+    assert body["linux_advisory_count"] > 0
+    assert body["highest_linux_advisory_risk_level"] in ("high", "critical")
+
+    timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
+    event_types = {item["event_type"] for item in timeline["items"]}
+    assert "linux_advisory_assessed" in event_types
     assert "agent_analysis" in event_types
 
 

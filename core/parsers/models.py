@@ -49,6 +49,7 @@ class EvidenceType(StrEnum):
     NESSUS_CSV = "nessus_csv"
     OPENVAS_XML = "openvas_xml"
     OPENVAS_CSV = "openvas_csv"
+    LINUX_COMMAND_INPUT = "linux_command_input"
     UNKNOWN = "unknown"
 
 
