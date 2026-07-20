@@ -2,15 +2,18 @@
 
 Wires the Coordinator (which internally delegates to the Planning Agent by
 direct call, not a graph edge — see `core/agents/coordinator.py`'s docstring
-for why) plus six concrete specialist agents (Milestone M1/M2/M4 plus
-`docs/adr/0020`): `SocAnalystAgent` (`log_analysis`), `PhishingAgent`
-(`email_triage`), `VulnerabilityAssessmentAgent` (`vulnerability_assessment`),
+for why) plus seven concrete specialist agents (Milestone M1/M2/M4 plus
+`docs/adr/0020`/`docs/adr/0021` — M4 is now fully closed): `SocAnalystAgent`
+(`log_analysis`), `PhishingAgent` (`email_triage`),
+`VulnerabilityAssessmentAgent` (`vulnerability_assessment`),
 `ThreatHunterAgent` (`cross_log_threat_hunting`,
 docs/adr/0018-linux-security-threat-hunting-framework.md),
 `LinuxSecurityAgent` (`linux_security_advisory`,
-docs/adr/0019-linux-security-advisor-agent.md), and `WebSecurityAgent`
+docs/adr/0019-linux-security-advisor-agent.md), `WebSecurityAgent`
 (`owasp_web_security_assessment`,
-docs/adr/0020-owasp-web-security-agent.md). The Planning Agent's
+docs/adr/0020-owasp-web-security-agent.md), and `OwaspSecurityAgent`
+(`owasp_source_code_review`,
+docs/adr/0021-owasp-security-agent-ast-sast.md). The Planning Agent's
 capability-matching decides which of them a given case's declared
 `required_capabilities` route to; the conditional edge out of the
 Coordinator resolves to whichever specialist(s) that plan names, or `END` if
@@ -20,7 +23,7 @@ Agent already fans out to every matched capability independently, so this
 needed no framework change (ADR-0018 point 6).
 
 Adding another specialist agent later means exactly the same three steps
-these six followed: implement it (`core/agents/`), register it in the
+these seven followed: implement it (`core/agents/`), register it in the
 `AgentRegistry` passed to `build_investigation_graph`, and add two lines
 here — `engine.add_agent_node(name)` and `engine.add_edge(name, END)`.
 `WorkflowEngine` and `router.py` need zero changes for that to work, which is
@@ -36,6 +39,10 @@ from core.agents.coordinator import CoordinatorAgent
 from core.agents.linux_security_agent import (
     LinuxSecurityAgent,
     default_linux_security_agent_tool_registry,
+)
+from core.agents.owasp_security_agent import (
+    OwaspSecurityAgent,
+    default_owasp_security_agent_tool_registry,
 )
 from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.planning_agent import PlanningAgent
@@ -174,6 +181,22 @@ def _ensure_web_security_agent_registered(
     )
 
 
+def _ensure_owasp_security_agent_registered(
+    registry: AgentRegistry, *, case_memory: CaseMemory | None
+) -> None:
+    """Mirrors `_ensure_soc_analyst_registered`'s idempotency/`case_memory`
+    contract exactly — same reasoning, same caveat about never calling this
+    against the process-wide cached `default_agent_registry()` with a real
+    `case_memory`."""
+    if registry.has(OwaspSecurityAgent.name):
+        return
+    registry.register(
+        OwaspSecurityAgent(
+            tool_registry=default_owasp_security_agent_tool_registry(), case_memory=case_memory
+        )
+    )
+
+
 def build_investigation_graph(
     *,
     agent_registry: AgentRegistry | None = None,
@@ -201,6 +224,7 @@ def build_investigation_graph(
     _ensure_threat_hunter_agent_registered(registry, case_memory=case_memory)
     _ensure_linux_security_agent_registered(registry, case_memory=case_memory)
     _ensure_web_security_agent_registered(registry, case_memory=case_memory)
+    _ensure_owasp_security_agent_registered(registry, case_memory=case_memory)
 
     engine = WorkflowEngine(
         agent_registry=registry,
@@ -223,6 +247,8 @@ def build_investigation_graph(
     engine.add_edge(LinuxSecurityAgent.name, END)
     engine.add_agent_node(WebSecurityAgent.name)
     engine.add_edge(WebSecurityAgent.name, END)
+    engine.add_agent_node(OwaspSecurityAgent.name)
+    engine.add_edge(OwaspSecurityAgent.name, END)
     return engine
 
 

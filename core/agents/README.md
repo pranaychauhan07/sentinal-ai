@@ -117,9 +117,26 @@ entries — a distinct field name from every other `*_records` field) into a
 case-level `WebSecurityAdvice`, appended to `CaseInvestigationState.findings`
 the same way every prior specialist agent's output is.
 
-No other specialist agent (blueprint §7's AST-based OWASP Security Agent,
-Incident Response, ...) exists yet — see `docs/agent-design.md` for how to
-add one on top of this framework.
+**Implemented (Milestone M4, `docs/adr/0021-owasp-security-agent-ast-sast.md`):**
+`owasp_security_agent.py` — the seventh concrete specialist agent
+(`OwaspSecurityAgent`), declaring capability `owasp_source_code_review`.
+Blueprint §7's actual OWASP Security Agent (source code / API static
+review, AST-based) — **not** `web_security_agent.py`'s HTTP-traffic
+analysis (ADR-0020); the two never import each other. Reads source code
+input via `EvidenceType.SOURCE_CODE`. Deliberately thin: all language
+detection, AST parsing (Python)/pattern matching (JavaScript/TypeScript/
+Java), rule evaluation, secure-coding advice, and risk scoring already
+happened in `core.services.owasp_security_service.assess_source_code`
+*before* this agent runs. Calls
+`core.tools.owasp_tools.OwaspSecurityAssessmentTool` to aggregate the
+case's already-computed OWASP/CWE-mapped findings (read from
+`CaseInvestigationState.owasp_security_records` as plain `dict[str, object]`
+entries — a distinct field name from every other `*_records` field) into a
+case-level `SastAdvice`, appended to `CaseInvestigationState.findings` the
+same way every prior specialist agent's output is. This closes M4 entirely.
+
+No other specialist agent (Incident Response, ...) exists yet — see
+`docs/agent-design.md` for how to add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

@@ -158,6 +158,21 @@ class CaseInvestigationState(BaseModel):
     #: is never a typed `WebSecurityAdvice` list.
     owasp_web_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
 
+    #: Already-computed AST/pattern-based SAST advisory data (hydrated as
+    #: plain ``dict[str, object]`` entries by
+    #: `core/services/case_service.py` from
+    #: `core.services.owasp_security_service.assess_source_code()`'s
+    #: result) for `core.agents.owasp_security_agent.OwaspSecurityAgent` to
+    #: summarize. Deliberately a **different** field name from every other
+    #: ``*_records`` field — a new, distinct framework
+    #: (`docs/adr/0021-owasp-security-agent-ast-sast.md`) that must never be
+    #: confused with `owasp_web_records` (ADR-0020's HTTP-traffic analyzer).
+    #: Kept generic (``list[Any]``) for the same reason ``owasp_web_records``
+    #: is: `core/agents` has no dependency-rules.md import edge onto
+    #: `core/owasp_security`, so this field is never a typed `SastAdvice`
+    #: list.
+    owasp_security_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

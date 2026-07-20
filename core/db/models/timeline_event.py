@@ -56,6 +56,13 @@ class TimelineEventType(StrEnum):
     #: same generic pipeline-stage-completed event every other framework
     #: records, not a persisted finding.
     OWASP_WEB_ASSESSED = "owasp_web_assessed"
+    #: docs/adr/0021 (OWASP Security Agent / AST SAST) — recorded once per
+    #: `SastAdvice` produced by
+    #: `core/services/owasp_security_service.py`. This framework never
+    #: persists the advice itself (ADR-0021 point 3); this marker is the
+    #: same generic pipeline-stage-completed event every other framework
+    #: records, not a persisted finding.
+    SAST_ASSESSED = "sast_assessed"
 
 
 class TimelineEvent(Entity):

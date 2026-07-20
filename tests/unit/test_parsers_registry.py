@@ -101,7 +101,7 @@ def test_load_plugins_with_missing_group_is_a_noop() -> None:
 
 
 @pytest.mark.unit
-def test_default_parser_registry_registers_all_sixteen_builtins() -> None:
+def test_default_parser_registry_registers_all_seventeen_builtins() -> None:
     registry = default_parser_registry()
     assert registry.list_names() == (
         "apache_access",
@@ -117,6 +117,7 @@ def test_default_parser_registry_registers_all_sixteen_builtins() -> None:
         "openvas_csv",
         "openvas_xml",
         "plain_text",
+        "source_code",
         "ssh_auth",
         "syslog",
         "windows_event",

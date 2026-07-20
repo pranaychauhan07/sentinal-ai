@@ -70,11 +70,21 @@ data (all computed by `core.services.web_security_service`/
 severity, and the top-N highest-severity findings. Never recomputes a
 finding's severity, confidence, or the overall risk score itself). Backs
 `core.agents.web_security_agent.WebSecurityAgent` — **not** blueprint §7's
-still-unbuilt `owasp_tools.py` (the AST-based source-code static analyzer's
-tool), which this deliberately never touches or renames.
+`owasp_tools.py` (the AST-based source-code static analyzer's tool, built
+this session below), which this deliberately never touches or renames.
 
-No other concrete tool (`log_tools.py`, `owasp_tools.py`, `ir_tools.py`,
-`mitre_tools.py`) exists yet.
+**Implemented (Milestone M4, `docs/adr/0021-owasp-security-agent-ast-sast.md`):**
+`owasp_tools.py` (`OwaspSecurityAssessmentTool` — blueprint's exact named
+file. Aggregates the case's already-analyzed AST/pattern-based SAST finding
+data (all computed by `core.services.owasp_security_service`/
+`core.owasp_security`) into a case-level summary: counts by OWASP category/
+CWE/severity, and the top-N highest-severity findings. Never recomputes a
+finding's severity, confidence, or the overall risk score itself). Backs
+`core.agents.owasp_security_agent.OwaspSecurityAgent` — **not**
+`web_security_tools.py` above, which backs the different `WebSecurityAgent`.
+
+No other concrete tool (`log_tools.py`, `ir_tools.py`, `mitre_tools.py`)
+exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*
 tool to call and interpret the result, not to do the math itself.

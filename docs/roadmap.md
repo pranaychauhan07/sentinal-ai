@@ -144,9 +144,13 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       (`SocAnalystAgent`/`PhishingAgent`), not test doubles.
       *Demo: upload mixed evidence (log + email) to one Case; Coordinator fans out automatically.*
 
-- [ ] **M4 — Remaining specialist modules.** Vulnerability Assessment Agent
+- [x] **M4 — Remaining specialist modules.** Vulnerability Assessment Agent
       (+ Nmap/Nessus/OpenVAS parsers + CVSS calculator), OWASP Security Agent
-      (AST-based), Linux Security Agent, Threat Hunting Agent.
+      (AST-based), Linux Security Agent, Threat Hunting Agent. **Closed
+      2026-07-21** — all four blueprint-named pieces are now built (see the
+      dated addendums below); the OWASP Security Agent's AST-based scope was
+      the milestone's last open item, closed by
+      `docs/adr/0021-owasp-security-agent-ast-sast.md`.
       **Built ahead of schedule** (`docs/adr/0012-threat-intelligence-ioc-extraction-framework-shape.md`):
       the reusable Threat Intelligence & IOC Extraction Framework —
       data-driven `IOCExtractionEngine` covering twenty `IOCType`s
@@ -321,6 +325,56 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       **This does not close M4** — blueprint §7's AST-based OWASP Security
       Agent (source code/API static review) remains the milestone's only
       unbuilt, outstanding piece.
+
+      **2026-07-21** (`docs/adr/0021-owasp-security-agent-ast-sast.md`):
+      closed blueprint §7's **OWASP Security Agent** — the milestone's last
+      remaining piece, source code / API static review, AST-based (not just
+      regex). A seventh sibling leaf package, `core/owasp_security/`
+      (its own `SastSeverity` scale, a first-class `OwaspCategory` enum, a
+      fifteen-category `VulnerabilityCategory` enum mapped to both
+      `OwaspCategory` and a representative CWE id, a generic `RuleEngine`/
+      `Rule` seam extended with a fourth `ast_predicate` matcher kind
+      alongside `regex`/`literal_substring`/`callable_signature`,
+      `language_detector.py` (extension-first, content-heuristic fallback),
+      `python_ast_rules.py` (fifteen genuine AST-predicate rules over the
+      stdlib `ast` module — zero new dependencies), `pattern_rules.py`
+      (regex-based rules for JavaScript/TypeScript/Java, since this project
+      has no AST library for those languages — an explicit, documented
+      scope boundary, not a hidden shortcut), `python_ast_analyzer.py`/
+      `pattern_analyzer.py`, `vulnerability_detection_engine.py`
+      (dispatches by language), `secure_coding_advisor.py` (baseline +
+      finding-triggered recommendations), `evidence_mapper.py`,
+      `confidence_calculator.py` (discounts pattern-based findings relative
+      to AST-based ones), `finding_generator.py`, `risk_assessment.py` (the
+      same five-dimension scoring shape), `analysis_engine.py` (the
+      orchestrator: oversized-input guard, graceful degradation on an
+      unsupported language or a genuine Python syntax error, log-injection
+      sanitization), and metrics/audit modules — deliberately **no** DB
+      persistence and **no** enrichment-provider seam, matching ADR-0019/
+      0020's "advisor" framing), a new additive `EvidenceType.SOURCE_CODE` +
+      `core/parsers/source_code_parser.py` (`SourceCodeParser` — one
+      `EvidenceRecord` per file, carrying the full source text, a
+      deliberate deviation from the per-line-record convention since AST
+      parsing needs the whole file as one syntactic unit), the synchronous
+      `core/services/owasp_security_service.py` (`assess_source_code` — no
+      DB session, since this framework never persists),
+      `core/tools/owasp_tools.py` (blueprint's exact named file,
+      `OwaspSecurityAssessmentTool`), and
+      `core/agents/owasp_security_agent.py` (`OwaspSecurityAgent`,
+      capability `owasp_source_code_review`) — the seventh concrete
+      specialist agent, wired into `core/graph/investigation_graph.py` with
+      the same two-line pattern the other six established.
+      `core/services/case_service.py`'s per-upload capability routing table
+      gained the new `EvidenceType`, so a source-code upload now
+      automatically fans out to `OwaspSecurityAgent`; the evidence-upload
+      extension allowlist gained `.py`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.ts`/
+      `.tsx`/`.java`. **Not** `core/owasp_web/` (ADR-0020's HTTP-traffic
+      analyzer) — the two packages never import each other. No penetration
+      testing, active scanning, incident response, threat hunting, MITRE
+      mapping, automated exploitation, or LLM reasoning — explicitly out of
+      scope per the ADR and this task's own instruction. **M4 is now fully
+      closed** — every blueprint-named specialist agent for this milestone
+      exists.
 
 - [ ] **M5 — Incident Response synthesis + Reporting.** Incident Response
       Agent (case-wide synthesis), Report Generator Agent with Jinja2/

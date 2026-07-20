@@ -11,6 +11,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **OWASP Security Agent (AST-Based SAST)** (`docs/adr/0021-owasp-security-agent-ast-sast.md`)
+  — blueprint §7's OWASP Security Agent, the last remaining M4 specialist
+  agent (**closes M4 entirely**): deterministic Static Application Security
+  Testing over source code, genuine AST-based analysis for Python (stdlib
+  `ast` module, zero new dependencies) and pattern-based (regex) analysis
+  for JavaScript/TypeScript/Java (this project has no AST library for those
+  languages — an explicit, documented scope boundary, not a hidden
+  shortcut). Deliberately **not** `core/owasp_web/` (ADR-0020's HTTP-traffic
+  analyzer) — the two packages never import each other. New leaf package
+  `core/owasp_security/` (own `SastSeverity` scale, a first-class
+  `OwaspCategory` enum, a fifteen-category `VulnerabilityCategory` enum
+  mapped to both `OwaspCategory` and a representative CWE id,
+  `language_detector.py`, a generic `RuleEngine`/`Rule` seam extended with
+  a fourth `ast_predicate` matcher kind, `python_ast_rules.py` (fifteen
+  genuine AST-predicate rules covering SQL injection, XSS, command
+  injection, path traversal, SSRF, hardcoded secrets, weak cryptography,
+  insecure randomness, unsafe deserialization, broken authentication,
+  missing input validation, dangerous file operations, open redirect,
+  sensitive information exposure, and insecure configuration),
+  `pattern_rules.py` (JS/TS/Java regex rules), `python_ast_analyzer.py`
+  (the "AST Builder"), `pattern_analyzer.py`, `vulnerability_detection_engine.py`
+  (dispatches by language), `secure_coding_advisor.py` (baseline +
+  finding-triggered recommendations), `evidence_mapper.py`,
+  `confidence_calculator.py` (discounts pattern-based findings relative to
+  AST-based ones), `finding_generator.py`, `risk_assessment.py` (the same
+  five-dimension scoring shape as prior frameworks), `analysis_engine.py`
+  (the orchestrator: oversized-input guard, graceful degradation on an
+  unsupported language or a genuine Python syntax error, log-injection
+  sanitization applied per-snippet — never to the whole source file, which
+  would destroy its newline structure before AST parsing), and metrics/
+  audit modules — deliberately no DB persistence and no
+  enrichment-provider seam, matching ADR-0019/0020's "advisor" framing); a
+  new additive `EvidenceType.SOURCE_CODE` +
+  `core/parsers/source_code_parser.py` (`SourceCodeParser` — one
+  `EvidenceRecord` per file, carrying the full source text, a deliberate
+  deviation from the per-line-record convention since AST parsing needs
+  the whole file as one syntactic unit); the synchronous
+  `core/services/owasp_security_service.py` (`assess_source_code` — no DB
+  session); `core/tools/owasp_tools.py` (blueprint's exact named file,
+  `OwaspSecurityAssessmentTool`); and `core/agents/owasp_security_agent.py`
+  (`OwaspSecurityAgent`, capability `owasp_source_code_review`) — the
+  seventh concrete specialist agent, wired into
+  `core/graph/investigation_graph.py` with the same two-line pattern the
+  other six established. `core/services/case_service.py`'s per-upload
+  capability routing table gained the new `EvidenceType`; the evidence
+  upload extension allowlist gained `.py`/`.pyw`/`.js`/`.jsx`/`.mjs`/`.cjs`/
+  `.ts`/`.tsx`/`.java`. No penetration testing, active scanning, incident
+  response, threat hunting, MITRE mapping, automated exploitation, or LLM
+  reasoning anywhere in this package; this package never executes, `eval`s,
+  or runs any analyzed source code. 138 new tests (unit covering all
+  fifteen categories for Python + representative JS/TS/Java pattern
+  coverage + malformed source + oversized-input guards + a regression test
+  for the sanitize-whole-source bug caught during development + integration
+  pipeline/performance/false-positive-reduction/per-language tests + API
+  routing). Also fixed two latent `mypy --strict` issues surfaced while
+  verifying this session's work: `core/owasp_web/{header_rules,
+  misconfig_rules}.py` passed bare string literals where `Matcher.kind`
+  expects the `MatcherKind` enum, and `core/owasp_web/advisory_engine.py`
+  reused one loop variable name across three incompatible finding types.
+
 - **OWASP Web Security Agent** (`docs/adr/0020-owasp-web-security-agent.md`)
   — a new, out-of-blueprint deterministic analyzer of HTTP traffic artifacts
   (requests/responses, security headers, cookies, JWT metadata, web server

@@ -25,6 +25,7 @@ _PHISHING_EMAIL = Path("data/sample_evidence/phishing_sample_01.eml")
 _NESSUS_SCAN = Path("data/sample_evidence/nessus_scan.nessus")
 _LINUX_COMMANDS = Path("data/sample_evidence/linux_commands.txt")
 _HTTP_TRANSACTION = Path("data/sample_evidence/http_transaction.txt")
+_VULNERABLE_APP = Path("data/sample_evidence/vulnerable_app.py")
 
 
 @pytest.fixture
@@ -222,6 +223,32 @@ def test_upload_http_transaction_evidence_routes_to_web_security_agent(
     timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
     event_types = {item["event_type"] for item in timeline["items"]}
     assert "owasp_web_assessed" in event_types
+    assert "agent_analysis" in event_types
+
+
+def test_upload_source_code_evidence_routes_to_owasp_security_agent(client: TestClient) -> None:
+    """Same single `POST /evidence` endpoint, zero router changes, now also
+    triages source code files (ADR-0021 demo criterion — closes M4)."""
+    created = client.post("/api/v1/cases", json={"title": "SAST review"}).json()
+    case_id = created["id"]
+
+    upload = client.post(
+        f"/api/v1/cases/{case_id}/evidence",
+        files={"file": ("vulnerable_app.py", _VULNERABLE_APP.read_bytes(), "text/x-python")},
+    )
+    assert upload.status_code == 201
+    body = upload.json()
+    assert body["case_id"] == case_id
+    assert body["soc_risk_score"] is None
+    assert body["phishing_risk_score"] is None
+    assert body["owasp_web_finding_count"] is None
+    assert body["sast_finding_count"] is not None
+    assert body["sast_finding_count"] > 0
+    assert body["highest_sast_risk_level"] in ("high", "critical")
+
+    timeline = client.get(f"/api/v1/cases/{case_id}/timeline").json()
+    event_types = {item["event_type"] for item in timeline["items"]}
+    assert "sast_assessed" in event_types
     assert "agent_analysis" in event_types
 
 

@@ -8,7 +8,7 @@ changes.
 
 from __future__ import annotations
 
-from core.owasp_web.models import OwaspCategory, WebSecuritySeverity
+from core.owasp_web.models import MatcherKind, OwaspCategory, WebSecuritySeverity
 from core.owasp_web.rule_engine import Matcher, Rule
 
 DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
@@ -18,7 +18,7 @@ DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A05_SECURITY_MISCONFIGURATION,
         severity=WebSecuritySeverity.MEDIUM,
         confidence=0.9,
-        matcher=Matcher(kind="regex", pattern=r"index of /\S*"),
+        matcher=Matcher(kind=MatcherKind.REGEX, pattern=r"index of /\S*"),
         explanation=(
             "A response body appears to contain a directory listing ('Index of "
             "/...'), exposing the server's file structure to any visitor."
@@ -33,7 +33,7 @@ DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
         severity=WebSecuritySeverity.HIGH,
         confidence=0.75,
         matcher=Matcher(
-            kind="regex",
+            kind=MatcherKind.REGEX,
             pattern=r"(?:^|[\s\"'])/(?:debug|actuator(?:/env|/health|/beans)?|_profiler|phpinfo\.php|console)(?:[/?\"'\s]|$)",
         ),
         explanation=(
@@ -51,7 +51,7 @@ DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
         severity=WebSecuritySeverity.HIGH,
         confidence=0.6,
         matcher=Matcher(
-            kind="regex",
+            kind=MatcherKind.REGEX,
             pattern=r"\b(?:admin[:/]admin|root[:/]root|user[:/]password|default password)\b",
         ),
         explanation=(
@@ -70,7 +70,7 @@ DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
         severity=WebSecuritySeverity.MEDIUM,
         confidence=0.85,
         matcher=Matcher(
-            kind="regex",
+            kind=MatcherKind.REGEX,
             pattern=r"(?:traceback \(most recent call last\)|at\s+\S+\.\S+\(\S+\.java:\d+\)|"
             r"exception in thread|unhandled exception|fatal error:.*on line \d+)",
         ),
@@ -90,7 +90,7 @@ DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
         severity=WebSecuritySeverity.HIGH,
         confidence=0.8,
         matcher=Matcher(
-            kind="regex", pattern=r"\b(?:sslv2|sslv3|tls\s*1\.0|tls\s*1\.1|rc4|3des)\b"
+            kind=MatcherKind.REGEX, pattern=r"\b(?:sslv2|sslv3|tls\s*1\.0|tls\s*1\.1|rc4|3des)\b"
         ),
         explanation=(
             "Configuration metadata references a deprecated/weak TLS protocol "
@@ -106,7 +106,7 @@ DEFAULT_MISCONFIG_RULES: tuple[Rule, ...] = (
         severity=WebSecuritySeverity.LOW,
         confidence=0.55,
         matcher=Matcher(
-            kind="regex",
+            kind=MatcherKind.REGEX,
             pattern=r"(?:[cC]:\\\\[Uu]sers\\\\|/home/[a-zA-Z0-9_.-]+/|/var/www/|internal[_-]?ip|10\.\d{1,3}\.\d{1,3}\.\d{1,3})",
         ),
         explanation=(

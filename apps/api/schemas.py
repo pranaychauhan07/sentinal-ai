@@ -161,6 +161,11 @@ class EvidenceUploadResponse(ApiSchema):
     #: versioning rule (docs/adr/0020-owasp-web-security-agent.md).
     owasp_web_finding_count: int | None = None
     highest_owasp_web_risk_level: str | None = None
+    #: Populated only when this upload routed to `OwaspSecurityAgent` (a
+    #: source code file) — additive, per constitution §13's versioning rule
+    #: (docs/adr/0021-owasp-security-agent-ast-sast.md).
+    sast_finding_count: int | None = None
+    highest_sast_risk_level: str | None = None
 
 
 # --- IOC --------------------------------------------------------------------

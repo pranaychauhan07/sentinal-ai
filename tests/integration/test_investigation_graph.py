@@ -65,10 +65,12 @@ def test_case_with_no_evidence_routes_straight_to_manual_triage() -> None:
 def test_default_graph_has_coordinator_and_all_specialists_as_nodes() -> None:
     """`SocAnalystAgent` (M1), `PhishingAgent` (M2), `VulnerabilityAssessmentAgent`
     (M4), `ThreatHunterAgent` (M4, docs/adr/0018), `LinuxSecurityAgent`
-    (M4, docs/adr/0019), and `WebSecurityAgent` (M4, docs/adr/0020) are all
+    (M4, docs/adr/0019), `WebSecurityAgent` (M4, docs/adr/0020), and
+    `OwaspSecurityAgent` (M4, docs/adr/0021 — closes M4) are all
     auto-registered and wired as nodes by `build_investigation_graph` — see
     `core/agents/{soc_analyst_agent, phishing_agent,vulnerability_agent,
-    threat_hunter_agent,linux_security_agent,web_security_agent}.py`."""
+    threat_hunter_agent,linux_security_agent,web_security_agent,
+    owasp_security_agent}.py`."""
     engine = build_investigation_graph(agent_registry=AgentRegistry())
     assert set(engine.node_names) == {
         "coordinator",
@@ -78,6 +80,7 @@ def test_default_graph_has_coordinator_and_all_specialists_as_nodes() -> None:
         "threat_hunter_agent",
         "linux_security_agent",
         "web_security_agent",
+        "owasp_security_agent",
     }
 
 

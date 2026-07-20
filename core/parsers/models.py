@@ -51,6 +51,7 @@ class EvidenceType(StrEnum):
     OPENVAS_CSV = "openvas_csv"
     LINUX_COMMAND_INPUT = "linux_command_input"
     HTTP_TRANSACTION = "http_transaction"
+    SOURCE_CODE = "source_code"
     UNKNOWN = "unknown"
 
 

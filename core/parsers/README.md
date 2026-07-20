@@ -6,7 +6,7 @@ fingerprinting, metrics, events, audit logging. Converts raw uploaded
 artifacts into the one canonical contract, `core.parsers.models.
 NormalizedEvidence` (see `docs/adr/0011-evidence-ingestion-pipeline-shape.md`).
 
-**Implemented parsers (sixteen, per the current milestone's scope):**
+**Implemented parsers (seventeen, per the current milestone's scope):**
 `ssh_auth_parser.py`, `apache_access_parser.py`, `apache_error_parser.py`,
 `syslog_parser.py` (generic RFC3164-ish fallback), `windows_event_parser.py`
 (a CSV/XML **EVTX abstraction** — binary `.evtx` parsing is a documented
@@ -46,6 +46,16 @@ confidence when it recognizes an HTTP request/status line, a `Set-Cookie`
 header, or a security-relevant header name; backs
 `core.agents.web_security_agent.WebSecurityAgent`).
 
+`source_code_parser.py` (Milestone M4,
+`docs/adr/0021-owasp-security-agent-ast-sast.md` — `SourceCodeParser`.
+Deliberately different from every other parser's per-line-record
+convention: **one** `EvidenceRecord` per uploaded file, carrying the full
+decoded source text (AST parsing needs a file's whole text as one syntactic
+unit, not a stream of independent lines). `sniff()` recognizes Python/
+JavaScript/TypeScript/Java content shapes; claims `.py`/`.pyw`/`.js`/`.jsx`/
+`.mjs`/`.cjs`/`.ts`/`.tsx`/`.java` extensions; backs
+`core.agents.owasp_security_agent.OwaspSecurityAgent`).
+
 **Framework modules:** `registry.py` (plugin-capable `ParserRegistry` —
 aliases, priority, versioning, enable/disable, `importlib.metadata`
 entry-point plugin discovery), `factory.py` (deterministic parser
@@ -64,7 +74,7 @@ kick in when nothing in this framework matches — not implemented this
 milestone (no agent/investigation logic, per explicit scope).
 
 **Not yet built** (blueprint-scoped, future milestones):
-`source_code_parser.py`, `incident_parser.py`.
+`incident_parser.py`.
 
 **Future expansion:** New evidence formats get a new `BaseParser` subclass
 registered in `registry.py`, or — without touching this codebase at all — an

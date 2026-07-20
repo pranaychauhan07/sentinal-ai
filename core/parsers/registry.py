@@ -201,6 +201,7 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     from core.parsers.openvas_csv_parser import OpenVasCsvParser
     from core.parsers.openvas_parser import OpenVasXmlParser
     from core.parsers.plaintext_parser import PlainTextParser
+    from core.parsers.source_code_parser import SourceCodeParser
     from core.parsers.ssh_auth_parser import SshAuthParser
     from core.parsers.syslog_parser import SyslogParser
     from core.parsers.windows_event_parser import WindowsEventParser
@@ -222,4 +223,5 @@ def _register_builtin_parsers(registry: ParserRegistry) -> None:
     registry.register(OpenVasCsvParser(), priority=7)
     registry.register(LinuxCommandInputParser(), aliases=("linux_command",), priority=3)
     registry.register(HttpTransactionParser(), aliases=("http",), priority=3)
+    registry.register(SourceCodeParser(), aliases=("source",), priority=3)
     registry.register(PlainTextParser(), priority=0)

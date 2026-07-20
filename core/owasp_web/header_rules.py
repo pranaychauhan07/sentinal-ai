@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from core.owasp_web.models import OwaspCategory, WebSecuritySeverity
+from core.owasp_web.models import MatcherKind, OwaspCategory, WebSecuritySeverity
 from core.owasp_web.rule_engine import Matcher, Rule
 
 
@@ -120,7 +120,7 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A05_SECURITY_MISCONFIGURATION,
         severity=WebSecuritySeverity.MEDIUM,
         confidence=0.9,
-        matcher=Matcher(kind="regex", pattern=r"content-security-policy:.*unsafe-inline"),
+        matcher=Matcher(kind=MatcherKind.REGEX, pattern=r"content-security-policy:.*unsafe-inline"),
         explanation=(
             "The Content-Security-Policy permits 'unsafe-inline' script/style "
             "execution, substantially weakening its protection against injected "
@@ -137,7 +137,9 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A05_SECURITY_MISCONFIGURATION,
         severity=WebSecuritySeverity.MEDIUM,
         confidence=0.85,
-        matcher=Matcher(kind="regex", pattern=r"content-security-policy:.*[\s'\"]\*(?!\S)"),
+        matcher=Matcher(
+            kind=MatcherKind.REGEX, pattern=r"content-security-policy:.*[\s'\"]\*(?!\S)"
+        ),
         explanation=(
             "The Content-Security-Policy allows a wildcard '*' source, permitting "
             "content from any origin."
@@ -151,7 +153,9 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A02_CRYPTOGRAPHIC_FAILURES,
         severity=WebSecuritySeverity.LOW,
         confidence=0.8,
-        matcher=Matcher(kind="regex", pattern=r"strict-transport-security:(?!.*max-age=\d{7,})"),
+        matcher=Matcher(
+            kind=MatcherKind.REGEX, pattern=r"strict-transport-security:(?!.*max-age=\d{7,})"
+        ),
         explanation=(
             "The Strict-Transport-Security header is missing max-age or sets it "
             "below roughly one year (10,000,000+ seconds recommended)."
@@ -165,7 +169,9 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A02_CRYPTOGRAPHIC_FAILURES,
         severity=WebSecuritySeverity.INFO,
         confidence=0.7,
-        matcher=Matcher(kind="regex", pattern=r"strict-transport-security:(?!.*includesubdomains)"),
+        matcher=Matcher(
+            kind=MatcherKind.REGEX, pattern=r"strict-transport-security:(?!.*includesubdomains)"
+        ),
         explanation=(
             "The Strict-Transport-Security header does not include "
             "includeSubDomains, leaving subdomains unprotected by the policy."
@@ -179,7 +185,9 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A05_SECURITY_MISCONFIGURATION,
         severity=WebSecuritySeverity.LOW,
         confidence=0.75,
-        matcher=Matcher(kind="regex", pattern=r"x-frame-options:\s*(?!deny|sameorigin)\S"),
+        matcher=Matcher(
+            kind=MatcherKind.REGEX, pattern=r"x-frame-options:\s*(?!deny|sameorigin)\S"
+        ),
         explanation=(
             "X-Frame-Options is set to a value other than DENY/SAMEORIGIN, which "
             "modern browsers may not honor consistently."
@@ -193,7 +201,7 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A05_SECURITY_MISCONFIGURATION,
         severity=WebSecuritySeverity.LOW,
         confidence=0.85,
-        matcher=Matcher(kind="literal_substring", pattern="referrer-policy: unsafe-url"),
+        matcher=Matcher(kind=MatcherKind.LITERAL_SUBSTRING, pattern="referrer-policy: unsafe-url"),
         explanation=(
             "Referrer-Policy is set to 'unsafe-url', always sending the full "
             "referrer URL (including any sensitive query parameters) cross-origin."
@@ -207,7 +215,7 @@ DEFAULT_HEADER_VALUE_RULES: tuple[Rule, ...] = (
         category=OwaspCategory.A05_SECURITY_MISCONFIGURATION,
         severity=WebSecuritySeverity.LOW,
         confidence=0.7,
-        matcher=Matcher(kind="regex", pattern=r"(?:server|x-powered-by):\s*\S+/\d"),
+        matcher=Matcher(kind=MatcherKind.REGEX, pattern=r"(?:server|x-powered-by):\s*\S+/\d"),
         explanation=(
             "The Server/X-Powered-By header discloses specific software/version "
             "information, aiding an attacker in targeting known vulnerabilities."

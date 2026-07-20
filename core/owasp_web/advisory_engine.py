@@ -136,9 +136,9 @@ class WebSecurityAdvisoryEngine:
                     _logger.warning("web_security_line_skipped", reason=str(exc))
                     continue
                 self._metrics.record_jwt_analyzed()
-                finding = self._jwt_analyzer.analyze(jwt)
-                if finding is not None:
-                    jwt_findings.append(finding)
+                jwt_finding = self._jwt_analyzer.analyze(jwt)
+                if jwt_finding is not None:
+                    jwt_findings.append(jwt_finding)
                 continue
 
             if _SET_COOKIE_LINE_PATTERN.match(stripped):
@@ -150,9 +150,9 @@ class WebSecurityAdvisoryEngine:
                     _logger.warning("web_security_line_skipped", reason=str(exc))
                     continue
                 self._metrics.record_cookie_analyzed()
-                finding = self._cookie_analyzer.analyze(cookie)
-                if finding is not None:
-                    cookie_findings.append(finding)
+                cookie_finding = self._cookie_analyzer.analyze(cookie)
+                if cookie_finding is not None:
+                    cookie_findings.append(cookie_finding)
                 continue
 
             header_match = _HEADER_LINE_PATTERN.match(stripped)
@@ -163,9 +163,9 @@ class WebSecurityAdvisoryEngine:
                 continue
 
             self._metrics.record_misconfiguration_candidate_analyzed()
-            finding = self._misconfiguration_detector.analyze(stripped)
-            if finding is not None:
-                misconfiguration_findings.append(finding)
+            misconfig_finding = self._misconfiguration_detector.analyze(stripped)
+            if misconfig_finding is not None:
+                misconfiguration_findings.append(misconfig_finding)
 
         # Missing-header presence checks only make sense when the artifact
         # actually contains evidence to judge — an entirely empty artifact
