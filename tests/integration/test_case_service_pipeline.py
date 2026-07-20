@@ -70,6 +70,12 @@ async def test_full_pipeline_from_case_creation_to_soc_analysis(
     assert result.soc_risk_score > 0.0
     # 12 failed logins from one source IP is a clear brute-force shape.
     assert result.soc_risk_label in {"medium", "high", "critical"}
+    # ADR-0022: the USERNAME+IPV4 IOC pair extracted above matches
+    # mapping_rules.py's R-T1110-brute-force rule, so MitreMappingAgent
+    # (cross-cutting — runs regardless of evidence type) should resolve at
+    # least one mapped ATT&CK technique for this case.
+    assert result.mitre_technique_count is not None
+    assert result.mitre_technique_count > 0
 
     async with database.session_factory() as session:
         updated_case = await case_service.get_case(session, case.id)

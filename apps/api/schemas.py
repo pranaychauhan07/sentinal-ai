@@ -166,6 +166,12 @@ class EvidenceUploadResponse(ApiSchema):
     #: (docs/adr/0021-owasp-security-agent-ast-sast.md).
     sast_finding_count: int | None = None
     highest_sast_risk_level: str | None = None
+    #: Populated once at least one Finding on this case has been mapped to an
+    #: ATT&CK technique — cross-cutting, so populated regardless of which
+    #: specialist(s) this upload also routed to (additive, per constitution
+    #: §13's versioning rule; docs/adr/0022-mitre-mapping-agent.md).
+    mitre_technique_count: int | None = None
+    mitre_distinct_group_count: int | None = None
 
 
 # --- IOC --------------------------------------------------------------------

@@ -71,6 +71,22 @@ and `core/agents/owasp_security_agent.py`'s docstrings document.
 ADR-0019's Linux Security Advisor Framework, ADR-0020's OWASP Web Security
 Agent framework, and ADR-0021's OWASP Security Agent framework never
 persist anything.
+
+ADR-0022 (MITRE Mapping Agent) extends this module additively: importing
+`core.agents.mitre_mapping_agent` directly is the same sibling-service/
+agent-registration composition every prior specialist agent already
+established, not a new exception. `_hydrate_mitre_mapping_records` reads
+`json.loads(Finding.finding_data_json)` directly (never a typed
+`core.findings.models.FindingRecord` import — this module has no import
+edge onto `core/findings`; that edge belongs to `finding_service.py`
+specifically, rule 4c) via `core.services.finding_service.
+list_findings_for_case`, which is normal sibling-service composition, the
+same reasoning that already covers `generate_findings_for_case`.
+`MitreMappingAgent`'s tool registry needs `settings` (to load the vendored
+MITRE dataset), so `_run_specialist_agents` and `build_investigation_graph`
+both gained a `settings` parameter this session — additive, every other
+caller of `build_investigation_graph` still works via its `Settings()`
+default.
 """
 
 from __future__ import annotations
@@ -85,6 +101,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.agents.linux_security_agent import (
     LinuxSecurityAgent,
     default_linux_security_agent_tool_registry,
+)
+from core.agents.mitre_mapping_agent import (
+    MitreMappingAgent,
+    default_mitre_mapping_agent_tool_registry,
 )
 from core.agents.owasp_security_agent import (
     OwaspSecurityAgent,
@@ -126,7 +146,7 @@ from core.services.case_events import CaseEvent, CaseEventPublisher, CaseEventTy
 from core.services.case_lifecycle import validate_transition
 from core.services.case_metrics import compute_case_risk_score
 from core.services.evidence_service import EvidencePipeline, ingest_evidence
-from core.services.finding_service import generate_findings_for_case
+from core.services.finding_service import generate_findings_for_case, list_findings_for_case
 from core.services.linux_advisor_service import assess_linux_command_input
 from core.services.linux_security_service import assess_linux_security
 from core.services.owasp_security_service import assess_source_code
@@ -155,6 +175,7 @@ _THREAT_HUNTING_CAPABILITY = ThreatHunterAgent.capabilities[0].name
 _LINUX_ADVISORY_CAPABILITY = LinuxSecurityAgent.capabilities[0].name
 _OWASP_WEB_SECURITY_CAPABILITY = WebSecurityAgent.capabilities[0].name
 _OWASP_SOURCE_CODE_REVIEW_CAPABILITY = OwaspSecurityAgent.capabilities[0].name
+_MITRE_MAPPING_CAPABILITY = MitreMappingAgent.capabilities[0].name
 
 #: Which capabilities a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
@@ -231,7 +252,16 @@ _OWASP_SECURITY_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset({EvidenceTyp
 
 
 def _required_capabilities_for(evidence_type: EvidenceType) -> list[str]:
-    return list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
+    """`_MITRE_MAPPING_CAPABILITY` is appended for every evidence type,
+    regardless of what specialist(s) it also routes to (ADR-0022): Finding
+    generation (and therefore MITRE mapping) already runs unconditionally on
+    every evidence upload (`generate_findings_for_case` in
+    `investigate_new_evidence`), so `MitreMappingAgent` is cross-cutting
+    rather than evidence-type-gated, exactly like blueprint §7 describes it
+    ("used by SOC/Threat Hunting/Incident agents")."""
+    capabilities = list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
+    capabilities.append(_MITRE_MAPPING_CAPABILITY)
+    return capabilities
 
 
 class CaseInvestigationResult(BaseModel):
@@ -259,6 +289,8 @@ class CaseInvestigationResult(BaseModel):
     highest_owasp_web_risk_level: str | None = None
     sast_finding_count: int | None = None
     highest_sast_risk_level: str | None = None
+    mitre_technique_count: int | None = None
+    mitre_distinct_group_count: int | None = None
 
 
 async def create_case(
@@ -589,25 +621,70 @@ async def _hydrate_attributed_iocs(
     ]
 
 
+async def _hydrate_mitre_mapping_records(
+    session: AsyncSession, *, case_id: uuid.UUID, settings: Settings
+) -> list[dict[str, object]]:
+    """Reduces this case's already-persisted `Finding.mitre_mappings` (each
+    `Finding.finding_data_json` is a serialized `core.findings.models.
+    FindingRecord`, already produced by `generate_findings_for_case()`) to
+    plain dicts for `CaseInvestigationState.mitre_mapping_records` — never
+    re-maps a technique or recomputes a confidence (constitution §1.9).
+    Reads `json.loads(row.finding_data_json)` directly rather than importing
+    `core.findings.models.FindingRecord`: `core/services/case_service.py`
+    has no documented import edge onto `core/findings` (rule 4c grants that
+    edge to `finding_service.py` specifically), and the raw dict is all this
+    function needs. Scoped to the whole case (every Finding, not just this
+    upload's), matching blueprint §13's MITRE ATT&CK matrix heatmap, which
+    is case-wide by definition."""
+    rows = await list_findings_for_case(
+        session, case_id, limit=settings.finding_max_candidates_per_case
+    )
+    records: list[dict[str, object]] = []
+    for row in rows:
+        try:
+            data = json.loads(row.finding_data_json)
+        except (TypeError, ValueError):
+            _logger.warning(
+                "mitre_mapping_hydration_skipped_malformed_finding", finding_id=str(row.id)
+            )
+            continue
+        for mapping in data.get("mitre_mappings", []):
+            if not isinstance(mapping, dict) or "technique_id" not in mapping:
+                continue
+            records.append(
+                {
+                    "finding_id": str(row.id),
+                    "technique_id": mapping.get("technique_id"),
+                    "tactic_ids": list(mapping.get("tactic_ids", ())),
+                    "confidence": mapping.get("confidence", 0.0),
+                    "mapping_source": mapping.get("mapping_source", ""),
+                    "attack_spec_version": mapping.get("attack_spec_version", ""),
+                }
+            )
+    return records
+
+
 async def _run_specialist_agents(
     session: AsyncSession,
     *,
     case_id: uuid.UUID,
     evidence_items: list[NormalizedEvidence],
     evidence_id: uuid.UUID,
+    settings: Settings,
     vulnerability_records: list[dict[str, object]] | None = None,
     linux_security_records: list[dict[str, object]] | None = None,
     linux_advisory_records: list[dict[str, object]] | None = None,
     owasp_web_records: list[dict[str, object]] | None = None,
     owasp_security_records: list[dict[str, object]] | None = None,
+    mitre_mapping_records: list[dict[str, object]] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`. Registers all seven concrete specialist
+    delegating to `core/graph`. Registers all eight concrete specialist
     agents built to date (`SocAnalystAgent`, `PhishingAgent`,
     `VulnerabilityAssessmentAgent`, `ThreatHunterAgent`,
-    `LinuxSecurityAgent`, `WebSecurityAgent`, `OwaspSecurityAgent`); which
-    one(s) the
+    `LinuxSecurityAgent`, `WebSecurityAgent`, `OwaspSecurityAgent`,
+    `MitreMappingAgent`); which one(s) the
     Coordinator actually fans out to is decided by `required_capabilities`,
     computed per-artifact from its `EvidenceType`
     (`_required_capabilities_for`) — this is what lets a log upload, an
@@ -649,7 +726,12 @@ async def _run_specialist_agents(
             tool_registry=default_owasp_security_agent_tool_registry(), case_memory=case_memory
         )
     )
-    engine = build_investigation_graph(agent_registry=registry)
+    registry.register(
+        MitreMappingAgent(
+            tool_registry=default_mitre_mapping_agent_tool_registry(settings=settings)
+        )
+    )
+    engine = build_investigation_graph(agent_registry=registry, settings=settings)
 
     required_capabilities = _required_capabilities_for(evidence_items[0].evidence_type)
     attributed_iocs = await _hydrate_attributed_iocs(session, evidence_id=evidence_id)
@@ -662,6 +744,7 @@ async def _run_specialist_agents(
         linux_advisory_records=list(linux_advisory_records or []),
         owasp_web_records=list(owasp_web_records or []),
         owasp_security_records=list(owasp_security_records or []),
+        mitre_mapping_records=list(mitre_mapping_records or []),
         metadata={"required_capabilities": required_capabilities},
     )
     return engine.run(state)
@@ -925,16 +1008,22 @@ async def investigate_new_evidence(
                 f"'{sast_advice.overall_risk_level.value}'.",
             )
 
+        mitre_mapping_records = await _hydrate_mitre_mapping_records(
+            session, case_id=case_id, settings=settings
+        )
+
         result_state = await _run_specialist_agents(
             session,
             case_id=case_id,
             evidence_items=[normalized],
             evidence_id=ingestion.evidence_id,
+            settings=settings,
             vulnerability_records=vulnerability_records,
             linux_security_records=linux_security_records,
             linux_advisory_records=linux_advisory_records,
             owasp_web_records=owasp_web_records,
             owasp_security_records=owasp_security_records,
+            mitre_mapping_records=mitre_mapping_records,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
@@ -949,6 +1038,7 @@ async def investigate_new_evidence(
         )
         owasp_web_finding_count, highest_owasp_web_risk_level = _extract_web_security(result_state)
         sast_finding_count, highest_sast_risk_level = _extract_owasp_security(result_state)
+        mitre_technique_count, mitre_distinct_group_count = _extract_mitre_mapping(result_state)
         for agent_name in (
             SocAnalystAgent.name,
             PhishingAgent.name,
@@ -957,6 +1047,7 @@ async def investigate_new_evidence(
             LinuxSecurityAgent.name,
             WebSecurityAgent.name,
             OwaspSecurityAgent.name,
+            MitreMappingAgent.name,
         ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
@@ -992,6 +1083,8 @@ async def investigate_new_evidence(
             highest_owasp_web_risk_level=highest_owasp_web_risk_level,
             sast_finding_count=sast_finding_count,
             highest_sast_risk_level=highest_sast_risk_level,
+            mitre_technique_count=mitre_technique_count,
+            mitre_distinct_group_count=mitre_distinct_group_count,
         )
 
 
@@ -1091,3 +1184,19 @@ def _extract_owasp_security(state: CaseInvestigationState) -> tuple[int | None, 
     if not advice:
         return None, None
     return advice["finding_count"], advice["overall_risk_level"]
+
+
+def _extract_mitre_mapping(state: CaseInvestigationState) -> tuple[int | None, int | None]:
+    """`MitreMappingAgent`'s counterpart to `_extract_owasp_security` — reads
+    the resolved technique count and distinct threat-group count out of this
+    run's `MitreCaseMappingSummary` payload. Returns `(None, None)` for the
+    documented "unmapped" degraded outcome (no summary was produced), never
+    `(0, 0)` — the two are not the same thing (constitution §7's
+    "insufficient evidence" vs. "no threats found" distinction)."""
+    mitre_output = state.agent_outputs.get(MitreMappingAgent.name)
+    if mitre_output is None:
+        return None, None
+    summary = mitre_output.output.get("summary")
+    if not summary:
+        return None, None
+    return summary["technique_count"], summary["distinct_group_count"]

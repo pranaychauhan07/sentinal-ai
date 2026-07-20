@@ -10,7 +10,129 @@
 
 ## Completed Features
 
-This session implemented blueprint §7's **OWASP Security Agent** end-to-end
+This session implemented blueprint §7's **MITRE Mapping Agent**
+(`docs/adr/0022-mitre-mapping-agent.md`), closing **M2 entirely** — the last
+milestone that stayed open after M4 closed last session. This is the
+**eighth** concrete specialist agent (after `SocAnalystAgent` M1,
+`PhishingAgent` M2, `VulnerabilityAssessmentAgent`/`ThreatHunterAgent`/
+`LinuxSecurityAgent`/`WebSecurityAgent`/`OwaspSecurityAgent` M4).
+
+**Before writing any code, this session found a real architecture conflict**
+and surfaced it to the user rather than proceeding silently (per the
+project's own "stop and explain before writing code" rule): the task brief
+asked for a full, new "MITRE Mapping framework" — a Mapping Engine,
+Technique Matching Engine, Confidence Calculator, Mapping Metrics, Audit
+Events, evidence aggregation, deduplication, persistence — but a review of
+`core/findings/` and `core/knowledge/mitre/` found **almost all of this
+already existed**, built under ADR-0013 two sessions ago and already wired
+into production via `core.services.finding_service.
+generate_findings_for_case`, called on every evidence upload from
+`case_service.investigate_new_evidence`. Building a parallel implementation
+would have violated the constitution's "never duplicate functionality" and
+"one clear home" rules. The user chose the **thin agent + tool** scope:
+reuse the existing engine entirely and add only the two blueprint-named
+pieces that were genuinely missing.
+
+**What this session actually built:**
+- **`core/tools/mitre_tools.py`** (new, blueprint's exact named file) —
+  `MitreMappingResolutionTool`. Never re-derives a technique mapping or its
+  confidence (that stays `core.findings.mapping_engine.MitreMappingEngine`'s
+  job). Resolves already-mapped technique IDs via
+  `core.knowledge.mitre.lookup.MitreLookup` to: tactic phases
+  (`tactics_for_technique`), sub-technique parent IDs (ATT&CK's own
+  `"T1110.001"` dot convention, parsed by a small pure `parent_technique_id`
+  helper — no separate parent/child data needed), associated threat groups
+  (`groups_using_technique` — previously unused by anything in this
+  codebase), associated software (`software_using_technique` — also
+  previously unused), and mitigations (`mitigations_for_technique`).
+  Aggregates ATT&CK matrix-style tactic coverage counts and distinct
+  group/software counts across the whole case. Unlike every other tool in
+  this package, its constructor takes an injected `MitreLookup` and its
+  input stays typed (not dict-shaped): `core/tools` is explicitly allowed to
+  import `core/knowledge` directly (docs/dependency-rules.md rule 5).
+  Gracefully degrades (`unresolved_technique_ids`) for a technique_id absent
+  from the loaded dataset, never raising.
+- **`core/agents/mitre_mapping_agent.py`** (new) — `MitreMappingAgent`, the
+  eighth concrete specialist agent, capability `mitre_technique_mapping`.
+  Deliberately thin: reads
+  `CaseInvestigationState.mitre_mapping_records` (hydrated by
+  `case_service.py` from the case's already-persisted
+  `Finding.mitre_mappings`) and calls `MitreMappingResolutionTool` to
+  produce a case-level `MitreCaseMappingSummary`. Returns a `DEGRADED`,
+  zero-technique "unmapped" result — never a forced low-confidence guess —
+  when no mapping exists yet for the case, exactly matching blueprint §7's
+  documented failure handling. **Unlike every other specialist agent**, this
+  one is explicitly permitted to import `core.knowledge.mitre` directly
+  (docs/dependency-rules.md rule 4/4c: "core/agents may import ...
+  core/knowledge ... Finding/MITRE mapping only") — MITRE reference data is
+  shared knowledge, not a sibling leaf's private model like every other
+  specialist agent's owning package is.
+  `default_mitre_mapping_agent_tool_registry(settings=...)` is this
+  codebase's first agent-tool-registry factory that needs a `Settings`
+  parameter (to load the vendored MITRE dataset for its tool's injected
+  `MitreLookup`).
+- **Cross-cutting routing, not evidence-type-gated** — unlike every other
+  specialist, `MitreMappingAgent`'s capability is appended to *every*
+  evidence type's required-capability list in
+  `core/services/case_service.py`'s `_required_capabilities_for`, since
+  Finding generation (and therefore MITRE mapping) already runs
+  unconditionally on every evidence upload, regardless of which other
+  specialist(s) that evidence type also routes to.
+- **`core/services/case_service.py`** (modified) — new
+  `_hydrate_mitre_mapping_records` reads the case's persisted
+  `Finding.finding_data_json` rows (via
+  `core.services.finding_service.list_findings_for_case`, already imported)
+  and reduces each `mitre_mappings` entry to a plain dict via
+  `json.loads` — never importing `core.findings.models.FindingRecord`
+  directly (that import edge belongs to `finding_service.py` specifically
+  per rule 4c). Scoped to the whole case (every Finding, not just the
+  current upload's), matching blueprint §13's MITRE ATT&CK matrix heatmap,
+  which is inherently case-wide. `_run_specialist_agents` and
+  `build_investigation_graph` both gained a `settings: Settings` parameter
+  (the latter defaults to `Settings()` when omitted — every field has a
+  default, so every existing caller still works unchanged).
+  `CaseInvestigationResult` gained `mitre_technique_count`/
+  `mitre_distinct_group_count`; `EvidenceUploadResponse`
+  (`apps/api/schemas.py`/`routers/evidence.py`) passes them through.
+- **`core/graph/{state,investigation_graph}.py`** (modified) —
+  `CaseInvestigationState` gained `mitre_mapping_records: list[Any]` (the
+  same uniform `list[Any]`/`operator.add` shape every other `*_records`
+  field has — `core/graph` itself has no import edge onto
+  `core/findings`/`core/knowledge`, even though `core/agents` does).
+  `MitreMappingAgent` registered/wired as the graph's eighth node with the
+  same two-line pattern every prior specialist established.
+- **Testing** — 13 new tests: `tests/unit/test_tools_mitre_tools.py` (tool
+  resolution against a small hand-built `MitreDataset` — tactic/group/
+  software/mitigation resolution, sub-technique parent resolution, unknown
+  technique graceful degradation, max-confidence + finding-id dedup across
+  repeated mappings, top-N truncation, empty input), `tests/unit/
+  test_agents_mitre_mapping_agent.py` (agent-level: empty-records
+  "unmapped" degraded result, malformed-record skip-don't-crash, unknown
+  technique reported not dropped, deterministic confidence, findings-list
+  append), plus one extended assertion in the existing end-to-end
+  `test_case_service_pipeline.py` SSH-auth-log test (12 failed logins ->
+  USERNAME+IPV4 IOCs -> `R-T1110-brute-force` rule -> `mitre_technique_count
+  > 0`, proving the whole pipeline wired together for real) and the
+  `test_investigation_graph.py` node-set assertion extended to the eighth
+  agent. Full pytest suite (1546 tests, up from 1533), `ruff check`/`format
+  --check`, and `scripts/check_dependency_rules.py` all pass. New/changed
+  files are individually `mypy --strict` clean (the pre-existing,
+  unrelated numpy/pandas whole-repo `mypy` failure — see Known Issues — is
+  unchanged, not caused by this session).
+
+**Explicitly NOT built this session:** a second MITRE mapping engine,
+confidence calculator, metrics collector, audit module, evidence
+aggregator, or deduplication engine (all already exist in `core/findings/`
+and are reused as-is); any new DB persistence (this agent reads
+already-persisted data, writes nothing new); incident response, report
+generation, or LLM reasoning of any kind; any redesign of
+`core/findings/`, `core/knowledge/mitre/`, or any prior agent/framework.
+
+---
+
+### M0–M4 + M2's OWASP Security Agent (unchanged from prior sessions)
+
+Previous session implemented blueprint §7's **OWASP Security Agent** end-to-end
 — an explicit ADR: **ADR-0021, OWASP Security Agent (AST-Based SAST)**
 (`docs/adr/0021-owasp-security-agent-ast-sast.md`). This was the last
 remaining M4 specialist agent — blueprint's exact scope: *"source code /
@@ -274,109 +396,89 @@ needed dependency); any redesign of `SocAnalystAgent`, `PhishingAgent`,
 
 ```
 apps/
-  api/            schemas.py (MODIFIED: +2 SAST response fields) +
-                   routers/{system,cases,evidence(MODIFIED: passes through
-                   SAST fields),iocs,findings,v1}.py                       [implemented]
+  api/            schemas.py (MODIFIED: +2 MITRE response fields, +2 SAST
+                   response fields earlier) + routers/{system,cases,
+                   evidence(MODIFIED: passes through MITRE + SAST
+                   fields),iocs,findings,v1}.py                          [implemented]
   web/             Streamlit frontend                                     [README only]
 core/
-  config/         settings.py (MODIFIED: +7 OWASP_SECURITY_* fields +
-                   9 evidence extensions)                                 [implemented]
+  config/         settings.py (unchanged this session; +7 OWASP_SECURITY_*
+                   fields + 9 evidence extensions from prior session)     [implemented]
   logging/        (unchanged)                                             [implemented]
   agents/         soc_analyst_agent.py, phishing_agent.py,
                    vulnerability_agent.py, threat_hunter_agent.py,
-                   linux_security_agent.py, web_security_agent.py
-                   (unchanged) + owasp_security_agent.py (NEW — seventh
-                   concrete specialist agent — closes M4)                 [implemented — 7 concrete specialist agents]
+                   linux_security_agent.py, web_security_agent.py,
+                   owasp_security_agent.py (unchanged) +
+                   mitre_mapping_agent.py (NEW — eighth concrete
+                   specialist agent — closes M2)                         [implemented — 8 concrete specialist agents]
   tools/          scoring.py, phishing_tools.py, vuln_tools.py,
                    linux_security_tools.py, linux_tools.py,
-                   web_security_tools.py (unchanged) + owasp_tools.py
-                   (NEW — OwaspSecurityAssessmentTool, blueprint's exact
-                   named file)                                            [implemented — 7 concrete tools]
+                   web_security_tools.py, owasp_tools.py (unchanged) +
+                   mitre_tools.py (NEW — MitreMappingResolutionTool,
+                   blueprint's exact named file)                         [implemented — 8 concrete tools]
   memory/         (unchanged)                                             [implemented — framework only]
-  knowledge/      mitre/, cvss_calculator.py (unchanged)                  [implemented]
-  graph/          investigation_graph.py (MODIFIED: +OwaspSecurityAgent
-                   wiring) + state.py (MODIFIED: +owasp_security_records
-                   field) + routing.py/workflow_engine.py/events.py/
-                   retry.py/failure_recovery.py/metrics.py (unchanged)    [implemented]
-  db/             models/timeline_event.py (MODIFIED: +SAST_ASSESSED) +
-                   migrations/versions/ (+1 NEW: extend
-                   timeline_event_type_enum) + all prior migrations
-                   (unchanged)                                            [implemented — 11 real domain tables + 5 reference tables]
-  parsers/        source_code_parser.py (NEW — SourceCodeParser) +
-                   registry.py (MODIFIED: +registration) + all other
-                   sixteen parsers (unchanged)                            [implemented — 17 concrete parsers]
-  owasp_security/ (NEW leaf package — models, exceptions,
-                   language_detector, rule_engine, python_ast_rules,
-                   pattern_rules, python_ast_analyzer, pattern_analyzer,
-                   vulnerability_detection_engine, secure_coding_advisor,
-                   evidence_mapper, confidence_calculator,
-                   finding_generator, risk_assessment, text_utils,
-                   analysis_engine, metrics, audit)                       [implemented]
-  owasp_web/      advisory_engine.py (MODIFIED: fixed a latent mypy-strict
-                   variable-reuse issue found this session) +
-                   header_rules.py/misconfig_rules.py (MODIFIED: fixed a
-                   latent mypy-strict Matcher.kind string-vs-enum issue) +
-                   all other modules (unchanged — ADR-0020's framework)   [implemented]
+  knowledge/      mitre/, cvss_calculator.py (unchanged — MitreLookup's
+                   groups_using_technique/software_using_technique are
+                   now actually called, by mitre_tools.py)                [implemented]
+  graph/          investigation_graph.py (MODIFIED: +MitreMappingAgent
+                   wiring, +settings parameter) + state.py (MODIFIED:
+                   +mitre_mapping_records field) + routing.py/
+                   workflow_engine.py/events.py/retry.py/
+                   failure_recovery.py/metrics.py (unchanged)             [implemented]
+  db/             (unchanged this session — MitreMappingAgent reads
+                   already-persisted Finding rows, writes nothing new)   [implemented — 11 real domain tables + 5 reference tables]
+  parsers/        (unchanged this session)                               [implemented — 17 concrete parsers]
+  owasp_security/ (unchanged — prior session's leaf package)             [implemented]
+  owasp_web/      (unchanged)                                             [implemented]
   linux_advisor/  (unchanged — ADR-0019's separate framework)             [implemented]
   linux_security/  (unchanged — ADR-0018's separate framework)            [implemented]
   vulnerabilities/  (unchanged)                                           [implemented]
   threat_intel/   (unchanged)                                             [implemented]
-  findings/       (unchanged)                                             [implemented]
+  findings/       (unchanged — this session's agent/tool reuse this
+                   package's engine entirely, never modifying it)        [implemented]
   security/       prompt_guard.py (unchanged); pii_redaction.py,
                    approval_gate.py still not started                     [implemented — 1 of 3 modules]
   reporting/      (empty — README only)                                   [not started]
-  services/       case_service.py (MODIFIED: +owasp_security capability
-                   routing, +_run_specialist_agents seventh agent,
-                   +_extract_owasp_security) + owasp_security_service.py
-                   (NEW — assess_source_code, no DB session) +
+  services/       case_service.py (MODIFIED: +mitre_technique_mapping
+                   capability routing (every evidence type), +settings
+                   param on _run_specialist_agents,
+                   +_hydrate_mitre_mapping_records, +_extract_mitre_mapping)
+                   + finding_service.py (unchanged — its
+                   generate_findings_for_case is reused as-is) +
                    evidence_service.py, threat_intel_service.py,
-                   finding_service.py, vulnerability_service.py,
-                   linux_security_service.py, linux_advisor_service.py,
-                   web_security_service.py (unchanged); report_service.py [implemented]
-data/             sample_evidence/{vulnerable_app.py,safe_app.py,
-                   vulnerable_app.js,VulnerableApp.java} (NEW fixtures);
-                   all other fixtures (unchanged)
+                   vulnerability_service.py, linux_security_service.py,
+                   linux_advisor_service.py, web_security_service.py,
+                   owasp_security_service.py (unchanged); report_service.py [implemented]
+data/             (unchanged this session)
 scripts/          (unchanged)
 tests/
-  unit/           200 test modules (+17 this session:
-                   test_owasp_security_{models,rule_engine,
-                   language_detector,python_ast_analyzer,
-                   pattern_analyzer,vulnerability_detection_engine,
-                   secure_coding_advisor,evidence_mapper,
-                   confidence_calculator,finding_generator,
-                   risk_assessment,analysis_engine,metrics,audit}.py,
-                   test_parsers_source_code_parser.py,
-                   test_tools_owasp_tools.py,
-                   test_agents_owasp_security_agent.py; +1 extended:
-                   test_parsers_registry.py [builtin-parser-count
-                   assertion])
-  integration:    16 test modules (+2 NEW:
-                   test_owasp_security_pipeline_integration.py,
-                   test_owasp_security_performance.py; +2 extended:
-                   test_api_case_routes.py [vulnerable_app.py upload
-                   routing test], test_investigation_graph.py [node-set
-                   assertion])
+  unit/           202 test modules (+2 this session:
+                   test_tools_mitre_tools.py,
+                   test_agents_mitre_mapping_agent.py)
+  integration:    16 test modules (+0 new files this session; +2 extended:
+                   test_case_service_pipeline.py [mitre_technique_count
+                   assertion on the SSH-auth-log test],
+                   test_investigation_graph.py [node-set assertion
+                   extended to the eighth agent])
   golden/         (empty — no report generation exists yet)
-docs/             18 markdown docs + docs/adr/ (22 ADR files incl.
-                   template, +0021) + docs/dependency-rules.md (MODIFIED:
-                   rule 4i added, rule 5/layer-stack diagram extended) +
+docs/             18 markdown docs + docs/adr/ (23 ADR files incl.
+                   template, +0022) + docs/dependency-rules.md (unchanged
+                   this session — rule 4/4c already documented
+                   core/agents' MITRE import edge in advance) +
                    docs/diagrams/ (unchanged)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 ```
 
-1533 tests passing as of this session (1395 prior -> 1533 now: 138 new).
-Modified this session: `core/db/models/timeline_event.py`,
-`core/config/settings.py`, `.env.example`,
-`core/graph/{state,investigation_graph}.py`,
-`core/services/case_service.py`, `core/parsers/{models,registry}.py`,
-`apps/api/{schemas,routers/evidence}.py`, `docs/roadmap.md`,
-`docs/dependency-rules.md`, `core/{agents,tools,parsers,services}/README.md`,
-`tests/integration/{test_api_case_routes,test_investigation_graph}.py`,
-`tests/unit/test_parsers_registry.py`, `CHANGELOG.md`, and this file, plus
-three pre-existing files fixed for a latent `mypy --strict` issue
-(`core/owasp_web/{advisory_engine,header_rules,misconfig_rules}.py`) — all
-currently uncommitted until this session's commit (see "Current Git
+1546 tests passing as of this session (1533 prior -> 1546 now: 13 new).
+Modified this session: `core/graph/{state,investigation_graph}.py`,
+`core/services/case_service.py`, `apps/api/{schemas,routers/evidence}.py`,
+`docs/roadmap.md`, `core/{agents,tools}/README.md`,
+`tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
+`CHANGELOG.md`, and this file. New: `docs/adr/0022-mitre-mapping-agent.md`,
+`core/tools/mitre_tools.py`, `core/agents/mitre_mapping_agent.py`,
+`tests/unit/{test_tools_mitre_tools,test_agents_mitre_mapping_agent}.py` —
+all currently uncommitted until this session's commit (see "Current Git
 Status" below).
 
 **Naming note carried forward:** `context/02_repository.md` still does not
@@ -388,9 +490,50 @@ exist. The actual files remain `context/01_blueprint.md` and
 ## Architecture Status
 
 Fully aligned with `context/01_blueprint.md`, extended (not reversed) by
-ADR-0001 through ADR-0021. **M4 is now fully closed** — every
-blueprint-named specialist agent for this milestone exists. Fifteen
-deliberate decisions, all documented in
+ADR-0001 through ADR-0022. **M2 and M4 are both now fully closed.** This
+session's deliberate decisions, documented in
+`docs/adr/0022-mitre-mapping-agent.md`:
+
+1. **The pre-implementation conflict was surfaced, not silently resolved
+   either way** — the task asked for a full new mapping-engine framework;
+   this session found `core/findings/`/`core/knowledge/mitre/` already
+   implemented nearly all of it (ADR-0013) and stopped to ask the user
+   before writing any code, rather than either duplicating the engine or
+   unilaterally deciding to skip the task's request.
+2. **`core/tools/mitre_tools.py` wraps `MitreLookup`, never
+   `MitreMappingEngine`** — technique/confidence mapping stays exactly
+   where ADR-0013 put it; this tool only resolves already-mapped
+   technique IDs to tactic/group/software/mitigation metadata.
+3. **`core/agents/mitre_mapping_agent.py` is the one agent in this
+   codebase permitted to import `core.knowledge.mitre` directly**
+   (docs/dependency-rules.md rule 4/4c) — a documented, pre-existing
+   exception the dependency rules already anticipated for exactly this
+   agent, not a new rule written to accommodate it.
+4. **Cross-cutting capability routing** — `mitre_technique_mapping` is
+   appended to every evidence type's required-capability list, the first
+   capability in this codebase that isn't evidence-type-gated.
+5. **No second mapping engine, confidence calculator, metrics collector,
+   audit module, evidence aggregator, or deduplication engine** — all
+   reused as-is from `core/findings/`.
+6. **`_hydrate_mitre_mapping_records` reads `json.loads(Finding.
+   finding_data_json)` directly**, never importing
+   `core.findings.models.FindingRecord` into `case_service.py` (that
+   import edge stays scoped to `finding_service.py`, rule 4c).
+7. **Scoped to the whole case, not just the triggering upload** — matches
+   blueprint §13's MITRE ATT&CK heatmap, which is inherently case-wide.
+8. **A known, accepted minor inefficiency**: a second `MitreLookup` is
+   built per investigation run (one inside `finding_service.
+   FindingGenerationPipeline`, one inside this agent's tool registry) —
+   both load the same small, local, vendored JSON file deterministically;
+   not optimized this session, flagged for later if profiling ever shows
+   it matters.
+
+---
+
+### M4's OWASP Security Agent (prior session, unchanged)
+
+**M4 is fully closed** — every blueprint-named specialist agent for this
+milestone exists. Fifteen deliberate decisions, all documented in
 `docs/adr/0021-owasp-security-agent-ast-sast.md`:
 
 1. **`core/owasp_security/` is a new, deliberately distinct package from
@@ -445,9 +588,9 @@ deliberate decisions, all documented in
     anywhere in this package; the package never executes/`eval`s/runs any
     analyzed source code.**
 
-`docs/roadmap.md` records M4 as **checked off** (`- [x]`) this session,
+`docs/roadmap.md` records both M2 and M4 as **checked off** (`- [x]`), each
 with a dated addendum explaining why. No approved architectural decision
-(ADR-0001 through 0020) was reversed.
+(ADR-0001 through 0021) was reversed by this session.
 
 ---
 
@@ -456,11 +599,52 @@ with a dated addendum explaining why. No approved architectural decision
 *(Carried forward from prior sessions — still true, unchanged: see prior
 sessions' "Key Decisions" sections in git history.)*
 
-**New this session:**
+**New this session (MITRE Mapping Agent, ADR-0022):**
 
-- **No conflict to raise this session** — unlike the prior session (which
-  had to reconcile a task brief against a different blueprint definition),
-  this task matched blueprint §7's OWASP Security Agent exactly. The only
+- **A real conflict was raised before writing any code** — the task brief's
+  requested "MITRE Mapping framework" (Mapping Engine, Confidence
+  Calculator, Metrics, Audit Events, evidence aggregation, dedup,
+  persistence) almost entirely duplicated `core/findings/`
+  (`MitreMappingEngine`, `ConfidenceEngine`, `dedup.py`,
+  `evidence_aggregation.py`, `metrics.py`, `audit.py`) and
+  `core/knowledge/mitre/lookup.py` (`MitreLookup`'s already-existing
+  `tactics_for_technique`/`groups_using_technique`/
+  `software_using_technique`/`mitigations_for_technique`), all already
+  wired into production via `finding_service.py`/`case_service.py` since
+  ADR-0013. Presented to the user as an explicit choice (rebuild the
+  duplicate framework vs. a thin agent+tool extending the existing engine)
+  via `AskUserQuestion` before any file was written; the user chose the
+  thin extension.
+- **`MitreLookup.groups_using_technique`/`software_using_technique` had
+  zero callers anywhere in the codebase before this session** — confirmed
+  by grep before writing `mitre_tools.py`; this session is the first to
+  actually use them.
+- **Sub-technique resolution needed no new data** — ATT&CK's own
+  `"T1110.001"` ID convention (a literal `"."`) is sufficient to derive a
+  sub-technique's parent ID; no separate parent/child relationship data
+  exists in, or was added to, the vendored dataset.
+- **`build_investigation_graph()` gained a `settings: Settings | None`
+  parameter, defaulting to `Settings()` when omitted** — every other
+  existing caller (all in `tests/integration/test_investigation_graph.py`)
+  needed no change, since every `Settings` field has a default and the
+  vendored MITRE bundle loads from its default path.
+- **A second `MitreLookup` load per investigation run was accepted, not
+  optimized away** — no existing seam lets
+  `core/agents/mitre_mapping_agent.py`'s tool registry reuse the
+  `MitreLookup` `finding_service.FindingGenerationPipeline` already built
+  internally for the same request, and building that seam wasn't
+  justified by this task alone (small, local, deterministic file read;
+  flagged in the ADR for a future session if profiling ever shows it
+  matters).
+
+---
+
+**New in the prior session (OWASP Security Agent, ADR-0021):**
+
+- **No conflict to raise that session** — unlike the session before it
+  (which had to reconcile a task brief against a different blueprint
+  definition), that task matched blueprint §7's OWASP Security Agent
+  exactly. The only
   pre-implementation check needed was confirming zero overlap with
   ADR-0020's `core/owasp_web`, which the task itself explicitly required.
 - **No new third-party dependency for JavaScript/TypeScript/Java AST
@@ -503,10 +687,35 @@ sessions' "Key Decisions" sections in git history.)*
 
 ## Public Interfaces
 
-*(M0–M4/ADR-0015–0020 interfaces — unchanged from prior sessions except as
+*(M0–M4/ADR-0015–0021 interfaces — unchanged from prior sessions except as
 noted below.)*
 
-**New/changed this session:**
+**New/changed this session (MITRE Mapping Agent, ADR-0022):**
+
+`core.tools.mitre_tools.{MitreMappingResolutionTool,
+MitreTechniqueMappingInput, MitreCaseMappingInput, MitreTechniqueResolution,
+MitreCaseMappingOutput, parent_technique_id, DEFAULT_TOP_N}` (new).
+
+`core.agents.mitre_mapping_agent.{MitreMappingAgent,
+default_mitre_mapping_agent_tool_registry, MitreCaseMappingSummary,
+MitreMappingAgentResult}` (new).
+
+`core.graph.state.CaseInvestigationState.mitre_mapping_records` (new
+field). `core.graph.investigation_graph.build_investigation_graph` gained
+a `settings: Settings | None = None` parameter and now also registers/
+wires `MitreMappingAgent` (node name `mitre_mapping_agent`).
+
+`core.services.case_service`: new `_hydrate_mitre_mapping_records`;
+`_required_capabilities_for` now appends `mitre_technique_mapping` to
+every evidence type; `_run_specialist_agents` gained a `settings`
+parameter and registers an eighth agent; new `_extract_mitre_mapping`.
+`CaseInvestigationResult` gained `mitre_technique_count`/
+`mitre_distinct_group_count`.
+
+`apps.api.schemas.EvidenceUploadResponse` gained `mitre_technique_count`/
+`mitre_distinct_group_count` (both optional, default `None`).
+
+**New/changed in the prior session (OWASP Security Agent, ADR-0021):**
 
 `core.owasp_security.*` (new package) —
 `models.{SourceLanguage, AST_SUPPORTED_LANGUAGES, SastSeverity,
@@ -572,7 +781,7 @@ also registers/wires `OwaspSecurityAgent` (node name
 `owasp_security_risk_weight_*` fields; `evidence_allowed_extensions`
 default gained `.py,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.java`.
 
-No Incident Response Agent, MITRE Mapping Agent, LLM reasoning,
+No Incident Response Agent, Report Generator Agent, LLM reasoning,
 `/api/v1/reports` route, or `core.security.{pii_redaction,approval_gate}`
 implementation exist as public interfaces yet.
 
@@ -580,13 +789,14 @@ implementation exist as public interfaces yet.
 
 ## Remaining Work
 
-1. **M2 — still open.** A concrete `core/agents/mitre_mapping_agent.py`
-   wrapping `core.knowledge.mitre`'s lookup engine.
+1. **M2 — closed this session.** `core/agents/mitre_mapping_agent.py` +
+   `core/tools/mitre_tools.py` wrap `core.knowledge.mitre`'s lookup engine
+   and `core.findings`'s existing mapping engine (ADR-0022).
 2. **M3 — closed** (prior session).
-3. **M4 — closed this session.** All five specialist-agent pieces
+3. **M4 — closed** (prior session). All five specialist-agent pieces
    (Vulnerability Assessment, Threat Hunting, Linux Security Advisor, the
-   out-of-blueprint Web Security Agent, and now the AST-based OWASP
-   Security Agent) are built.
+   out-of-blueprint Web Security Agent, and the AST-based OWASP Security
+   Agent) are built.
 4. **M5 — Incident Response synthesis + Reporting.** Incident Response
    Agent (the correct home for cross-agent recommendation/escalation/
    remediation synthesis — still not built, by design), Report Generator
@@ -666,16 +876,27 @@ their first CVE; no asset-criticality inventory exists.)*
 - **`_EVIDENCE_TYPE_CAPABILITIES` in `case_service.py` is a simple dict of
   tuples**, not a general routing engine — unchanged limitation, carried
   forward.
+- **A second `MitreLookup` (and its underlying vendored-JSON parse) is
+  built per investigation run** — one inside `finding_service.
+  FindingGenerationPipeline`, one inside `MitreMappingAgent`'s tool
+  registry (`default_mitre_mapping_agent_tool_registry`). Deterministic,
+  local, offline, and cheap at current vendored-dataset size; not
+  optimized this session (ADR-0022) — a future session could add a
+  shared-instance seam if profiling ever shows it matters.
+- **`MitreCaseMappingSummary` (this session's agent output) is never
+  persisted anywhere** — by design, matching `SastAdvice`/
+  `WebSecurityAdvice`/`LinuxSecurityAdvice`'s precedent; the underlying
+  `Finding.mitre_mappings` data it summarizes *is* already persisted
+  (ADR-0013, unchanged).
 
 ---
 
 ## Dependencies
 
 Runtime (`requirements.txt`): **no new dependencies this session** —
-`core/owasp_security` is pure Python (stdlib `ast`/`re`) plus Pydantic,
-reusing the already-vendored parser layer. JavaScript/TypeScript/Java
-support is deliberately pattern-based rather than adding a new AST
-dependency this session (ADR-0021).
+`core/tools/mitre_tools.py`/`core/agents/mitre_mapping_agent.py` are pure
+Python plus Pydantic, reusing the already-vendored MITRE dataset and the
+already-established `core/knowledge/mitre`/`core/findings` engines.
 
 Dev (`requirements-dev.txt`): unchanged.
 
@@ -684,74 +905,55 @@ Dev (`requirements-dev.txt`): unchanged.
 ## Current Git Status
 
 A git repository exists (`main` branch: `main`; working branch: `master`).
-All prior-session work through the OWASP Web Security Agent Framework
-(ADR-0020) commit is committed.
+All prior-session work through the OWASP Security Agent (AST SAST)
+Framework (ADR-0021) commit is committed.
 
-This session's OWASP Security Agent Framework work added/modified (all to
-be committed in this session's single commit — see the commit hash in this
+This session's MITRE Mapping Agent work added/modified (all to be
+committed in this session's single commit — see the commit hash in this
 session's final report):
 
-- New: `docs/adr/0021-owasp-security-agent-ast-sast.md`, the full
-  `core/owasp_security/` package (19 files incl. `__init__.py`/`README.md`),
-  `core/parsers/source_code_parser.py`,
-  `core/services/owasp_security_service.py`,
-  `core/tools/owasp_tools.py`, `core/agents/owasp_security_agent.py`, one
-  new Alembic migration, four `data/sample_evidence/` fixtures, 17 new
-  unit test files + 2 new integration test files.
-- Modified: `core/db/models/timeline_event.py`, `core/config/settings.py`,
-  `.env.example`, `core/graph/{state,investigation_graph}.py`,
-  `core/services/case_service.py`, `core/parsers/{models,registry}.py`,
+- New: `docs/adr/0022-mitre-mapping-agent.md`,
+  `core/tools/mitre_tools.py`, `core/agents/mitre_mapping_agent.py`,
+  `tests/unit/{test_tools_mitre_tools,test_agents_mitre_mapping_agent}.py`.
+- Modified: `core/graph/{state,investigation_graph}.py`,
+  `core/services/case_service.py`,
   `apps/api/{schemas,routers/evidence}.py`, `docs/roadmap.md`,
-  `docs/dependency-rules.md`,
-  `core/{agents,tools,parsers,services}/README.md`,
-  `tests/integration/{test_api_case_routes,test_investigation_graph}.py`,
-  `tests/unit/test_parsers_registry.py`, `CHANGELOG.md`, this file, and
-  (latent mypy-strict fixes, unrelated to this session's feature but
-  discovered while verifying it) `core/owasp_web/{advisory_engine,
-  header_rules,misconfig_rules}.py`.
+  `core/{agents,tools}/README.md`,
+  `tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
+  `CHANGELOG.md`, this file.
 
-Full suite (1533 tests), `ruff check`/`format --check`, and
+Full suite (1546 tests), `ruff check`/`format --check`, and
 `scripts/check_dependency_rules.py` all pass. `mypy core --strict`
-(whole-repo) fails on a pre-existing, unrelated numpy/environment issue
-(see Known Issues); every file this session touched is individually
-`mypy --strict` clean.
+(whole-repo) fails on the same pre-existing, unrelated numpy/environment
+issue as prior sessions (see Known Issues); every file this session
+touched is individually `mypy --strict` clean.
 
 ---
 
 ## Next Recommended Prompt
 
-> M4 is now fully closed. Close out M2 next with a concrete
-> `core/agents/mitre_mapping_agent.py` wrapping `core.knowledge.mitre`'s
-> existing `MitreLookup` (returning "unmapped" rather than a low-confidence
-> guess when nothing matches), which is the one piece keeping M2's
-> `docs/roadmap.md` checkbox open. Follow the exact three-step extension
-> pattern all seven specialist agents now demonstrate: a
-> parser/tool in its owning leaf package (or none, if this agent only
-> reasons over already-hydrated case state — MITRE mapping is
-> cross-cutting, consumed by SOC/Threat Hunting/Incident agents per
-> blueprint §7, so check whether it needs its own `EvidenceType` at all
-> before assuming it does), an agent in `core/agents/` declaring a
-> distinct capability, and two lines in
-> `core/graph/investigation_graph.py`. Alternatively, begin M5: the
-> Incident Response Agent (case-wide cross-agent synthesis — recommendation/
-> escalation/remediation from every specialist agent's already-computed
-> findings, matching NIST SP 800-61) now finally has enough specialist
-> agents' findings to meaningfully synthesize (seven agents' worth), or the
-> Report Generator Agent (Jinja2/ReportLab templates, Plotly charts,
-> `/api/v1/reports` route) if reporting is the higher priority. Do **not**
-> build Incident Response before confirming with the user which of M2/M5
-> is the intended next milestone — a prior session explicitly deferred
-> Incident Response as "belongs to M5, needs more specialist findings
-> first," and that condition is now satisfied, but M2's MITRE Mapping Agent
-> is the smaller, longer-standing gap. Preserve every existing file and
-> architectural decision described in this document — including all seven
-> specialist agents, the Case lifecycle subsystem, the Finding & MITRE
-> Engine, the Vulnerability Assessment Framework, the Linux Security Threat
-> Hunting Framework, the Linux Security Advisor Framework, the OWASP Web
-> Security Agent Framework, and the OWASP Security Agent (AST SAST)
-> Framework — only extend them. Also worth addressing eventually (not
-> urgent, environment-only): the pre-existing `mypy core --strict` failure
-> caused by a numpy/pandas stub incompatibility with the pinned
+> M2 and M4 are both now fully closed — all eight blueprint-named
+> specialist agents built to date exist and are wired into the graph.
+> Begin M5 next: the Incident Response Agent (case-wide cross-agent
+> synthesis — recommendation/escalation/remediation from every specialist
+> agent's already-computed findings, matching NIST SP 800-61) now finally
+> has eight specialist agents' worth of findings to meaningfully
+> synthesize, or the Report Generator Agent (Jinja2/ReportLab templates,
+> Plotly charts, `/api/v1/reports` route) if reporting is the higher
+> priority. Confirm with the user which of these two M5 pieces to build
+> first before starting — both are named in blueprint §7/§15 as M5 scope,
+> and neither has been started. Preserve every existing file and
+> architectural decision described in this document — including all eight
+> specialist agents (the newest, `MitreMappingAgent`, reuses
+> `core/findings`'s existing mapping/confidence/dedup engine entirely; it
+> does not duplicate it — see ADR-0022 before assuming a "MITRE" task needs
+> a new engine), the Case lifecycle subsystem, the Finding & MITRE Engine,
+> the Vulnerability Assessment Framework, the Linux Security Threat Hunting
+> Framework, the Linux Security Advisor Framework, the OWASP Web Security
+> Agent Framework, and the OWASP Security Agent (AST SAST) Framework — only
+> extend them. Also worth addressing eventually (not urgent,
+> environment-only): the pre-existing `mypy core --strict` failure caused
+> by a numpy/pandas stub incompatibility with the pinned
 > `python_version = "3.11"` (see this file's Known Issues) — either pin an
 > older `numpy` compatible with the target Python version, or bump the
 > `pyproject.toml` mypy `python_version` if the project's actual runtime

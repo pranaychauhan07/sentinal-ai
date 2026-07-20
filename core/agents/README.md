@@ -135,8 +135,30 @@ entries — a distinct field name from every other `*_records` field) into a
 case-level `SastAdvice`, appended to `CaseInvestigationState.findings` the
 same way every prior specialist agent's output is. This closes M4 entirely.
 
-No other specialist agent (Incident Response, ...) exists yet — see
-`docs/agent-design.md` for how to add one on top of this framework.
+**Implemented (Milestone M2, `docs/adr/0022-mitre-mapping-agent.md`):**
+`mitre_mapping_agent.py` — the eighth concrete specialist agent
+(`MitreMappingAgent`), declaring capability `mitre_technique_mapping`.
+Blueprint §7's cross-cutting MITRE Mapping Agent. Deliberately thin: all
+technique matching, confidence calculation, deduplication, and persistence
+already happened in `core.findings.mapping_engine.MitreMappingEngine`/
+`core.services.finding_service.generate_findings_for_case` *before* this
+agent runs (ADR-0013, unchanged — this agent reuses that engine rather than
+duplicating it). Calls `core.tools.mitre_tools.MitreMappingResolutionTool`
+to resolve the case's already-mapped technique IDs (read from
+`CaseInvestigationState.mitre_mapping_records`, hydrated by
+`case_service.py` from the case's persisted `Finding.mitre_mappings`) to
+their tactics, sub-technique parents, associated threat groups, associated
+software, and mitigations, into a case-level `MitreCaseMappingSummary`.
+**Unlike every other specialist agent above**, this one *is* explicitly
+permitted to import `core.knowledge.mitre` directly
+(docs/dependency-rules.md rule 4c) — MITRE reference data is shared
+knowledge, not a sibling leaf's private model. Cross-cutting, not
+evidence-type-gated: routed to on every evidence upload, regardless of
+which other specialist(s) also ran. This closes M2 entirely.
+
+No other specialist agent (Incident Response, Report Generator, Memory, ...)
+exists yet — see `docs/agent-design.md` for how to add one on top of this
+framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

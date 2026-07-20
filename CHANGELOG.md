@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **MITRE Mapping Agent** (`docs/adr/0022-mitre-mapping-agent.md`) —
+  blueprint §7's cross-cutting MITRE Mapping Agent, the eighth concrete
+  specialist agent (**closes M2 entirely**). A pre-implementation review
+  found the requested mapping engine/confidence calculator/metrics/audit
+  infrastructure almost entirely already existed (`core/findings/`, wired
+  into `finding_service.py`/`case_service.py` since ADR-0013) — this ADR
+  adds only the two blueprint-named pieces that were missing:
+  `core/tools/mitre_tools.py` (`MitreMappingResolutionTool` — resolves
+  already-mapped technique IDs to tactics, sub-technique parents,
+  associated threat groups, associated software, and mitigations via
+  `MitreLookup`, never recomputing a mapping or its confidence) and
+  `core/agents/mitre_mapping_agent.py` (`MitreMappingAgent`, capability
+  `mitre_technique_mapping`; returns a degraded "unmapped" result rather
+  than a low-confidence guess when no mapping exists yet). Cross-cutting,
+  not evidence-type-gated: routed to on every evidence upload via
+  `case_service._required_capabilities_for`. New
+  `CaseInvestigationState.mitre_mapping_records` field;
+  `CaseInvestigationResult`/`EvidenceUploadResponse` gained
+  `mitre_technique_count`/`mitre_distinct_group_count`.
+  `build_investigation_graph`/`_run_specialist_agents` gained a `settings`
+  parameter (needed to load the vendored MITRE dataset for this agent's
+  tool). No second mapping engine, persistence layer, incident response, or
+  LLM reasoning built.
 - **OWASP Security Agent (AST-Based SAST)** (`docs/adr/0021-owasp-security-agent-ast-sast.md`)
   — blueprint §7's OWASP Security Agent, the last remaining M4 specialist
   agent (**closes M4 entirely**): deterministic Static Application Security

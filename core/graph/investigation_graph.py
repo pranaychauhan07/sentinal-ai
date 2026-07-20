@@ -2,28 +2,34 @@
 
 Wires the Coordinator (which internally delegates to the Planning Agent by
 direct call, not a graph edge — see `core/agents/coordinator.py`'s docstring
-for why) plus seven concrete specialist agents (Milestone M1/M2/M4 plus
-`docs/adr/0020`/`docs/adr/0021` — M4 is now fully closed): `SocAnalystAgent`
-(`log_analysis`), `PhishingAgent` (`email_triage`),
-`VulnerabilityAssessmentAgent` (`vulnerability_assessment`),
-`ThreatHunterAgent` (`cross_log_threat_hunting`,
+for why) plus eight concrete specialist agents (Milestone M1/M2/M4 plus
+`docs/adr/0020`/`docs/adr/0021`/`docs/adr/0022` — M4 is fully closed, M2 is
+now fully closed too): `SocAnalystAgent` (`log_analysis`), `PhishingAgent`
+(`email_triage`), `VulnerabilityAssessmentAgent`
+(`vulnerability_assessment`), `ThreatHunterAgent`
+(`cross_log_threat_hunting`,
 docs/adr/0018-linux-security-threat-hunting-framework.md),
 `LinuxSecurityAgent` (`linux_security_advisory`,
 docs/adr/0019-linux-security-advisor-agent.md), `WebSecurityAgent`
 (`owasp_web_security_assessment`,
-docs/adr/0020-owasp-web-security-agent.md), and `OwaspSecurityAgent`
+docs/adr/0020-owasp-web-security-agent.md), `OwaspSecurityAgent`
 (`owasp_source_code_review`,
-docs/adr/0021-owasp-security-agent-ast-sast.md). The Planning Agent's
-capability-matching decides which of them a given case's declared
-`required_capabilities` route to; the conditional edge out of the
+docs/adr/0021-owasp-security-agent-ast-sast.md), and `MitreMappingAgent`
+(`mitre_technique_mapping`, docs/adr/0022-mitre-mapping-agent.md). The
+Planning Agent's capability-matching decides which of them a given case's
+declared `required_capabilities` route to; the conditional edge out of the
 Coordinator resolves to whichever specialist(s) that plan names, or `END` if
-none. A single evidence type (`SYSLOG`) can now require *both*
-`log_analysis` and `cross_log_threat_hunting` in the same run — the Planning
-Agent already fans out to every matched capability independently, so this
-needed no framework change (ADR-0018 point 6).
+none. A single evidence type (`SYSLOG`) can require both `log_analysis` and
+`cross_log_threat_hunting` in the same run, and — unlike every other
+specialist here — `mitre_technique_mapping` is appended to *every* evidence
+type's required capabilities by `core/services/case_service.py`
+(`_required_capabilities_for`), since MITRE mapping is cross-cutting, not
+evidence-type-specific (ADR-0022) — the Planning Agent already fans out to
+every matched capability independently, so none of this needed a framework
+change (ADR-0018 point 6).
 
 Adding another specialist agent later means exactly the same three steps
-these seven followed: implement it (`core/agents/`), register it in the
+these eight followed: implement it (`core/agents/`), register it in the
 `AgentRegistry` passed to `build_investigation_graph`, and add two lines
 here — `engine.add_agent_node(name)` and `engine.add_edge(name, END)`.
 `WorkflowEngine` and `router.py` need zero changes for that to work, which is
@@ -39,6 +45,10 @@ from core.agents.coordinator import CoordinatorAgent
 from core.agents.linux_security_agent import (
     LinuxSecurityAgent,
     default_linux_security_agent_tool_registry,
+)
+from core.agents.mitre_mapping_agent import (
+    MitreMappingAgent,
+    default_mitre_mapping_agent_tool_registry,
 )
 from core.agents.owasp_security_agent import (
     OwaspSecurityAgent,
@@ -60,6 +70,7 @@ from core.agents.web_security_agent import (
     WebSecurityAgent,
     default_web_security_agent_tool_registry,
 )
+from core.config import Settings
 from core.graph.events import EventBus
 from core.graph.failure_recovery import FailureRecoveryPolicy
 from core.graph.retry import RetryPolicy
@@ -197,6 +208,21 @@ def _ensure_owasp_security_agent_registered(
     )
 
 
+def _ensure_mitre_mapping_agent_registered(registry: AgentRegistry, *, settings: Settings) -> None:
+    """Mirrors `_ensure_soc_analyst_registered`'s idempotency contract, but
+    takes `settings` instead of `case_memory` — `MitreMappingAgent` has no
+    memory dependency; its tool needs a loaded `MitreLookup`, built from
+    `settings` (docs/dependency-rules.md rule 4c: `core/agents` may import
+    `core/knowledge` directly for MITRE mapping)."""
+    if registry.has(MitreMappingAgent.name):
+        return
+    registry.register(
+        MitreMappingAgent(
+            tool_registry=default_mitre_mapping_agent_tool_registry(settings=settings)
+        )
+    )
+
+
 def build_investigation_graph(
     *,
     agent_registry: AgentRegistry | None = None,
@@ -204,6 +230,7 @@ def build_investigation_graph(
     event_bus: EventBus | None = None,
     retry_policy: RetryPolicy | None = None,
     recovery_policy: FailureRecoveryPolicy | None = None,
+    settings: Settings | None = None,
 ) -> WorkflowEngine:
     """Construct the Case Investigation workflow, deliberately left
     uncompiled: `WorkflowEngine.compile`/`run` resolve node/router wiring
@@ -215,8 +242,12 @@ def build_investigation_graph(
 
     `case_memory` is only consulted when `SocAnalystAgent` isn't already
     registered on `agent_registry` (see `_ensure_soc_analyst_registered`) —
-    ignored if a caller pre-registered their own instance."""
+    ignored if a caller pre-registered their own instance. `settings`
+    defaults to `Settings()` when omitted (every field has a default) and is
+    consulted the same way for `MitreMappingAgent` (see
+    `_ensure_mitre_mapping_agent_registered`)."""
     registry = agent_registry or default_agent_registry()
+    resolved_settings = settings or Settings()
     _ensure_framework_agents_registered(registry)
     _ensure_soc_analyst_registered(registry, case_memory=case_memory)
     _ensure_phishing_agent_registered(registry, case_memory=case_memory)
@@ -225,6 +256,7 @@ def build_investigation_graph(
     _ensure_linux_security_agent_registered(registry, case_memory=case_memory)
     _ensure_web_security_agent_registered(registry, case_memory=case_memory)
     _ensure_owasp_security_agent_registered(registry, case_memory=case_memory)
+    _ensure_mitre_mapping_agent_registered(registry, settings=resolved_settings)
 
     engine = WorkflowEngine(
         agent_registry=registry,
@@ -249,6 +281,8 @@ def build_investigation_graph(
     engine.add_edge(WebSecurityAgent.name, END)
     engine.add_agent_node(OwaspSecurityAgent.name)
     engine.add_edge(OwaspSecurityAgent.name, END)
+    engine.add_agent_node(MitreMappingAgent.name)
+    engine.add_edge(MitreMappingAgent.name, END)
     return engine
 
 

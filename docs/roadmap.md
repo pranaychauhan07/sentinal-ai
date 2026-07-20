@@ -80,7 +80,7 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       (`core/services/case_metrics.py`). Ten new `/api/v1/cases/{id}/...`
       routes for assignment/priority/labels/tags/notes.
 
-- [ ] **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE
+- [x] **M2 — MITRE mapping + Phishing module.** MITRE knowledge layer + MITRE
       Agent; Phishing Investigation Agent + email parser + prompt-injection
       guard (first attacker-controlled-text agent).
       **Built ahead of schedule** (`docs/adr/0013-finding-mitre-intelligence-engine-shape.md`):
@@ -122,9 +122,29 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       per-upload capability routing was generalized from a SOC-only hardcode
       to an `EvidenceType`-driven table, so an `.eml` upload now
       automatically fans out to `PhishingAgent` instead — this also closes
-      **M3's own demo criterion** (see M3 below). Still not done: a concrete
-      MITRE Mapping Agent (`core/knowledge/mitre`'s lookup engine has no
-      agent wrapper yet) — M2 stays unchecked until that exists.
+      **M3's own demo criterion** (see M3 below). Still not done at the time:
+      a concrete MITRE Mapping Agent (`core/knowledge/mitre`'s lookup engine
+      had no agent wrapper yet) — M2 stayed unchecked until that existed.
+
+      **2026-07-21 addendum** (`docs/adr/0022-mitre-mapping-agent.md`): closes
+      the milestone's last piece. A pre-implementation review found the
+      requested "MITRE Mapping framework" almost entirely already existed
+      (`core/findings/`'s mapping/confidence/dedup/metrics/audit engines,
+      already wired into `finding_service.py`/`case_service.py`) — the
+      conflict was surfaced to the user, who chose a thin extension:
+      `core/tools/mitre_tools.py` (`MitreMappingResolutionTool`, blueprint's
+      exact named file — resolves already-mapped technique IDs to tactics,
+      sub-technique parents, associated threat groups, associated software,
+      and mitigations via `MitreLookup`'s previously-unused
+      `groups_using_technique`/`software_using_technique` methods) and
+      `core/agents/mitre_mapping_agent.py` (`MitreMappingAgent`, the eighth
+      concrete specialist agent, capability `mitre_technique_mapping`) — no
+      second mapping engine, confidence calculator, or persistence layer
+      built. Cross-cutting, not evidence-type-gated: its capability is
+      appended to every evidence type's required-capability list in
+      `case_service._required_capabilities_for`, since Finding generation
+      (and therefore MITRE mapping) already runs unconditionally on every
+      upload. **M2 is now fully closed.**
 
 - [x] **M3 — Multi-agent orchestration.** Coordinator + Planning Agent + full
       LangGraph StateGraph wiring; automatic evidence-type routing.

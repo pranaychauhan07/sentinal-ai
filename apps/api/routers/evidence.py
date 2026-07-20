@@ -67,6 +67,8 @@ async def upload_evidence(
         highest_owasp_web_risk_level=result.highest_owasp_web_risk_level,
         sast_finding_count=result.sast_finding_count,
         highest_sast_risk_level=result.highest_sast_risk_level,
+        mitre_technique_count=result.mitre_technique_count,
+        mitre_distinct_group_count=result.mitre_distinct_group_count,
     )
 
 

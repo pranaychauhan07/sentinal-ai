@@ -173,6 +173,20 @@ class CaseInvestigationState(BaseModel):
     #: list.
     owasp_security_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
 
+    #: Already-computed `core.findings.models.MitreMapping` data (hydrated as
+    #: plain ``dict[str, object]`` entries by `core/services/case_service.py`
+    #: from the case's persisted `Finding.mitre_mappings`, produced by
+    #: `core.services.finding_service.generate_findings_for_case()` — never
+    #: recomputed here) for
+    #: `core.agents.mitre_mapping_agent.MitreMappingAgent` to resolve/
+    #: aggregate. Kept generic (``list[Any]``) for the same uniform reason
+    #: every other ``*_records`` field is, even though `core/agents` is
+    #: explicitly permitted to import `core.findings`/`core.knowledge`
+    #: directly for MITRE mapping (docs/dependency-rules.md rule 4c) —
+    #: `core/graph` (this module) has no such exception, so the field itself
+    #: stays generic.
+    mitre_mapping_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

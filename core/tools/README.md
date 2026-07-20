@@ -83,8 +83,21 @@ finding's severity, confidence, or the overall risk score itself). Backs
 `core.agents.owasp_security_agent.OwaspSecurityAgent` — **not**
 `web_security_tools.py` above, which backs the different `WebSecurityAgent`.
 
-No other concrete tool (`log_tools.py`, `ir_tools.py`, `mitre_tools.py`)
-exists yet.
+**Implemented (Milestone M2, `docs/adr/0022-mitre-mapping-agent.md`):**
+`mitre_tools.py` (`MitreMappingResolutionTool` — blueprint's exact named
+file. Resolves the case's already-mapped ATT&CK technique IDs (all mapping
+and confidence computed by
+`core.findings.mapping_engine.MitreMappingEngine`/
+`core.services.finding_service.generate_findings_for_case`, never
+recomputed here) to their tactics, sub-technique parents, associated threat
+groups, associated software, and mitigations, via
+`core.knowledge.mitre.lookup.MitreLookup`. Unlike every other tool in this
+package, its constructor takes an injected `MitreLookup` and its input
+stays typed rather than dict-shaped — `core/tools` is explicitly allowed to
+import `core/knowledge` directly (docs/dependency-rules.md rule 5)). Backs
+`core.agents.mitre_mapping_agent.MitreMappingAgent`.
+
+No other concrete tool (`log_tools.py`, `ir_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*
 tool to call and interpret the result, not to do the math itself.
