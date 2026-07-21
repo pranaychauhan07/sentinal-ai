@@ -44,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
   New `POST /api/v1/cases/{case_id}/conversation` route. No frontend chat
   UI, no streaming, no new authentication (explicit task scope) — 51 new
   tests (1704 total, up from 1653).
+- **Conversation Response Validator** (addendum to
+  `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`) —
+  new `core/conversation/response_validator.py` (`ResponseValidator`) makes
+  the AI Investigation Assistant's grounding/anti-hallucination guarantee an
+  explicit, independently testable check (previously implicit, split across
+  `CitationEngine` and `TemplateChatModelProvider`): a `ResponseValidationResult`
+  reports whether a `ChatCompletion` is grounded (no hallucinated source
+  ids) and cited (whenever evidence was available). Wired into
+  `ResponseOrchestrator` (forces zero confidence on a failed validation) and
+  `ConversationManager` (folds into the existing `degraded` determination,
+  new `AuditEventAction.RESPONSE_VALIDATION_FAILED` audit event, new
+  `ConversationMetricsCollector.record_validation_failure()` counter). No
+  new "Conversation Events" module — determined to already be satisfied by
+  the existing `audit.py`. 6 new tests plus extended orchestrator/manager/
+  metrics/models tests (1712 total, up from 1704).
 - **Report Generator Agent** (`docs/adr/0024-report-generator-agent.md`) —
   blueprint §7's Report Generator, the tenth concrete specialist agent
   (**closes M5 entirely** — the Incident Response Agent half was already

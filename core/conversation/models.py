@@ -143,6 +143,41 @@ class ChatCompletion(BaseModel):
     used_source_ids: tuple[str, ...] = ()
 
 
+class ResponseValidationResult(BaseModel):
+    """`ResponseValidator.validate`'s output — the task's named "Response
+    Validator" made an explicit, independently testable contract rather
+    than an emergent property scattered across `CitationEngine` and
+    `TemplateChatModelProvider` (constitution §1.3, "small, focused
+    modules"; §10, "output validation").
+
+    Never raises: a failed check is *recorded*, never blocking (constitution
+    §1.7, "fail gracefully") — `ConversationManager` decides how to react
+    (forcing `degraded`), this model only reports what was found.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: True iff every `ChatCompletion.used_source_ids` entry corresponds to
+    #: an actually-retrieved `RetrievedItem` — the "no hallucinated
+    #: entities" check. `hallucinated_source_ids` names the offenders (which
+    #: `CitationEngine` already silently drops from the final citation
+    #: list — this field is what makes that drop *visible* instead of
+    #: silent).
+    grounded: bool
+    hallucinated_source_ids: tuple[str, ...] = ()
+    #: True iff the answer carries at least one citation — required
+    #: whenever retrievable evidence existed at all; an answer with no
+    #: available evidence is exempt (that is the documented "gracefully
+    #: handles missing information" path, not a validation failure).
+    has_citations: bool
+    #: Human-readable reasons this result is invalid — empty when `valid`.
+    issues: tuple[str, ...] = ()
+
+    @property
+    def valid(self) -> bool:
+        return not self.issues
+
+
 class ConversationAnswer(BaseModel):
     """`ConversationManager.answer`'s final output — what
     `core/services/conversation_service.py` returns to its caller."""
@@ -190,6 +225,7 @@ class AuditEventAction(StrEnum):
     CONTEXT_ASSEMBLED = "context_assembled"
     ANSWER_GENERATED = "answer_generated"
     ANSWER_DEGRADED = "answer_degraded"
+    RESPONSE_VALIDATION_FAILED = "response_validation_failed"
 
 
 class ConversationAuditEvent(BaseModel):

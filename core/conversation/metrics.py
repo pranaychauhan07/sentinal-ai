@@ -17,6 +17,7 @@ class ConversationMetricsSnapshot(BaseModel):
     citations_attached: int = 0
     degraded_answers: int = 0
     prompt_injection_flags: int = 0
+    validation_failures: int = 0
     total_processing_ms: float = 0.0
 
 
@@ -28,6 +29,7 @@ class ConversationMetricsCollector:
         self._citations_attached = 0
         self._degraded_answers = 0
         self._prompt_injection_flags = 0
+        self._validation_failures = 0
         self._total_processing_ms = 0.0
 
     def record_question_answered(self) -> None:
@@ -48,6 +50,9 @@ class ConversationMetricsCollector:
     def record_prompt_injection_flag(self) -> None:
         self._prompt_injection_flags += 1
 
+    def record_validation_failure(self) -> None:
+        self._validation_failures += 1
+
     def record_processing_time(self, duration_ms: float) -> None:
         self._total_processing_ms += duration_ms
 
@@ -59,5 +64,6 @@ class ConversationMetricsCollector:
             citations_attached=self._citations_attached,
             degraded_answers=self._degraded_answers,
             prompt_injection_flags=self._prompt_injection_flags,
+            validation_failures=self._validation_failures,
             total_processing_ms=self._total_processing_ms,
         )

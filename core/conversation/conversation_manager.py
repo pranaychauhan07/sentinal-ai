@@ -128,6 +128,19 @@ class ConversationManager:
                 prompt, available_items=list(assembled.items)
             )
             self.metrics.record_citations(len(orchestrated.citations))
+            if not orchestrated.validation.valid:
+                self.metrics.record_validation_failure()
+                log_conversation_audit_event(
+                    action=AuditEventAction.RESPONSE_VALIDATION_FAILED,
+                    case_id=case_id,
+                    session_id=session_id,
+                    detail="; ".join(orchestrated.validation.issues),
+                    metadata={
+                        "hallucinated_source_ids": list(
+                            orchestrated.validation.hallucinated_source_ids
+                        )
+                    },
+                )
 
         total_available = (
             len(retrieval_context.findings)
@@ -137,7 +150,9 @@ class ConversationManager:
             + len(retrieval_context.timeline_events)
         )
         degraded = (
-            len(assembled.items) == 0 or total_available < MIN_TOTAL_RECORDS_FOR_CONFIDENT_ANSWER
+            len(assembled.items) == 0
+            or total_available < MIN_TOTAL_RECORDS_FOR_CONFIDENT_ANSWER
+            or not orchestrated.validation.valid
         )
         confidence = 0.0 if degraded and len(assembled.items) == 0 else orchestrated.confidence
 

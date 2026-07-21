@@ -10,7 +10,32 @@
 
 ## Completed Features
 
-This session implemented blueprint §13's **AI Investigation Assistant
+**Most recent session:** a follow-up task asked for this same AI
+Investigation Assistant backend again (a differently-worded, thirteen-
+component spec). A pre-implementation check (per this project's own
+"never redesign completed modules" rule and constitution §14.9) confirmed
+the ten-component pipeline below was already fully built, tested, and
+live behind `POST /api/v1/cases/{case_id}/conversation` — presented to the
+user as a conflict via `AskUserQuestion` rather than silently rebuilt.
+The user chose to close only the two genuine gaps: **Response Validator**
+(new `core/conversation/response_validator.py` — makes the
+grounding/anti-hallucination guarantee, previously implicit inside
+`CitationEngine`/`TemplateChatModelProvider`, an explicit, independently
+testable `ResponseValidationResult` check, wired into
+`ResponseOrchestrator`/`ConversationManager` with a new audit action and
+metrics counter) and **Conversation Events** (determined to already be
+satisfied by the existing `audit.py`, no new module added). See
+`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`'s
+"Addendum" section for the full decision record. 6 new tests plus extended
+orchestrator/manager/metrics/models tests — full suite now **1712 tests**
+(up from 1704); `ruff check`/`format --check`, `mypy --strict` on
+`core/conversation`, and `scripts/check_dependency_rules.py` all pass.
+Nothing else in `core/conversation`, `core/services/conversation_service.py`,
+or the API route was changed.
+
+---
+
+Prior session implemented blueprint §13's **AI Investigation Assistant
 (Conversational Interface)** — the AI Analyst Chat's backend orchestration
 (`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`), a
 task brief naming ten required components: Conversation Manager, Session

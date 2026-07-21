@@ -8,7 +8,12 @@ from __future__ import annotations
 import pytest
 
 from core.conversation.conversation_manager import ConversationManager
-from core.conversation.models import ConversationRetrievalContext, EvidenceCategory
+from core.conversation.models import (
+    ChatCompletion,
+    ConversationRetrievalContext,
+    EvidenceCategory,
+    PromptPayload,
+)
 
 
 def _context_with_finding() -> ConversationRetrievalContext:
@@ -80,6 +85,30 @@ def test_answer_carries_prompt_injection_flag_through() -> None:
         prompt_injection_flagged=True,
     )
     assert answer.prompt_injection_flagged is True
+
+
+class _NoCitationProvider:
+    """A provider that never names which source ids it used — used to
+    prove `ConversationManager` forces a degraded result via
+    `ResponseValidator` rather than trusting an uncited "confident"
+    answer."""
+
+    def generate(self, prompt: PromptPayload) -> ChatCompletion:
+        return ChatCompletion(answer_text="some answer", used_source_ids=())
+
+
+@pytest.mark.unit
+def test_answer_is_degraded_when_response_validation_fails() -> None:
+    manager = ConversationManager(llm_provider=_NoCitationProvider())
+    answer = manager.answer(
+        case_id="c1",
+        session_id=None,
+        question="Tell me about the brute force finding",
+        retrieval_context=_context_with_finding(),
+    )
+    assert answer.degraded is True
+    assert answer.confidence == 0.0
+    assert answer.citations == ()
 
 
 @pytest.mark.unit

@@ -47,6 +47,7 @@ def test_orchestrate_returns_zero_confidence_when_no_items_available() -> None:
     result = orchestrator.orchestrate(_prompt(), available_items=[])
     assert result.confidence == 0.0
     assert result.citations == ()
+    assert result.validation.valid is True
 
 
 @pytest.mark.unit
@@ -57,3 +58,18 @@ def test_orchestrate_attaches_citations_and_positive_confidence() -> None:
     assert result.confidence > 0.0
     assert len(result.citations) == 1
     assert result.answer_text == "answer"
+    assert result.validation.valid is True
+
+
+@pytest.mark.unit
+def test_orchestrate_forces_zero_confidence_when_evidence_available_but_uncited() -> None:
+    # The provider names no source ids even though evidence was available —
+    # CitationEngine attaches zero citations, and ResponseValidator must
+    # catch that as a validation failure rather than letting a "confident"
+    # but uncited answer through.
+    provider = _FakeProvider(ChatCompletion(answer_text="answer", used_source_ids=()))
+    orchestrator = ResponseOrchestrator(llm_provider=provider)
+    result = orchestrator.orchestrate(_prompt(), available_items=[_item("f1")])
+    assert result.validation.valid is False
+    assert result.validation.has_citations is False
+    assert result.confidence == 0.0

@@ -203,3 +203,57 @@ UI (explicit task instruction; blueprint §13's `apps/web/pages/
 `core/agents/*`, `core/memory/*` (used, not modified), and every prior
 specialist agent/framework — extended by one new, independent, on-demand
 service, never redesigned into.
+
+## Addendum (later session): Response Validator
+
+A follow-up task requested this same "AI Investigation Assistant backend"
+scope again, naming thirteen components instead of the original ten,
+including two this ADR's implementation did not give a standalone module:
+a **Response Validator** and **Conversation Events**. Per constitution
+§14.9/§1.9 ("never duplicate functionality") and this project's own "never
+redesign completed modules" rule, the correct response was not to rebuild
+the pipeline above a second time — it was already shipped, tested (51
+tests), and wired into a live API route — but to identify and close the two
+genuine, narrow gaps, confirmed with the user via `AskUserQuestion` before
+writing any code.
+
+- **Conversation Events** — determined to already be satisfied by `audit.py`'s
+  `ConversationAuditEvent`/`log_conversation_audit_event` (a typed,
+  structured event emission for every pipeline stage); no new module added,
+  per the user's explicit choice to fold this into the existing audit log
+  rather than create a redundant parallel event type.
+- **Response Validator** — genuinely missing as an explicit unit.
+  Grounding/anti-hallucination behavior existed only *implicitly*, split
+  across `CitationEngine` (silently drops any claimed source id that was
+  never actually retrieved) and `TemplateChatModelProvider` (structurally
+  cannot invent content). New `core/conversation/response_validator.py`
+  (`ResponseValidator`) makes this an explicit, independently testable
+  contract: given a `ChatCompletion` and its already-attached citations, it
+  reports whether the answer is `grounded` (no hallucinated source ids) and
+  `has_citations` (required whenever evidence was actually available;
+  exempt when there was none, preserving the existing "gracefully handles
+  missing information" path). `ResponseOrchestrator` now calls it right
+  after `CitationEngine.cite` and forces `confidence` to `0.0` when
+  invalid; `ConversationManager` folds `orchestrated.validation.valid` into
+  its existing `degraded` determination and emits a new
+  `AuditEventAction.RESPONSE_VALIDATION_FAILED` audit event plus a new
+  `ConversationMetricsCollector.record_validation_failure()` counter — the
+  same "typed result, audited, metered" shape every other check in this
+  package already follows. No existing file was redesigned; `CitationEngine`
+  and `TemplateChatModelProvider` are unchanged.
+
+**Disclosed scope boundary (documented in the module's own docstring):**
+the validator checks citation-level grounding, not free-text factual
+consistency — a sound proxy today because `TemplateChatModelProvider` only
+ever templates from retrieved items, but a future free-text-generating
+`ChatModelProvider` would need this module extended with real claim-level
+checking before being trusted, not silently assumed safe.
+
+**Testing:** 6 new tests (`tests/unit/test_conversation_response_validator.py`),
+plus extended assertions in `test_conversation_response_orchestrator.py`
+(a new "forces zero confidence when uncited" test),
+`test_conversation_manager.py` (a new "degraded when validation fails"
+test with a fake no-citation provider), `test_conversation_metrics.py`, and
+`test_conversation_models.py`. Full pytest suite (1712 tests, up from 1704),
+`ruff check`/`format --check`, `mypy --strict` on `core/conversation`, and
+`scripts/check_dependency_rules.py` all pass.

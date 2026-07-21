@@ -13,7 +13,13 @@ from __future__ import annotations
 
 from core.conversation.citation_engine import CitationEngine
 from core.conversation.llm_provider import ChatModelProvider
-from core.conversation.models import PromptPayload, RetrievedItem, SourceReference
+from core.conversation.models import (
+    PromptPayload,
+    ResponseValidationResult,
+    RetrievedItem,
+    SourceReference,
+)
+from core.conversation.response_validator import ResponseValidator
 
 #: Below this many assembled context items, an answer is scored via the
 #: lower branch of `_confidence` — deterministic, never an LLM-guessed
@@ -28,7 +34,7 @@ class OrchestratedResponse:
     that never crosses a service/API boundary on its own (constitution §2,
     "Dataclasses ... for simple, internal, non-validated data carriers")."""
 
-    __slots__ = ("answer_text", "citations", "confidence", "used_source_ids")
+    __slots__ = ("answer_text", "citations", "confidence", "used_source_ids", "validation")
 
     def __init__(
         self,
@@ -37,11 +43,13 @@ class OrchestratedResponse:
         citations: tuple[SourceReference, ...],
         confidence: float,
         used_source_ids: tuple[str, ...],
+        validation: ResponseValidationResult,
     ) -> None:
         self.answer_text = answer_text
         self.citations = citations
         self.confidence = confidence
         self.used_source_ids = used_source_ids
+        self.validation = validation
 
 
 class ResponseOrchestrator:
@@ -50,21 +58,33 @@ class ResponseOrchestrator:
         *,
         llm_provider: ChatModelProvider,
         citation_engine: CitationEngine | None = None,
+        response_validator: ResponseValidator | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.citation_engine = citation_engine or CitationEngine()
+        self.response_validator = response_validator or ResponseValidator()
 
     def orchestrate(
         self, prompt: PromptPayload, *, available_items: list[RetrievedItem]
     ) -> OrchestratedResponse:
         completion = self.llm_provider.generate(prompt)
         citations = self.citation_engine.cite(completion, available_items=available_items)
+        validation = self.response_validator.validate(
+            completion, available_items=available_items, citation_count=len(citations)
+        )
         confidence = self._confidence(assembled_item_count=len(available_items))
+        if not validation.valid:
+            # A failed validation is a "the answer isn't trustworthy" signal,
+            # never a crash (constitution §1.7) — degrade confidence to zero
+            # so `ConversationManager` can reliably treat it as degraded
+            # without re-deriving the same check itself.
+            confidence = 0.0
         return OrchestratedResponse(
             answer_text=completion.answer_text,
             citations=citations,
             confidence=confidence,
             used_source_ids=completion.used_source_ids,
+            validation=validation,
         )
 
     @staticmethod

@@ -7,6 +7,7 @@ import pytest
 from core.conversation.models import (
     ConversationSession,
     EvidenceCategory,
+    ResponseValidationResult,
     RetrievedItem,
     SourceReference,
 )
@@ -22,6 +23,16 @@ def test_conversation_session_touched_increments_turn_count_and_refreshes_timest
     assert touched.last_active_at >= session.last_active_at
     # Original is untouched (frozen model).
     assert session.turn_count == 0
+
+
+@pytest.mark.unit
+def test_response_validation_result_valid_is_derived_from_issues() -> None:
+    valid = ResponseValidationResult(grounded=True, has_citations=True)
+    invalid = ResponseValidationResult(
+        grounded=False, hallucinated_source_ids=("ghost",), has_citations=False, issues=("bad",)
+    )
+    assert valid.valid is True
+    assert invalid.valid is False
 
 
 @pytest.mark.unit
