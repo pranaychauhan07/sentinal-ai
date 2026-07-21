@@ -16,6 +16,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.conversation.models import EvidenceCategory
 from core.db.models.case import CasePriority, CaseStatus
 from core.db.models.evidence import EvidenceStatus
 from core.db.models.ioc import IOCStatus
@@ -235,3 +236,36 @@ class TimelineEventResponse(ApiSchema):
     event_type: TimelineEventType
     source_finding_id: uuid.UUID | None
     narrative: str
+
+
+# --- Conversation (AI Investigation Assistant, docs/adr/0025) ------------
+
+
+class ConversationAskRequest(BaseModel):
+    """`POST /cases/{case_id}/conversation`'s request body — a single,
+    free-form, case-scoped question (blueprint §13's AI Analyst Chat). No
+    streaming, per this feature's explicit scope."""
+
+    question: str = Field(min_length=1, max_length=4_000)
+    #: Continues an existing chat session if provided; a new session starts
+    #: otherwise (`core.conversation.session_manager.SessionManager`).
+    session_id: uuid.UUID | None = None
+
+
+class SourceReferenceResponse(ApiSchema):
+    category: EvidenceCategory
+    source_id: str
+    summary: str
+
+
+class ConversationAskResponse(BaseModel):
+    """`POST /cases/{case_id}/conversation`'s response — a cited,
+    confidence-scored answer, never a bare string."""
+
+    session_id: uuid.UUID
+    answer_text: str
+    citations: list[SourceReferenceResponse]
+    confidence: float
+    degraded: bool
+    selected_categories: list[EvidenceCategory]
+    prompt_injection_flagged: bool

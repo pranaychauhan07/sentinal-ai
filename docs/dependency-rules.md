@@ -10,6 +10,8 @@ CI failure (`scripts/check_dependency_rules.py`, run via pre-commit and CI).
 apps/web , apps/api            (frontends — presentation only)
         ↓ may import
 core/services                  (orchestration for frontends)
+        ↓ may import           ↘ core/conversation, core/memory, core/security
+                                  (AI Analyst Chat — conversation_service.py only, rule 4j)
         ↓ may import
 core/graph                     (LangGraph workflow)
         ↓ may import           ↘ core/parsers, core/memory (evidence ingestion only — rule 4a)
@@ -164,6 +166,22 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    `docs/adr/0021-owasp-security-agent-ast-sast.md` point 3, "no DB
    persistence"). See `docs/adr/0021-owasp-security-agent-ast-sast.md`. No
    other `core/services` module gets this exception without its own ADR.
+
+4j. **`core/services/conversation_service.py` may import `core/conversation`,
+   `core.memory.conversation_memory`, and `core.security.prompt_guard`
+   directly** — the tenth documented exception to "services only call
+   `core/graph`," worded identically to 4a-4i's established shape.
+   Case-scoped conversational Q&A (retrieval over already-persisted
+   Findings/IOCs/MITRE mappings/Reports/Timeline events, prompt-injection
+   screening, answer generation) is deterministic, pre-answer-generation
+   processing with no new agent/graph run involved — it never triggers a
+   new investigation, only reads what one already produced. Unlike 4a-4i,
+   this module also imports `core.memory.conversation_memory` (chat turn
+   storage) and `core.security.prompt_guard` (the question is untrusted
+   text, constitution §10) — both already-shipped modules from other
+   layers, not new leaf packages built for this exception. See
+   `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`.
+   No other `core/services` module gets this exception without its own ADR.
 
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to

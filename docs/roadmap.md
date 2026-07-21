@@ -447,10 +447,21 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       `KnowledgeSource`/`KnowledgeRetriever` Protocols, `KnowledgeSourceRegistry`,
       a deterministic `KeywordKnowledgeRetriever`) — is implemented and tested
       (70 new tests) with zero cybersecurity data populated and no concrete
-      specialist agent depending on it yet. Still not checked off: the
-      milestone's own demo criterion (a real ChromaDB backend, populated
-      MITRE/OWASP knowledge, and the Threat Timeline/AI Analyst Chat UI)
-      needs M1/M2's concrete agents and real knowledge data first.
+      specialist agent depending on it yet.
+      **Further progress** (`docs/adr/0025-ai-investigation-assistant-
+      conversational-interface.md`): the AI Analyst Chat's backend
+      orchestration — Conversation Manager, Session Manager, Context
+      Builder, Prompt Builder, Retrieval Layer, Tool Selection Engine,
+      Response Orchestrator, Citation Engine, Conversation Audit Log
+      (`core/conversation/`), on-demand via `core/services/
+      conversation_service.py` and `POST /api/v1/cases/{case_id}/
+      conversation` — is implemented and tested (51 new tests), grounded in
+      real persisted case data with a deterministic, non-generative default
+      `ChatModelProvider` (blueprint §5's provider interface, first defined
+      here; no external OpenAI/Gemini/Ollama client yet, per explicit task
+      scope). Still not checked off: a real ChromaDB backend, populated
+      MITRE/OWASP knowledge, a real LLM-backed `ChatModelProvider`, and the
+      `apps/web` Threat Timeline/AI Analyst Chat UI pages.
       *Demo: full Investigation Workspace as described in `docs/user-guide.md`.*
 
 - [ ] **M7 — Hardening, tests, docs, GitHub polish.** Full test coverage pass

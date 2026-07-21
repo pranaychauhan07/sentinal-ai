@@ -10,6 +10,206 @@
 
 ## Completed Features
 
+This session implemented blueprint §13's **AI Investigation Assistant
+(Conversational Interface)** — the AI Analyst Chat's backend orchestration
+(`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`), a
+task brief naming ten required components: Conversation Manager, Session
+Manager, Conversation Memory, Context Builder, Prompt Builder, Retrieval
+Layer, Tool Selection Engine, Response Orchestrator, Citation Engine,
+Conversation Audit Log. This is **further progress on M6** (roadmap already
+records M6's Memory & Knowledge Layer infrastructure as built ahead of
+schedule under ADR-0010; this session builds the chat feature itself on top
+of it) — not a new milestone closure, since M6's own demo criterion (a real
+ChromaDB backend, populated MITRE/OWASP knowledge, a real LLM-backed
+`ChatModelProvider`, and the `apps/web` chat UI) still isn't met.
+
+**Before writing any code**, this session checked for existing
+infrastructure per constitution §14.9 ("never duplicate functionality") and
+found most of the generic memory plumbing this feature needs **already
+built**: ADR-0010 (two sessions prior) had already shipped
+`core.memory.conversation_memory.ConversationMemory`/
+`InMemoryConversationMemory` (case-scoped chat turn storage) and
+`core.memory.context_builder.ContextBuilder` (generic filter/dedup/rank/
+truncate assembly), specifically anticipating this feature. This session
+reuses both directly rather than rebuilding a second conversation store or
+a second generic ranking algorithm — see `docs/adr/0025`'s Decision 1 for
+the resulting, slightly unusual dependency shape (see below).
+
+A real architecture question was resolved before writing any code (no
+`AskUserQuestion` needed — the task brief itself and blueprint §13's own
+wording left only one reasonable answer, unlike ADR-0022's/ADR-0024's
+genuine two-way forks): every existing `core/` leaf package
+(`core/tools`, `core/reporting`, `core/incident_response`, ...) is
+explicitly forbidden from importing `core/memory` (`docs/dependency-
+rules.md` rule 5) — but this assistant's entire purpose is to sit on top of
+`ConversationMemory`. Resolution: `core/conversation` stays a pure,
+`core/memory`-free leaf exactly like the others (it only ever receives
+already-fetched case data and conversation history as plain data); the one
+new module that needs `core/memory` (plus `core/db` for retrieval and
+`core/security` for prompt-injection screening) is a new, on-demand
+`core/services/conversation_service.py`, via a new, documented
+dependency-rules.md exception (**rule 4j**, worded identically to the
+already-established 4a-4i family). This is the same "on-demand service, not
+a graph node" shape ADR-0024 offered as an alternative for the Report
+Generator Agent — the obviously correct shape here, since the AI Analyst
+Chat is explicitly a user-triggered, on-demand action, never part of the
+automatic per-upload investigation pipeline.
+
+**What this session actually built:**
+- **`core/conversation/`** (new leaf package, eleventh peer to
+  `core/threat_intel`/`core/findings`/`core/vulnerabilities`/
+  `core/linux_security`/`core/linux_advisor`/`core/owasp_web`/
+  `core/owasp_security`/`core/incident_response`/`core/reporting` —
+  though, uniquely among them, deliberately `core/memory`-free by
+  necessity rather than by "doesn't happen to need it," see above) —
+  - `models.py`: `ConversationRetrievalContext` (the normalized input every
+    upstream case-data source is reduced to, mirroring `core.reporting.
+    inputs.ReportGenerationContext`'s role exactly), `EvidenceCategory`,
+    `RetrievedItem`/`SourceReference`, `ToolSelection`,
+    `AssembledConversationContext`, `ConversationHistoryTurn`,
+    `PromptPayload`, `ChatCompletion`, `ConversationAnswer`,
+    `ConversationSession`, `AuditEventAction`/`ConversationAuditEvent`.
+  - `exceptions.py`: narrow hierarchy (`ConversationError`,
+    `EmptyQuestionError`, `OversizedConversationInputError`).
+  - `retrieval.py`: `RetrievalLayer` — the task's named "Retrieval Layer";
+    deterministic keyword-overlap relevance scoring (not semantic/embedding
+    search — a documented, honest scope boundary for a future upgrade
+    behind the same `RetrievedItem` shape) of already-hydrated Findings/
+    IOCs/MITRE mappings/Reports/Timeline events against a question, with an
+    oversized-input guard per category and skip-on-malformed defense
+    (never crashing on a non-dict entry).
+  - `tool_selection.py`: `ToolSelectionEngine` — the task's named "Tool
+    Selection Engine"; deterministic keyword routing from question text to
+    which `EvidenceCategory` values apply, falling back to searching every
+    category when no keyword matches (never silently answering from a
+    narrower slice than intended).
+  - `context_builder.py`: `ConversationContextBuilder` — the task's named
+    "Context Builder"; rank-by-relevance then budget-truncate, a distinct,
+    smaller assembly step from `core.memory.context_builder.ContextBuilder`
+    (which operates on the memory layer's own `MemoryRecord` shape) — not a
+    duplicate, the identical "different shape, different home" reasoning
+    ADR-0010 already used to keep `ConversationMemory` distinct from
+    `CaseMemory`.
+  - `prompt_builder.py`: `PromptBuilder` — the task's named "Prompt
+    Builder"; assembles fixed system instructions (explicitly instructing
+    groundedness, never inventing a fact, and citing sources) + ranked
+    context + rendered history + question into a `PromptPayload`, appending
+    a visible warning when the question was flagged by prompt-injection
+    screening (which happens at the service boundary, not in this
+    `core/security`-free package).
+  - `llm_provider.py`: `ChatModelProvider` — blueprint §5's "pluggable
+    `ModelProvider` interface," first concretely defined this session (a
+    `Protocol`: `generate(prompt) -> ChatCompletion`), plus
+    `TemplateChatModelProvider` — a genuinely deterministic, non-generative
+    default implementation that composes an answer directly from the
+    ranked, already-retrieved evidence context, never a network call. Per
+    explicit task instruction, no OpenAI/Gemini/Ollama client is
+    implemented this session — this is the structural guarantee behind
+    "never hallucinate unavailable data": the only content substrate the
+    default provider can draw on is verified, retrieved case data.
+  - `response_orchestrator.py`: `ResponseOrchestrator` — the task's named
+    "Response Orchestrator"; calls the injected `ChatModelProvider`,
+    attaches citations via `CitationEngine`, and computes a deterministic
+    confidence score (zero evidence -> zero confidence; otherwise scales
+    with how much of the ranked context window was filled).
+  - `citation_engine.py`: `CitationEngine` — the task's named "Citation
+    Engine"; attaches a `SourceReference` to every claimed source id a
+    `ChatCompletion` actually names, and silently drops (never fabricates a
+    citation for) any claimed source id that doesn't correspond to a real,
+    retrieved item — the "output validation" defense constitution §10
+    requires for anything an LLM-shaped component emits.
+  - `session_manager.py`: `SessionManager` — the task's named "Session
+    Manager"; process-local chat-session metadata tracking (id, case_id,
+    timestamps, turn count), mirroring `InMemoryConversationMemory`'s
+    identical "single-analyst, single-process deployment" scope (ADR-0010).
+    Distinct from turn *content* storage (that stays `ConversationMemory`'s
+    job).
+  - `conversation_manager.py`: `ConversationManager` — the task's named
+    "Conversation Manager"; the pipeline orchestrator sequencing tool
+    selection -> retrieval -> context assembly -> prompt building, then
+    delegating to `ResponseOrchestrator` for the final generate/cite/score
+    step. Emits a full `Conversation Audit Log` trail via `audit.py` at
+    every stage.
+  - `audit.py`/`metrics.py`: the task's named "Conversation Audit Log" (a
+    typed `ConversationAuditEvent` + structured `structlog` emission, no new
+    DB table — see below) and observability, mirroring every other leaf
+    package's established `audit.py`/`metrics.py` shape exactly.
+- **`core/services/conversation_service.py`** (new) — `ask_question()`, the
+  on-demand entry point: looks up the case (raises `NotFoundError` if
+  missing), rejects an empty question (`EmptyQuestionError`), screens the
+  question through `core.security.prompt_guard.scan_text` (a chat message is
+  exactly the untrusted, potentially attacker-adjacent text constitution
+  §10 requires this for), hydrates a `ConversationRetrievalContext` from
+  `FindingRepository`/`IOCRepository`/`ReportRepository`/
+  `TimelineEventRepository` (reading `Finding.finding_data_json` directly,
+  the identical "read the JSON blob, never import `core.findings.models`"
+  pattern `case_service._hydrate_mitre_mapping_records` already
+  established), reads/writes conversation history via
+  `core.memory.conversation_memory.InMemoryConversationMemory`, and calls
+  `ConversationManager.answer()`. A new, documented dependency-rules.md
+  exception (**rule 4j**) permits this one service module to import
+  `core/conversation`, `core.memory.conversation_memory`, and
+  `core.security.prompt_guard` directly — worded identically to the
+  established 4a-4i family. Never triggers a new investigation run, never
+  re-scores a finding, never persists a new record — read-only over what
+  the Case Investigation pipeline already produced.
+- **No new persisted tables** — blueprint §8's DB design does not name a
+  conversation/chat-message table (unlike `IncidentResponsePlan`/`Report`,
+  which ADR-0023/0024 confirmed blueprint literally names), and ADR-0010
+  already made this exact call deliberately for turn storage ("a persisted
+  implementation is a drop-in swap behind the same Protocol later"). This
+  session does not revisit that scope: conversation turns stay in
+  `InMemoryConversationMemory`; the Conversation Audit Log is structured
+  log output, not a new table.
+- **New API route** — `POST /api/v1/cases/{case_id}/conversation`
+  (`apps/api/routers/conversation.py`, wired into `apps/api/routers/v1.py`),
+  the one sanctioned action-trigger `POST` (constitution §6), identical in
+  kind to `POST /cases/{case_id}/evidence`. New `apps/api/schemas.py`
+  additions: `ConversationAskRequest`/`ConversationAskResponse`/
+  `SourceReferenceResponse`. No streaming, no new authentication (existing
+  `get_current_user` placeholder, unchanged) — explicit task scope.
+- **Testing** — 51 new tests: eleven `core/conversation` unit-test modules
+  (models, retrieval — including an oversized-category guard and a
+  malformed-entry defense test via `model_construct` to bypass
+  `ConversationRetrievalContext`'s own strict validation, mirroring
+  ADR-0024's identical precedent — tool_selection, context_builder,
+  prompt_builder — including prompt-injection-warning presence/absence,
+  llm_provider — including a determinism test, citation_engine —
+  including a "never fabricates a citation" test, response_orchestrator,
+  session_manager, conversation_manager — the full pipeline invoked
+  directly with hand-built input, including a degraded-empty-case test, a
+  grounded-with-citations test, a "never fabricates when question is
+  unrelated to case data" test, a prompt-injection-flag-carried-through
+  test, and a determinism test, audit, metrics), a new
+  `tests/integration/test_conversation_service.py` (not-found case, empty
+  question, degraded-empty-case, and a full real-pipeline test — SSH-auth-
+  log evidence uploaded, then a grounded, cited answer, then a follow-up
+  question in the same session), and a new `tests/integration/
+  test_api_conversation_routes.py` (404 for missing case, 422 for empty
+  question, degraded answer for a case with no evidence, grounded answer
+  with citations plus a same-session follow-up, and a prompt-injection-flag
+  test via the real API). Full pytest suite (1704 tests, up from 1653),
+  `ruff check`/`format --check`, and `scripts/check_dependency_rules.py`
+  all pass. New/changed files are individually `mypy --strict` clean (the
+  pre-existing, unrelated numpy/pandas whole-repo `mypy` failure — see
+  Known Issues — is unchanged, not caused by this session; confirmed by
+  reproducing the identical failure on the already-shipped, unmodified
+  `apps/api/routers/evidence.py`).
+
+**Explicitly NOT built this session, per the task's own instruction:** the
+`apps/web` chat UI page (`6_AI_Analyst_Chat.py`); streaming responses; any
+new authentication; a real OpenAI/Gemini/Ollama `ChatModelProvider`
+implementation (interface only, as explicitly instructed); persisted
+conversation history/audit rows (ADR-0010's existing, deliberate scope,
+not reopened); semantic/embedding-based retrieval (keyword-overlap only);
+any redesign of `core/memory`, `core/graph`, `core/agents`, or any prior
+specialist agent/framework — this feature is purely additive, on-demand,
+and read-only over what those already produce.
+
+---
+
+### M5's Report Generator Agent (prior session, unchanged)
+
 This session implemented blueprint §7's **Report Generator Agent**
 (`docs/adr/0024-report-generator-agent.md`), **closing M5 entirely** — the
 Incident Response half (prior session) plus this session's Report Generator
@@ -808,112 +1008,88 @@ needed dependency); any redesign of `SocAnalystAgent`, `PhishingAgent`,
 
 ```
 apps/
-  api/            schemas.py (MODIFIED: +4 report response fields, +2 IR
-                   fields/+2 MITRE fields/+2 SAST fields earlier) +
-                   routers/{system,cases,evidence(MODIFIED: passes through
-                   report + IR + MITRE + SAST fields),iocs,findings,v1}.py [implemented]
+  api/            schemas.py (MODIFIED: +ConversationAskRequest/
+                   ConversationAskResponse/SourceReferenceResponse) +
+                   routers/{system,cases,evidence,iocs,findings,
+                   conversation(NEW),v1(MODIFIED: +conversation router)}.py [implemented]
   web/             Streamlit frontend                                     [README only]
 core/
-  config/         settings.py (unchanged this session)                   [implemented]
+  config/         settings.py (unchanged this session — no new config
+                   knobs needed, mirroring core/reporting's/
+                   core/incident_response's identical "no dedicated
+                   settings section" precedent)                          [implemented]
   logging/        (unchanged)                                             [implemented]
-  agents/         soc_analyst_agent.py, phishing_agent.py,
-                   vulnerability_agent.py, threat_hunter_agent.py,
-                   linux_security_agent.py, web_security_agent.py,
-                   owasp_security_agent.py, mitre_mapping_agent.py,
-                   incident_response_agent.py (unchanged) +
-                   report_generator_agent.py (NEW — tenth concrete
-                   specialist agent — closes M5 entirely)                [implemented — 10 concrete specialist agents]
-  tools/          scoring.py, phishing_tools.py, vuln_tools.py,
-                   linux_security_tools.py, linux_tools.py,
-                   web_security_tools.py, owasp_tools.py, mitre_tools.py,
-                   ir_tools.py (unchanged) + report_tools.py (NEW —
-                   ReportGenerationTool, blueprint's exact named file)    [implemented — 10 concrete tools]
-  memory/         (unchanged)                                             [implemented — framework only]
+  agents/         (unchanged this session — this feature is a service,
+                   not a graph node; still 10 concrete specialist agents) [implemented — 10 concrete specialist agents]
+  tools/          (unchanged this session — 10 concrete tools)           [implemented — 10 concrete tools]
+  memory/         (unchanged this session — conversation_memory.py/
+                   context_builder.py reused as-is, per ADR-0025's
+                   "never duplicate" decision)                            [implemented — framework only]
   knowledge/      mitre/, cvss_calculator.py (unchanged)                  [implemented]
-  graph/          investigation_graph.py (MODIFIED: +ReportGeneratorAgent
-                   wiring) + state.py (MODIFIED:
-                   +incident_response_plan_record field) +
-                   routing.py/workflow_engine.py/events.py/retry.py/
-                   failure_recovery.py/metrics.py (unchanged)             [implemented]
-  db/             MODIFIED: +report.py (title/report_data_json/
-                   overall_confidence/degraded columns; ReportType now
-                   canonically defined in core.reporting.models) +
-                   report_repository.py (find_by_case/upsert_for_case,
-                   NEW) + timeline_event.py (+REPORT_GENERATED) + three new
-                   Alembic migrations; incident_response_plan.py/
-                   incident_response_plan_repository.py (unchanged)      [implemented — 12 real domain tables + 5 reference tables]
+  graph/          (unchanged this session — this feature never touches
+                   the LangGraph investigation graph)                     [implemented]
+  db/             (unchanged this session — no new tables; conversation
+                   turns stay in-memory per ADR-0010's existing scope)   [implemented — 12 real domain tables + 5 reference tables]
   parsers/        (unchanged this session)                               [implemented — 17 concrete parsers]
   incident_response/ (unchanged this session)                            [implemented]
-  reporting/      (NEW — this session's leaf package: models.py,
-                   exceptions.py, inputs.py, section_registry.py,
-                   section_builders.py, completeness_validator.py,
-                   statistics_calculator.py, confidence_calculator.py,
-                   report_engine.py, metrics.py, audit.py; templates/
-                   README.md/charts.py/pdf_builder.py deliberately not
-                   built yet)                                            [implemented — pipeline only, no exporters]
+  reporting/      (unchanged this session)                               [implemented — pipeline only, no exporters]
+  conversation/   (NEW — this session's leaf package: models.py,
+                   exceptions.py, retrieval.py, tool_selection.py,
+                   context_builder.py, prompt_builder.py, llm_provider.py,
+                   response_orchestrator.py, citation_engine.py,
+                   session_manager.py, conversation_manager.py, audit.py,
+                   metrics.py; deliberately `core/memory`-free — see
+                   docs/adr/0025 Decision 1)                              [implemented — pipeline + default template provider, no real LLM client]
   owasp_security/ (unchanged)                                             [implemented]
   owasp_web/      (unchanged)                                             [implemented]
   linux_advisor/  (unchanged — ADR-0019's separate framework)             [implemented]
   linux_security/  (unchanged — ADR-0018's separate framework)            [implemented]
   vulnerabilities/  (unchanged)                                           [implemented]
   threat_intel/   (unchanged)                                             [implemented]
-  findings/       (unchanged — this session's agent/tool never touch
-                   this package)                                         [implemented]
-  security/       prompt_guard.py (unchanged); pii_redaction.py,
+  findings/       (unchanged — this session's service never touches
+                   this package directly)                                [implemented]
+  security/       prompt_guard.py (unchanged — reused, not modified, by
+                   conversation_service.py); pii_redaction.py,
                    approval_gate.py still not started                     [implemented — 1 of 3 modules]
-  services/       case_service.py (MODIFIED: +report_generation capability
-                   routing (every evidence type),
-                   +_hydrate_incident_response_plan_record, +_persist_report)
-                   + finding_service.py (unchanged) + evidence_service.py,
-                   threat_intel_service.py, vulnerability_service.py,
-                   linux_security_service.py, linux_advisor_service.py,
-                   web_security_service.py, owasp_security_service.py
-                   (unchanged); report_service.py still doesn't exist —
-                   report generation is agent-mediated, not a service
-                   entry point, per this session's ADR-0024 decision       [implemented]
+  services/       conversation_service.py (NEW — ask_question(),
+                   docs/dependency-rules.md rule 4j) + case_service.py/
+                   finding_service.py/evidence_service.py/
+                   threat_intel_service.py/vulnerability_service.py/
+                   linux_security_service.py/linux_advisor_service.py/
+                   web_security_service.py/owasp_security_service.py
+                   (unchanged this session)                               [implemented]
 data/             (unchanged this session)
 scripts/          (unchanged)
 tests/
-  unit/           223 test modules (+10 this session:
-                   test_reporting_{models,section_registry,
-                   section_builders,completeness_validator,
-                   statistics_calculator,confidence_calculator,
-                   report_engine,metrics}.py, test_tools_report_tools.py,
-                   test_agents_report_generator_agent.py,
-                   test_db_report_repository.py)
-  integration:    16 test modules (+0 new files this session; +2 extended:
-                   test_case_service_pipeline.py [report_id/report_type/
-                   report_section_count/report_confidence assertions + new
-                   timeline event type on the SSH-auth-log test, plus a
-                   new test_second_upload_replaces_report_not_appends
-                   test], test_investigation_graph.py [node-set assertion
-                   extended to the tenth agent])
-  golden/         (empty — no concrete report renderer/exporter exists yet)
-docs/             18 markdown docs + docs/adr/ (25 ADR files incl.
-                   template, +0024) + docs/dependency-rules.md (MODIFIED:
-                   +rule 5c, `core/tools/report_tools.py`'s
-                   `core/reporting` exception) + docs/diagrams/
-                   (unchanged)
+  unit/           235 test modules (+12 this session:
+                   test_conversation_{models,retrieval,tool_selection,
+                   context_builder,prompt_builder,llm_provider,
+                   citation_engine,response_orchestrator,session_manager,
+                   conversation_manager,audit,metrics}.py)
+  integration:    18 test modules (+2 this session:
+                   test_conversation_service.py, test_api_conversation_routes.py)
+  golden:         (empty — no concrete report renderer/exporter exists yet)
+docs/             19 markdown docs + docs/adr/ (26 ADR files incl.
+                   template, +0025) + docs/dependency-rules.md (MODIFIED:
+                   +rule 4j, `core/services/conversation_service.py`'s
+                   `core/conversation`/`core/memory`/`core/security`
+                   exception) + docs/architecture.md (MODIFIED: +core/
+                   conversation layer) + docs/diagrams/ (unchanged)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 ```
 
-1653 tests passing as of this session (1604 prior -> 1653 now: 49 new).
-Modified this session: `core/graph/{state,investigation_graph}.py`,
-`core/services/case_service.py`, `core/db/models/report.py`,
-`core/db/report_repository.py`, `core/db/models/timeline_event.py`,
-`apps/api/{schemas,routers/evidence}.py`,
-`docs/{roadmap,dependency-rules}.md`, `core/{agents,tools}/README.md`,
-`core/reporting/README.md`,
-`tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
-`CHANGELOG.md`, and this file. New: `docs/adr/0024-report-generator-agent.md`,
-`core/reporting/{models,exceptions,inputs,section_registry,
-section_builders,completeness_validator,statistics_calculator,
-confidence_calculator,report_engine,metrics,audit}.py`,
-`core/tools/report_tools.py`, `core/agents/report_generator_agent.py`,
-three new Alembic migrations (`c4d8e1a6f7b3`, `d5e9f2b7a8c4`,
-`e6f0a3c8b9d5`), 10 new test files — all currently uncommitted until this
-session's commit (see "Current Git Status" below).
+1704 tests passing as of this session (1653 prior -> 1704 now: 51 new).
+Modified this session: `apps/api/{schemas,routers/v1}.py`,
+`docs/{roadmap,dependency-rules,architecture}.md`,
+`core/services/README.md`, `CHANGELOG.md`, and this file. New:
+`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`,
+`core/conversation/{__init__,models,exceptions,retrieval,tool_selection,
+context_builder,prompt_builder,llm_provider,response_orchestrator,
+citation_engine,session_manager,conversation_manager,audit,metrics,
+README}.py`, `core/services/conversation_service.py`,
+`apps/api/routers/conversation.py`, 14 new test files — all currently
+uncommitted until this session's commit (see "Current Git Status" below).
 
 **Naming note carried forward:** `context/02_repository.md` still does not
 exist. The actual files remain `context/01_blueprint.md` and
@@ -924,8 +1100,48 @@ exist. The actual files remain `context/01_blueprint.md` and
 ## Architecture Status
 
 Fully aligned with `context/01_blueprint.md`, extended (not reversed) by
-ADR-0001 through ADR-0024. **M2, M4, and M5 are all now fully closed.** This
-session's deliberate decisions, documented in
+ADR-0001 through ADR-0025. **M2, M4, and M5 are all now fully closed; M6
+gains its AI Analyst Chat backend, though the milestone's own demo
+criterion (ChromaDB, populated knowledge, a real LLM provider, the chat UI)
+still is not met.** This session's deliberate decisions, documented in
+`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`:
+
+1. **`core/conversation` stays a `core/memory`-free leaf, even though its
+   whole purpose is to sit on top of `ConversationMemory`** — every other
+   leaf in `docs/dependency-rules.md` rule 5's list is explicitly forbidden
+   from importing `core/memory`; extending that blanket grant to a new
+   package whose entire purpose is memory access would blur, not clarify,
+   the boundary. Resolution: memory/DB/security access lives in a new
+   on-demand `core/services/conversation_service.py` (rule 4j), never in
+   `core/conversation` itself.
+2. **No `AskUserQuestion` was needed this session**, unlike ADR-0022's/
+   ADR-0024's genuine two-way forks — blueprint §13's own wording ("Free-
+   form Q&A" a user types on demand) and the already-established rule-4-
+   family precedent left only one reasonable shape: an on-demand service,
+   not a graph node (the same alternative ADR-0024 offered but the user
+   didn't choose there).
+3. **The default `ChatModelProvider` is genuinely non-generative, not a
+   stub awaiting replacement** — `TemplateChatModelProvider` composes
+   answers directly from retrieved evidence text, never inventing content,
+   which is the structural mechanism (not just a policy) behind "never
+   hallucinate unavailable data."
+4. **`CitationEngine` never fabricates a citation** — a `ChatCompletion`
+   naming a source id that wasn't actually retrieved is silently dropped,
+   the "output validation" defense constitution §10 requires.
+5. **No new persisted tables** — blueprint §8 does not name a conversation/
+   chat-message table, and ADR-0010 already made this exact call
+   deliberately for turn storage; this session does not reopen that scope.
+6. **Prompt-injection guarding happens at the service boundary
+   (`core.security.prompt_guard.scan_text`), not inside `core/conversation`**
+   — consistent with Decision 1's "stay `core/security`-free" shape; a
+   flagged question is still answered (never silently dropped), with the
+   flag surfaced in both the audit log and the API response.
+
+---
+
+### M5's Report Generator Agent architecture decisions (prior session, unchanged)
+
+This session's deliberate decisions, documented in
 `docs/adr/0024-report-generator-agent.md`:
 
 1. **A real architecture choice was put to the user, not decided
@@ -1114,7 +1330,40 @@ with a dated addendum explaining why. No approved architectural decision
 *(Carried forward from prior sessions — still true, unchanged: see prior
 sessions' "Key Decisions" sections in git history.)*
 
-**New this session (Report Generator Agent, ADR-0024):**
+**New this session (AI Investigation Assistant / Conversational Interface, ADR-0025):**
+
+- **Checked for existing infrastructure before writing any code, per
+  constitution §14.9** — found `core.memory.conversation_memory.
+  ConversationMemory`/`InMemoryConversationMemory` and `core.memory.
+  context_builder.ContextBuilder` already built (ADR-0010, two sessions
+  prior), specifically anticipating this feature. Reused both directly;
+  built no second conversation store or generic ranking algorithm.
+- **`core/conversation` is deliberately excluded from `docs/dependency-
+  rules.md` rule 5's leaf list** rather than being added to it — that list
+  explicitly forbids every member from importing `core/memory`, and this
+  package's whole purpose is memory access. A new, narrower exception
+  (rule 4j) on `core/services/conversation_service.py` keeps the existing
+  boundary's meaning intact instead of diluting it for one new package.
+- **The default `ChatModelProvider` (`TemplateChatModelProvider`) is not a
+  placeholder that "happens to" avoid hallucination — it structurally
+  cannot hallucinate**, since it only ever composes an answer from text
+  already present in the retrieved, verified evidence context. This is the
+  actual mechanism behind "never hallucinate unavailable data," not just a
+  documented promise.
+- **`CitationEngine.cite` silently drops any claimed source id that wasn't
+  actually retrieved** rather than trusting a `ChatCompletion`'s
+  self-reported `used_source_ids` — the same "never trust freeform/
+  self-reported LLM output structure" discipline constitution §10 requires,
+  applied here even though the default provider is deterministic (a future
+  real LLM provider could return anything).
+- **No new persisted tables for conversation turns or the audit log** —
+  blueprint §8 doesn't name one, and ADR-0010 already made this exact call
+  for turn storage. Revisiting it wasn't this session's call to make
+  unilaterally without a new blueprint-level requirement.
+
+---
+
+**New in the prior session (Report Generator Agent, ADR-0024):**
 
 - **A real architecture question was put to the user via `AskUserQuestion`
   before any code was written, not decided unilaterally** — recommended the
@@ -1303,10 +1552,54 @@ sessions' "Key Decisions" sections in git history.)*
 
 ## Public Interfaces
 
-*(M0–M4/ADR-0015–0023 interfaces — unchanged from prior sessions except as
+*(M0–M4/ADR-0015–0024 interfaces — unchanged from prior sessions except as
 noted below.)*
 
-**New/changed this session (Report Generator Agent, ADR-0024):**
+**New/changed this session (AI Investigation Assistant, ADR-0025):**
+
+`core.conversation.models.{EvidenceCategory, ConversationRetrievalContext,
+SourceReference, RetrievedItem, ToolSelection, AssembledConversationContext,
+ConversationHistoryTurn, PromptPayload, ChatCompletion, ConversationAnswer,
+ConversationSession, AuditEventAction, ConversationAuditEvent}` (new).
+
+`core.conversation.exceptions.{ConversationError, EmptyQuestionError,
+OversizedConversationInputError}` (new).
+
+`core.conversation.retrieval.{RetrievalLayer, MAX_RECORDS_PER_CATEGORY}` (new).
+
+`core.conversation.tool_selection.ToolSelectionEngine` (new).
+
+`core.conversation.context_builder.{ConversationContextBuilder,
+DEFAULT_MAX_CHARS}` (new).
+
+`core.conversation.prompt_builder.{PromptBuilder, SYSTEM_INSTRUCTIONS}` (new).
+
+`core.conversation.llm_provider.{ChatModelProvider, TemplateChatModelProvider}`
+(new — blueprint §5's provider interface, first defined here).
+
+`core.conversation.response_orchestrator.{ResponseOrchestrator,
+OrchestratedResponse}` (new).
+
+`core.conversation.citation_engine.CitationEngine` (new).
+
+`core.conversation.session_manager.{SessionManager, MAX_TRACKED_SESSIONS}` (new).
+
+`core.conversation.conversation_manager.ConversationManager` (new).
+
+`core.conversation.audit.{log_conversation_audit_event, timed_execution}` (new).
+
+`core.conversation.metrics.{ConversationMetricsCollector,
+ConversationMetricsSnapshot}` (new).
+
+`core.services.conversation_service.{ask_question, ConversationAskResult,
+default_conversation_memory, default_session_manager}` (new).
+
+`apps.api.schemas.{ConversationAskRequest, ConversationAskResponse,
+SourceReferenceResponse}` (new).
+
+`POST /api/v1/cases/{case_id}/conversation` (new route).
+
+**New/changed in the prior session (Report Generator Agent, ADR-0024):**
 
 `core.reporting.models.{ReportType, ReportFormat, ALL_REPORT_FORMATS,
 ReportSectionType, ReportSection, ReportStatistics, ReportValidationResult,
@@ -1568,9 +1861,14 @@ implementation exist as public interfaces yet.
    built, per this session's task instruction:** the Jinja2/ReportLab/
    Plotly exporters (`core/reporting/{templates,charts.py,pdf_builder.py}`);
    an on-demand `/api/v1/cases/{case_id}/reports` route.
-5. **M6 — remaining piece.** Swap `InMemoryVectorStore` for real ChromaDB,
-   populate remaining knowledge data (playbooks), the real cross-evidence
-   Threat Timeline UI feature, MITRE heatmap/AI Analyst Chat UI.
+5. **M6 — further progress this session, still not fully closed.** The AI
+   Analyst Chat's backend (`core/conversation/`, `core/services/
+   conversation_service.py`, `POST /api/v1/cases/{case_id}/conversation` —
+   ADR-0025) is built. Remaining: swap `InMemoryVectorStore` for real
+   ChromaDB, populate remaining knowledge data (playbooks), a real
+   OpenAI/Gemini/Ollama `ChatModelProvider` (interface-only this session,
+   per explicit task scope), the real cross-evidence Threat Timeline UI
+   feature, MITRE heatmap/AI Analyst Chat `apps/web` UI pages.
 6. **M7 — Hardening, tests, docs, GitHub polish.**
 7. **Deferred, not scheduled:** `core/security/pii_redaction.py`/
    `approval_gate.py`; a structured read endpoint for `Case.labels`; a
@@ -1730,37 +2028,32 @@ Dev (`requirements-dev.txt`): unchanged.
 ## Current Git Status
 
 A git repository exists (`main` branch: `main`; working branch: `master`).
-All prior-session work through the Incident Response Agent (ADR-0023)
+All prior-session work through the Report Generator Agent (ADR-0024)
 commit is committed.
 
-This session's Report Generator Agent work added/modified (all to be
+This session's AI Investigation Assistant work added/modified (all to be
 committed in this session's single commit — see the commit hash in this
 session's final report):
 
-- New: `docs/adr/0024-report-generator-agent.md`,
-  `core/reporting/{models,exceptions,inputs,section_registry,
-  section_builders,completeness_validator,statistics_calculator,
-  confidence_calculator,report_engine,metrics,audit}.py`,
-  `core/tools/report_tools.py`, `core/agents/report_generator_agent.py`,
-  `core/db/migrations/versions/{c4d8e1a6f7b3_extend_report_type_for_report_generator,
-  d5e9f2b7a8c4_add_report_generation_columns,
-  e6f0a3c8b9d5_extend_timeline_event_type_for_report}.py`,
-  `tests/unit/{test_reporting_models,test_reporting_section_registry,
-  test_reporting_section_builders,test_reporting_completeness_validator,
-  test_reporting_statistics_calculator,test_reporting_confidence_calculator,
-  test_reporting_report_engine,test_reporting_metrics,
-  test_tools_report_tools,test_agents_report_generator_agent,
-  test_db_report_repository}.py`.
-- Modified: `core/graph/{state,investigation_graph}.py`,
-  `core/services/case_service.py`, `core/db/models/report.py`,
-  `core/db/report_repository.py`, `core/db/models/timeline_event.py`,
-  `apps/api/{schemas,routers/evidence}.py`,
-  `docs/{roadmap,dependency-rules}.md`,
-  `core/{agents,tools,reporting}/README.md`,
-  `tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
-  `CHANGELOG.md`, this file.
+- New: `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`,
+  `core/conversation/{__init__,models,exceptions,retrieval,tool_selection,
+  context_builder,prompt_builder,llm_provider,response_orchestrator,
+  citation_engine,session_manager,conversation_manager,audit,metrics,
+  README}.py`, `core/services/conversation_service.py`,
+  `apps/api/routers/conversation.py`,
+  `tests/unit/{test_conversation_models,test_conversation_retrieval,
+  test_conversation_tool_selection,test_conversation_context_builder,
+  test_conversation_prompt_builder,test_conversation_llm_provider,
+  test_conversation_citation_engine,test_conversation_response_orchestrator,
+  test_conversation_session_manager,test_conversation_manager,
+  test_conversation_audit,test_conversation_metrics}.py`,
+  `tests/integration/{test_conversation_service,
+  test_api_conversation_routes}.py`.
+- Modified: `apps/api/{schemas,routers/v1}.py`,
+  `docs/{roadmap,dependency-rules,architecture}.md`,
+  `core/services/README.md`, `CHANGELOG.md`, this file.
 
-Full suite (1653 tests), `ruff check`/`format --check`, and
+Full suite (1704 tests), `ruff check`/`format --check`, and
 `scripts/check_dependency_rules.py` all pass. `mypy core --strict`
 (whole-repo) fails on the same pre-existing, unrelated numpy/environment
 issue as prior sessions (see Known Issues); every file this session
@@ -1770,44 +2063,39 @@ touched is individually `mypy --strict` clean.
 
 ## Next Recommended Prompt
 
-> M2, M3, M4, and M5 are all now fully closed — the Report Generator Agent
-> (`core/reporting/`, `core/tools/report_tools.py`,
-> `core/agents/report_generator_agent.py`, ADR-0024) is built, tested, and
-> persisted, alongside the already-closed Incident Response Agent half
-> (ADR-0023). The natural next milestone is **M6**: swap
-> `InMemoryVectorStore` for real ChromaDB (`core/memory/long_term.py`),
-> build the real cross-evidence Threat Timeline UI, the MITRE ATT&CK matrix
-> heatmap, and the case-scoped AI Analyst Chat (blueprint §13) — or,
-> alternatively, close the two explicitly-deferred report-generation gaps
-> first: (a) the Jinja2/ReportLab/Plotly exporters
-> (`core/reporting/{templates,charts.py,pdf_builder.py}`) that would let
-> `GeneratedReport` actually become a downloadable PDF/HTML/Markdown/JSON
-> file (blueprint §7's literal "PDF file + in-app report preview" output),
-> and (b) an on-demand `/api/v1/cases/{case_id}/reports` route to request
-> any of the other seven report types directly (Executive Summary, Incident
-> Response, IOC Summary, MITRE ATT&CK, Timeline, Threat Intelligence,
-> Evidence — all already fully supported by `ReportGenerationEngine`/
-> `ReportGenerationTool`, just never auto-triggered or exposed). Preserve
-> every existing file and architectural decision described in this
-> document — including all ten specialist agents (the newest,
-> `ReportGeneratorAgent`, reuses pre-hydrated `*_records` state fields and
-> the case's persisted `Finding` rows/most-recently-persisted
-> `IncidentResponsePlan` entirely; it does not read sibling `agent_outputs`
-> — see ADR-0024 before assuming a "downstream synthesis" task needs that
-> shape), the Case lifecycle subsystem, the Finding & MITRE Engine, the
-> Vulnerability Assessment Framework, the Linux Security Threat Hunting
-> Framework, the Linux Security Advisor Framework, the OWASP Web Security
-> Agent Framework, the OWASP Security Agent (AST SAST) Framework, the
-> Incident Response Framework, and the Report Generation Framework — only
-> extend them. If building the exporters, decide up front (via ADR, per the
-> project's own "stop and explain before writing code" rule) whether
-> `pdf_builder.py` renders from the persisted `Report.report_data_json` blob
-> or re-runs `ReportGenerationEngine` fresh at export time — they are not
-> guaranteed identical if the case has been re-investigated since the
-> report was last persisted. Also worth addressing eventually (not urgent,
-> environment-only): the pre-existing `mypy core --strict` failure caused
-> by a numpy/pandas stub incompatibility with the pinned
-> `python_version = "3.11"` (see this file's Known Issues) — either pin an
-> older `numpy` compatible with the target Python version, or bump the
-> `pyproject.toml` mypy `python_version` if the project's actual runtime
-> floor has moved past 3.11.
+> The AI Investigation Assistant's backend (`core/conversation/`,
+> `core/services/conversation_service.py`,
+> `POST /api/v1/cases/{case_id}/conversation`, ADR-0025) is built, tested,
+> and answering grounded, cited questions from real persisted case data,
+> with a deterministic, non-generative default `ChatModelProvider`. The
+> natural next steps, in rough priority order: (1) implement a real
+> `ChatModelProvider` (OpenAI/Gemini/Ollama, selected via
+> `Settings.llm_provider`) behind the existing Protocol — a provider swap,
+> not a pipeline rewrite; (2) the `apps/web` AI Analyst Chat UI page
+> (`6_AI_Analyst_Chat.py`), calling `core.services.conversation_service.
+> ask_question` the same way `apps/api`'s router does; (3) swap
+> `InMemoryVectorStore` for real ChromaDB (`core/memory/long_term.py`) and
+> populate MITRE/OWASP knowledge data to close out the rest of M6; or (4)
+> the two explicitly-deferred report-generation gaps from ADR-0024: the
+> Jinja2/ReportLab/Plotly exporters (`core/reporting/{templates,charts.py,
+> pdf_builder.py}`) and an on-demand `/api/v1/cases/{case_id}/reports`
+> route for the other seven report types. Preserve every existing file and
+> architectural decision described in this document — including all ten
+> specialist agents, the Case lifecycle subsystem, the Finding & MITRE
+> Engine, every M4 specialist framework, the Incident Response Framework,
+> the Report Generation Framework, and the AI Conversation Assistant
+> (`core/conversation` is deliberately `core/memory`/`core/db`/
+> `core/security`-free — all of that access lives in
+> `core/services/conversation_service.py` via rule 4j; don't try to make
+> `core/conversation` import `core/memory` directly for a future feature
+> without first re-reading ADR-0025's Decision 1) — only extend them. If
+> implementing a real LLM provider, decide up front (via ADR) how its
+> structured tool-calling response maps to `ChatCompletion.used_source_ids`
+> so `CitationEngine`'s "never fabricate a citation" guarantee survives the
+> swap from a template provider to a real model. Also worth addressing
+> eventually (not urgent, environment-only): the pre-existing
+> `mypy core --strict` failure caused by a numpy/pandas stub incompatibility
+> with the pinned `python_version = "3.11"` (see this file's Known Issues) —
+> either pin an older `numpy` compatible with the target Python version, or
+> bump the `pyproject.toml` mypy `python_version` if the project's actual
+> runtime floor has moved past 3.11.

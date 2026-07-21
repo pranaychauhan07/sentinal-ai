@@ -46,6 +46,11 @@ Security (core/security)      prompt_guard, pii_redaction, approval_gate
 Database (core/db)            PostgreSQL via SQLAlchemy — system of record
         │
 Reporting (core/reporting)    Jinja2 → ReportLab PDF, Plotly charts
+        │
+Conversation (core/conversation)  AI Analyst Chat pipeline (retrieval →
+                                   context → prompt → response → citation),
+                                   on-demand via core/services/
+                                   conversation_service.py — not a graph node
 ```
 
 Full ASCII box diagram: blueprint §4. Mermaid source for the rendered version:

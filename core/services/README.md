@@ -15,7 +15,11 @@ hardening recommendations — no DB persistence), `web_security_service.py`
 JWT/misconfiguration issues — no DB persistence),
 `owasp_security_service.py` (AST/pattern-based SAST analysis of source code
 files for OWASP/CWE-mapped vulnerabilities — no DB persistence),
-`report_service.py` (generate/fetch reports).
+`report_service.py` (generate/fetch reports), `conversation_service.py`
+(blueprint §13's AI Analyst Chat — answers a free-form, case-scoped
+question grounded in already-persisted Findings/IOCs/MITRE mappings/
+Reports/Timeline events via `core/conversation`'s deterministic pipeline;
+never triggers a new investigation run).
 
 **Responsibility:** Translates a frontend request into calls against
 `core/graph`, `core/db`, and `core/reporting` — and nothing else, with eight
@@ -55,7 +59,13 @@ rule 4h; and `owasp_security_service.py` calls `core/owasp_security` and
 `docs/adr/0021-owasp-security-agent-ast-sast.md` and
 `docs/dependency-rules.md` rule 4i (these last three modules, uniquely,
 never touch `core/memory` — they have no note-taking behavior and no DB
-session parameter, since none of the three frameworks persist anything).
+session parameter, since none of the three frameworks persist anything);
+and `conversation_service.py` calls `core/conversation`, `core.memory.
+conversation_memory`, and `core.security.prompt_guard` directly — a tenth
+exception, worded identically, since case-scoped conversational retrieval
+is also deterministic, pre-answer-generation processing with no new
+agent/graph run involved (see `docs/adr/0025-ai-investigation-assistant-
+conversational-interface.md` and `docs/dependency-rules.md` rule 4j).
 The other six also call `core/memory` (the
 same "check Memory for similar past cases"/case-note pattern this README
 already documented as a services-level concern). This is the one place

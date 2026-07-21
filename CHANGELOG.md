@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **AI Investigation Assistant / Conversational Interface**
+  (`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`) —
+  blueprint §13's AI Analyst Chat: free-form, case-scoped Q&A grounded in
+  already-persisted case evidence, never a generic chatbot. New leaf
+  package `core/conversation/` — `models.py` (`ConversationRetrievalContext`,
+  `RetrievedItem`, `SourceReference`, `ToolSelection`,
+  `AssembledConversationContext`, `PromptPayload`, `ChatCompletion`,
+  `ConversationAnswer`, `ConversationSession`, `ConversationAuditEvent`),
+  `retrieval.py` (`RetrievalLayer` — deterministic keyword-relevance
+  scoring over Findings/IOCs/MITRE mappings/Reports/Timeline events),
+  `tool_selection.py` (`ToolSelectionEngine` — deterministic keyword
+  routing to retrieval categories), `context_builder.py`
+  (`ConversationContextBuilder` — rank + budget-truncate), `prompt_builder.py`
+  (`PromptBuilder`), `llm_provider.py` (`ChatModelProvider` — blueprint §5's
+  "pluggable `ModelProvider` interface," first defined here — plus
+  `TemplateChatModelProvider`, a deterministic, non-generative default
+  implementation; no external OpenAI/Gemini/Ollama client integrated this
+  session, per explicit task scope), `response_orchestrator.py`
+  (`ResponseOrchestrator`), `citation_engine.py` (`CitationEngine` — never
+  fabricates a citation for a source that wasn't actually retrieved),
+  `session_manager.py` (`SessionManager` — process-local chat-session
+  metadata), `conversation_manager.py` (`ConversationManager` — the pipeline
+  orchestrator), `audit.py`/`metrics.py`. Reuses (never duplicates)
+  `core.memory.conversation_memory.ConversationMemory` for chat turn
+  storage, per ADR-0010's existing scope. New `core/services/
+  conversation_service.py` (`ask_question`) hydrates case data from
+  `Finding`/`IOC`/`Report`/`TimelineEvent` repositories, screens the
+  question through `core.security.prompt_guard` (a new, documented
+  dependency-rules.md exception, rule 4j), and never triggers a new
+  investigation run — read-only over what the pipeline already produced.
+  New `POST /api/v1/cases/{case_id}/conversation` route. No frontend chat
+  UI, no streaming, no new authentication (explicit task scope) — 51 new
+  tests (1704 total, up from 1653).
 - **Report Generator Agent** (`docs/adr/0024-report-generator-agent.md`) —
   blueprint §7's Report Generator, the tenth concrete specialist agent
   (**closes M5 entirely** — the Incident Response Agent half was already
