@@ -40,7 +40,24 @@ IOC_PATTERNS: dict[IOCType, re.Pattern[str]] = {
     IOCType.SHA1: re.compile(r"\b[A-Fa-f0-9]{40}\b"),
     IOCType.SHA256: re.compile(r"\b[A-Fa-f0-9]{64}\b"),
     IOCType.MD5: re.compile(r"\b[A-Fa-f0-9]{32}\b"),
-    IOCType.FILE_NAME: re.compile(r"\b[\w,\s-]{1,100}\.[A-Za-z0-9]{1,10}\b"),
+    #: Deliberately an *extension allowlist*, not "any text, then a dot,
+    #: then alphanumerics" — that broader shape (this pattern's previous
+    #: form) matched IP-address octets ("203.0", "113.44") and arbitrary
+    #: log-line fragments ("Failed password for root from 203.0") as
+    #: false-positive "file names," which in turn fed spurious MITRE
+    #: mappings (T1027/T1036/T1204) downstream. A real file name (a) never
+    #: contains a space/comma (`[\w-]`, not `[\w,\s-]`) and (b) ends in an
+    #: extension that is actually a plausible extension, never a bare
+    #: numeric suffix like an IP octet's trailing digits.
+    IOCType.FILE_NAME: re.compile(
+        r"\b[\w-]{1,80}\.(?:exe|dll|sys|drv|bat|cmd|com|scr|msi|ps1|psm1|vbs|vbe|js|jse|"
+        r"wsf|hta|jar|apk|ipa|sh|bash|py|pyc|pyo|php|asp|aspx|jsp|jspx|"
+        r"zip|rar|7z|tar|gz|bz2|xz|iso|"
+        r"doc|docx|docm|xls|xlsx|xlsm|ppt|pptx|pptm|pdf|rtf|"
+        r"txt|log|tmp|temp|dat|bin|dmp|cfg|conf|ini|"
+        r"lnk|reg|dll32|dll64)\b",
+        re.IGNORECASE,
+    ),
     IOCType.USERNAME: re.compile(
         r"\b(?:user|username|for user|account)[:=]?\s+([A-Za-z0-9_.\\-]{1,64})\b", re.IGNORECASE
     ),

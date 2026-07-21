@@ -215,6 +215,13 @@ class IncidentResponsePlan(BaseModel):
     plan_id: uuid.UUID = Field(default_factory=uuid.uuid4)
     case_id: str
     incident_severity: IncidentSeverity
+    #: Explainability requirement: "if escalation to Critical occurs,
+    #: provide deterministic justification" — states the base severity,
+    #: qualifying-finding count, and escalation reasoning
+    #: (`severity_classifier.SeverityClassificationResult.justification`),
+    #: never a bare severity value with no explanation of how it was
+    #: derived.
+    severity_justification: str = ""
     overall_risk_score: float = Field(ge=0.0, le=100.0)
     overall_confidence: float = Field(ge=0.0, le=1.0)
     recommendations: tuple[ResponseRecommendation, ...] = ()

@@ -712,6 +712,11 @@ async def _hydrate_mitre_mapping_records(
                     "confidence": mapping.get("confidence", 0.0),
                     "mapping_source": mapping.get("mapping_source", ""),
                     "attack_spec_version": mapping.get("attack_spec_version", ""),
+                    # Explainability requirement: "show exactly why each
+                    # technique was selected" — the specific firing rule and
+                    # its human-readable rationale, not just an ID/score.
+                    "rule_id": mapping.get("rule_id", ""),
+                    "rationale": mapping.get("rationale", ""),
                 }
             )
     return records
@@ -752,6 +757,12 @@ async def _hydrate_incident_response_records(
         composite_confidence = (
             confidence.get("composite", 1.0) if isinstance(confidence, dict) else 1.0
         )
+        explanation = data.get("explanation")
+        evidence_summary = ""
+        severity_rationale = ""
+        if isinstance(explanation, dict):
+            evidence_summary = str(explanation.get("evidence_summary", ""))
+            severity_rationale = str(explanation.get("severity_rationale", ""))
         records.append(
             {
                 "finding_id": str(row.id),
@@ -761,6 +772,12 @@ async def _hydrate_incident_response_records(
                 "confidence": composite_confidence,
                 "mitre_technique_ids": technique_ids,
                 "mitre_tactic_ids": tactic_ids,
+                # Explainability requirement: real, evidence-specific text
+                # (constitution §1.9's "no re-derivation" — this is read
+                # straight through from `core.findings.models.
+                # FindingExplanation`, never recomputed here).
+                "evidence_summary": evidence_summary,
+                "severity_rationale": severity_rationale,
             }
         )
     return records

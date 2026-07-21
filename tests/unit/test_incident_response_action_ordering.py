@@ -94,3 +94,51 @@ def test_different_targets_stay_separate_recommendations() -> None:
 
 def test_empty_input_returns_empty_output() -> None:
     assert order_recommendations([]) == ()
+
+
+# --- Consolidation (task requirement: "concise SOC-style action plans
+# instead of repetitive lists") --------------------------------------------
+
+
+def test_two_distinct_targets_stay_separate_below_consolidation_threshold() -> None:
+    ordered = order_recommendations(
+        [_recommendation(target="1.1.1.1"), _recommendation(target="2.2.2.2")]
+    )
+    assert len(ordered) == 2
+
+
+def test_three_or_more_same_category_recommendations_consolidate_into_one() -> None:
+    recommendations = [
+        _recommendation(target=f"10.0.0.{i}", finding_id=f"f{i}", risk_score=float(i * 10))
+        for i in range(1, 5)
+    ]
+    ordered = order_recommendations(recommendations)
+    assert len(ordered) == 1
+    consolidated = ordered[0]
+    assert "4 indicators" in consolidated.action.title
+    for i in range(1, 5):
+        assert f"10.0.0.{i}" in consolidated.action.target
+    assert set(consolidated.supporting_finding_ids) == {"f1", "f2", "f3", "f4"}
+    assert consolidated.risk_score == 40.0  # max across the group
+
+
+def test_consolidation_only_merges_within_the_same_category() -> None:
+    isolation_recs = [
+        _recommendation(
+            category=ResponseCategory.HOST_ISOLATION,
+            phase=ResponsePhase.ISOLATION,
+            target=f"host-{i}",
+            finding_id=f"f{i}",
+        )
+        for i in range(3)
+    ]
+    network_rec = _recommendation(
+        category=ResponseCategory.NETWORK_BLOCKING,
+        phase=ResponsePhase.CONTAINMENT,
+        target="1.2.3.4",
+        finding_id="f-net",
+    )
+    ordered = order_recommendations([*isolation_recs, network_rec])
+    categories = {r.action.category for r in ordered}
+    assert categories == {ResponseCategory.HOST_ISOLATION, ResponseCategory.NETWORK_BLOCKING}
+    assert len(ordered) == 2  # 3 isolation recs -> 1 consolidated + 1 untouched network rec

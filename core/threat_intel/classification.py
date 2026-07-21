@@ -9,10 +9,61 @@ duplicated across call sites (constitution §2, "Constants").
 
 from __future__ import annotations
 
-from core.threat_intel.models import IOCClassification, RuleMatchResult, ThreatCategory, ThreatScore
+from core.threat_intel.models import (
+    IOCClassification,
+    RuleMatchResult,
+    ThreatCategory,
+    ThreatScore,
+    ThreatSeverity,
+)
 
 DEFAULT_MALICIOUS_THRESHOLD = 70.0
 DEFAULT_SUSPICIOUS_THRESHOLD = 40.0
+
+#: `composite_score` at or above which a `MALICIOUS`-classified IOC is
+#: assessed `CRITICAL` rather than `HIGH` — a second, finer threshold inside
+#: the "malicious" band, mirroring `DEFAULT_MALICIOUS_THRESHOLD`'s own
+#: "configurable, not a magic number duplicated across call sites" shape
+#: (constitution §2).
+DEFAULT_CRITICAL_SEVERITY_THRESHOLD = 90.0
+
+#: `composite_score` at or above which a `SUSPICIOUS`-classified IOC is
+#: assessed `MEDIUM` rather than `LOW`.
+DEFAULT_SUSPICIOUS_MEDIUM_THRESHOLD = 55.0
+
+
+def derive_severity_from_classification(
+    classification: IOCClassification,
+    score: ThreatScore,
+    *,
+    critical_threshold: float = DEFAULT_CRITICAL_SEVERITY_THRESHOLD,
+    suspicious_medium_threshold: float = DEFAULT_SUSPICIOUS_MEDIUM_THRESHOLD,
+) -> ThreatSeverity:
+    """Derives an `IOCRecord.severity` value from the same
+    `IOCClassification`/`ThreatScore` this engine already computed —
+    closing a real gap where `IOCRecord.severity` previously stayed at its
+    Pydantic default (`ThreatSeverity.INFO`) for every IOC regardless of how
+    it classified, because nothing in the pipeline ever derived a real value
+    from the classification. That silently disconnected `core.findings.
+    severity.assign_severity` (which reads `ioc.record.severity` as its
+    base) from the actual threat signal already computed here — the root
+    cause of a Finding scoring "low" severity for IOCs a human analyst
+    would immediately call critical. Deterministic, pure (constitution
+    §1.9): the same `(classification, score)` pair always derives the same
+    severity."""
+    if classification.category is ThreatCategory.MALICIOUS:
+        return (
+            ThreatSeverity.CRITICAL
+            if score.composite_score >= critical_threshold
+            else ThreatSeverity.HIGH
+        )
+    if classification.category is ThreatCategory.SUSPICIOUS:
+        return (
+            ThreatSeverity.MEDIUM
+            if score.composite_score >= suspicious_medium_threshold
+            else ThreatSeverity.LOW
+        )
+    return ThreatSeverity.INFO
 
 
 class ThreatClassificationEngine:

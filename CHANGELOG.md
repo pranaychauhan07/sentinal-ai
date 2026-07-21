@@ -10,6 +10,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 
 ## [Unreleased]
 
+### Fixed
+- **Detection Quality & Explainability Remediation** — a bug-fix/tightening
+  pass across `core/threat_intel`, `core/findings`, `core/incident_response`,
+  and `core/reporting`, triggered by reviewing a real, live-generated
+  investigation report. No new ADR; no module boundary or dependency-rules
+  edge changed.
+  - **Fixed:** every IOC was permanently `severity=INFO` regardless of how
+    malicious it classified — `threat_intel_service.py`'s `score()` computed
+    a real `IOCClassification` but never fed it back into `IOCRecord.
+    severity`. New `core.threat_intel.classification.
+    derive_severity_from_classification` closes the gap.
+  - **Fixed:** the FILE_NAME IOC regex (`core/threat_intel/patterns.py`)
+    matched IP-address octets and arbitrary log prose as false-positive
+    "file names" (verified: 20 of 39 IOCs in a real SSH-log case). Rewritten
+    as a genuine file-extension allowlist.
+  - **Tightened:** seven `core/findings/mapping_rules.py` MITRE mapping
+    rules (T1046, T1082, T1036, T1027, T1090, T1018, T1204) fired on bare
+    IOC-type co-occurrence alone, mapping to almost any evidence regardless
+    of whether the technique was genuinely present (verified: 10 mapped
+    techniques from one plain SSH auth log, 7 of them false positives). Six
+    are now `match_tags`-gated (dormant until a real tag-producing detector
+    exists); T1204 uses a new `MappingRule.require_co_occurrence` field tied
+    to a genuine EMAIL/phishing signal. Real-case result: 10 mapped
+    techniques -> 3, all genuinely defensible.
+  - **Added:** `MitreMapping.rule_id`/`.rationale` (which rule fired and
+    why, naming real IOC values); `core.findings.models.FindingExplanation`
+    (`evidence_summary`, `severity_rationale`) attached to every
+    `FindingRecord`; evidence-specific Finding titles/descriptions
+    (previously generic `"{technique} detected"` text); `core.
+    incident_response.severity_classifier.SeverityClassificationResult`
+    (replaces a bare severity enum with severity + base_severity +
+    qualifying_finding_count + escalation_steps + a deterministic
+    justification string) and `IncidentResponsePlan.severity_justification`.
+  - **Added:** recommendation consolidation in `core.incident_response.
+    action_ordering.order_recommendations` — 3+ same-category
+    recommendations fold into one line item naming every target instead of
+    N repetitive entries.
+  - **Enriched (data only, no template changes):** `core/reporting/
+    section_builders.py`'s MITRE/Findings/Incident-Response-Actions
+    sections now carry the above explainability fields;
+    `core/services/case_service.py`'s existing hydration whitelists
+    extended to pass them through.
+  - 49 new/extended tests (false-positive/true-positive FILE_NAME pairs,
+    severity-derivation coverage, per-rule gating assertions, an end-to-end
+    "SSH-log-shaped IOCs never map to the tightened techniques" regression
+    test, evidence-specific-title assertions, consolidation behavior, report
+    field pass-through). Full suite now 1835 tests (up from 1786); `ruff
+    check`/`format --check`, `mypy --strict` on every changed file (except
+    the pre-existing, unrelated numpy stub failure on `case_service.py`,
+    confirmed via `git stash` to predate this change), and
+    `scripts/check_dependency_rules.py` all pass. Validated end-to-end
+    against the real SSH-brute-force case from the prior session, not just
+    unit tests.
+
 ### Added
 - **Report Export Framework** (`docs/adr/0026-report-export-framework.md`) —
   the rendering/export layer on top of the already-shipped

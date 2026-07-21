@@ -65,17 +65,33 @@ class MitreMappingEngine(BaseFindingGenerator):
         # technique_id -> (matching ScoredIOCs, contributing rule confidences)
         by_technique: dict[str, list[ScoredIOC]] = defaultdict(list)
         rule_confidence_by_technique: dict[str, float] = {}
+        #: The single best-scoring rule for each technique — since today's
+        #: table maps each technique_id from exactly one rule, this is
+        #: always unambiguous, but tracked per-technique (not assumed) so a
+        #: future second rule for the same technique degrades to "highest
+        #: confidence wins" rather than silently picking whichever rule
+        #: happened to iterate last.
+        winning_rule_by_technique: dict[str, MappingRule] = {}
 
         for rule in self._rules:
+            co_occurs = bool(set(rule.co_occurrence_ioc_types) & present_types)
+            if rule.require_co_occurrence and not co_occurs:
+                # The rule's primary IOC type alone is not meaningful
+                # evidence for this technique (constitution §1.7's
+                # "prevent weak/speculative mappings" applied structurally)
+                # — skip it entirely rather than let it fire on a bare
+                # base_confidence with no corroborating signal.
+                continue
             matches = [ioc for ioc in iocs if self._rule_matches_ioc(rule, ioc)]
             if not matches:
                 continue
-            co_occurs = bool(set(rule.co_occurrence_ioc_types) & present_types)
             rule_confidence = min(
                 1.0, rule.base_confidence + (rule.co_occurrence_boost if co_occurs else 0.0)
             )
             existing = rule_confidence_by_technique.get(rule.technique_id, 0.0)
-            rule_confidence_by_technique[rule.technique_id] = max(existing, rule_confidence)
+            if rule_confidence >= existing:
+                rule_confidence_by_technique[rule.technique_id] = rule_confidence
+                winning_rule_by_technique[rule.technique_id] = rule
             for match in matches:
                 if match not in by_technique[rule.technique_id]:
                     by_technique[rule.technique_id].append(match)
@@ -83,6 +99,7 @@ class MitreMappingEngine(BaseFindingGenerator):
         mappings: list[MitreMapping] = []
         for technique_id, matched_iocs in by_technique.items():
             rule_strength = rule_confidence_by_technique[technique_id]
+            winning_rule = winning_rule_by_technique[technique_id]
             ioc_confidence = sum(ioc.record.confidence for ioc in matched_iocs) / len(matched_iocs)
             evidence_quality = sum(ioc.score.evidence_quality for ioc in matched_iocs) / len(
                 matched_iocs
@@ -99,6 +116,14 @@ class MitreMappingEngine(BaseFindingGenerator):
             tactic_ids = tuple(
                 tactic.tactic_id for tactic in self._lookup.tactics_for_technique(technique_id)
             )
+            supporting_values = ", ".join(
+                f"{ioc.record.ioc_type.value}={ioc.record.value!r}" for ioc in matched_iocs[:5]
+            )
+            rationale = (
+                f"{winning_rule.rationale} Matched {len(matched_iocs)} indicator(s): "
+                f"{supporting_values}"
+                f"{', ...' if len(matched_iocs) > 5 else ''}."
+            )
             mappings.append(
                 MitreMapping(
                     technique_id=technique_id,
@@ -108,6 +133,8 @@ class MitreMappingEngine(BaseFindingGenerator):
                     attack_spec_version=self._lookup.dataset.attack_spec_version,
                     supporting_ioc_ids=tuple(ioc.record.ioc_id for ioc in matched_iocs),
                     factors=factors,
+                    rule_id=winning_rule.rule_id,
+                    rationale=rationale,
                 )
             )
 

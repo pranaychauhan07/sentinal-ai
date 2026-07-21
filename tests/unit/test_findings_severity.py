@@ -12,7 +12,12 @@ from core.findings.models import (
     MappingConfidenceFactors,
     MitreMapping,
 )
-from core.findings.severity import assign_priority, assign_severity, calculate_risk_score
+from core.findings.severity import (
+    assign_priority,
+    assign_severity,
+    calculate_risk_score,
+    explain_severity,
+)
 from core.threat_intel.models import ThreatSeverity
 
 
@@ -118,3 +123,41 @@ def test_calculate_risk_score_increases_with_severity() -> None:
     low = calculate_risk_score(FindingSeverity.LOW, _confidence(0.5))
     high = calculate_risk_score(FindingSeverity.HIGH, _confidence(0.5))
     assert high > low
+
+
+@pytest.mark.unit
+def test_explain_severity_names_the_base_ioc() -> None:
+    iocs = [
+        make_scored_ioc(severity=ThreatSeverity.LOW, value="low-ioc"),
+        make_scored_ioc(severity=ThreatSeverity.HIGH, value="high-ioc"),
+    ]
+    rationale = explain_severity(iocs, [], _confidence(0.5))
+    assert "high-ioc" in rationale
+    assert "high" in rationale
+
+
+@pytest.mark.unit
+def test_explain_severity_states_escalation_when_applied() -> None:
+    iocs = [make_scored_ioc(severity=ThreatSeverity.MEDIUM)]
+    rationale = explain_severity(iocs, [_mapping(("TA0040",))], _confidence(0.8))
+    assert "Escalated" in rationale
+    assert "TA0040" in rationale
+
+
+@pytest.mark.unit
+def test_explain_severity_states_no_escalation_below_threshold() -> None:
+    iocs = [make_scored_ioc(severity=ThreatSeverity.MEDIUM)]
+    rationale = explain_severity(iocs, [_mapping(("TA0040",))], _confidence(0.2))
+    assert "below" in rationale.lower()
+
+
+@pytest.mark.unit
+def test_explain_severity_states_no_high_impact_tactic_when_absent() -> None:
+    iocs = [make_scored_ioc(severity=ThreatSeverity.MEDIUM)]
+    rationale = explain_severity(iocs, [], _confidence(0.9))
+    assert "No high-impact tactic" in rationale
+
+
+@pytest.mark.unit
+def test_explain_severity_handles_empty_iocs() -> None:
+    assert explain_severity([], [], _confidence(0.5)) == "No supporting indicators."

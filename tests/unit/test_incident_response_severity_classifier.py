@@ -20,19 +20,32 @@ def _finding(severity: IncidentSeverity) -> IncidentInputFinding:
 
 def test_no_findings_is_info() -> None:
     classifier = IncidentSeverityClassifier()
-    assert classifier.classify([]) == IncidentSeverity.INFO
+    result = classifier.classify([])
+    assert result.severity == IncidentSeverity.INFO
+    assert result.qualifying_finding_count == 0
+    assert result.escalation_steps == 0
+    assert result.justification
 
 
 def test_single_finding_matches_its_own_severity() -> None:
     classifier = IncidentSeverityClassifier()
-    assert classifier.classify([_finding(IncidentSeverity.HIGH)]) == IncidentSeverity.HIGH
+    result = classifier.classify([_finding(IncidentSeverity.HIGH)])
+    assert result.severity == IncidentSeverity.HIGH
+    assert result.base_severity == IncidentSeverity.HIGH
+    assert result.escalation_steps == 0
 
 
 def test_escalates_after_enough_medium_or_above_findings() -> None:
     weights = SeverityClassificationWeights(escalation_finding_count=3)
     classifier = IncidentSeverityClassifier(weights=weights)
     findings = [_finding(IncidentSeverity.MEDIUM) for _ in range(3)]
-    assert classifier.classify(findings) == IncidentSeverity.HIGH
+    result = classifier.classify(findings)
+    assert result.severity == IncidentSeverity.HIGH
+    assert result.base_severity == IncidentSeverity.MEDIUM
+    assert result.qualifying_finding_count == 3
+    assert result.escalation_steps == 1
+    assert "escalated 1 level" in result.justification
+    assert "3 finding(s)" in result.justification
 
 
 def test_double_escalation_caps_at_critical() -> None:
@@ -41,17 +54,34 @@ def test_double_escalation_caps_at_critical() -> None:
     )
     classifier = IncidentSeverityClassifier(weights=weights)
     findings = [_finding(IncidentSeverity.MEDIUM) for _ in range(6)]
-    assert classifier.classify(findings) == IncidentSeverity.CRITICAL
+    result = classifier.classify(findings)
+    assert result.severity == IncidentSeverity.CRITICAL
+    assert result.escalation_steps == 2
+    assert "escalated 2 level" in result.justification
 
 
 def test_critical_never_escalates_past_critical() -> None:
     weights = SeverityClassificationWeights(escalation_finding_count=2)
     classifier = IncidentSeverityClassifier(weights=weights)
     findings = [_finding(IncidentSeverity.CRITICAL) for _ in range(5)]
-    assert classifier.classify(findings) == IncidentSeverity.CRITICAL
+    result = classifier.classify(findings)
+    assert result.severity == IncidentSeverity.CRITICAL
+    assert result.base_severity == IncidentSeverity.CRITICAL
 
 
 def test_low_severity_findings_below_threshold_do_not_escalate() -> None:
     classifier = IncidentSeverityClassifier()
     findings = [_finding(IncidentSeverity.LOW) for _ in range(10)]
-    assert classifier.classify(findings) == IncidentSeverity.LOW
+    result = classifier.classify(findings)
+    assert result.severity == IncidentSeverity.LOW
+    assert result.escalation_steps == 0
+    assert "no escalation was applied" in result.justification
+
+
+def test_justification_names_escalation_threshold_when_not_met() -> None:
+    weights = SeverityClassificationWeights(escalation_finding_count=5)
+    classifier = IncidentSeverityClassifier(weights=weights)
+    findings = [_finding(IncidentSeverity.MEDIUM) for _ in range(2)]
+    result = classifier.classify(findings)
+    assert result.escalation_steps == 0
+    assert "2 finding(s)" in result.justification

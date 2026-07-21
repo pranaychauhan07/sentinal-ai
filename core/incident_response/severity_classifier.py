@@ -15,6 +15,24 @@ from core.incident_response.models import IncidentSeverity, highest_severity, se
 _MAX_RANK = severity_rank(IncidentSeverity.CRITICAL)
 
 
+class SeverityClassificationResult(BaseModel):
+    """`IncidentSeverityClassifier.classify`'s output — the task's explicit
+    "if escalation to Critical occurs, provide deterministic justification"
+    requirement, made a real, inspectable value rather than a bare enum a
+    caller has no way to explain. `justification` states the base severity,
+    how many qualifying findings were present, and how many escalation
+    steps (if any) were applied and why — never a vague "it's critical
+    because reasons"."""
+
+    model_config = ConfigDict(frozen=True)
+
+    severity: IncidentSeverity
+    base_severity: IncidentSeverity
+    qualifying_finding_count: int = Field(ge=0)
+    escalation_steps: int = Field(ge=0, le=2)
+    justification: str
+
+
 class SeverityClassificationWeights(BaseModel):
     """Configurable escalation thresholds (constitution §2, "do not hardcode
     scoring values"). A case whose highest single finding is only MEDIUM can
@@ -36,9 +54,15 @@ class IncidentSeverityClassifier:
     def __init__(self, *, weights: SeverityClassificationWeights | None = None) -> None:
         self._weights = weights or SeverityClassificationWeights()
 
-    def classify(self, findings: list[IncidentInputFinding]) -> IncidentSeverity:
+    def classify(self, findings: list[IncidentInputFinding]) -> SeverityClassificationResult:
         if not findings:
-            return IncidentSeverity.INFO
+            return SeverityClassificationResult(
+                severity=IncidentSeverity.INFO,
+                base_severity=IncidentSeverity.INFO,
+                qualifying_finding_count=0,
+                escalation_steps=0,
+                justification="No findings available for this case.",
+            )
 
         base = highest_severity([f.severity for f in findings])
         qualifying = sum(
@@ -54,7 +78,36 @@ class IncidentSeverityClassifier:
             escalation_steps = 1
 
         target_rank = min(_MAX_RANK, severity_rank(base) + escalation_steps)
+        severity = base
         for candidate in IncidentSeverity:
             if severity_rank(candidate) == target_rank:
-                return candidate
-        return base  # pragma: no cover - every rank has a candidate by construction
+                severity = candidate
+                break
+
+        if escalation_steps == 0:
+            justification = (
+                f"Base severity '{base.value}' (the highest severity among {len(findings)} "
+                f"finding(s)); {qualifying} finding(s) were MEDIUM-or-above, below the "
+                f"{self._weights.escalation_finding_count}-finding escalation threshold, so no "
+                f"escalation was applied."
+            )
+        else:
+            threshold = (
+                self._weights.double_escalation_finding_count
+                if escalation_steps == 2
+                else self._weights.escalation_finding_count
+            )
+            justification = (
+                f"Base severity '{base.value}' (the highest severity among {len(findings)} "
+                f"finding(s)), escalated {escalation_steps} level(s) to '{severity.value}' "
+                f"because {qualifying} finding(s) were MEDIUM-or-above, meeting the "
+                f"{threshold}-finding escalation threshold."
+            )
+
+        return SeverityClassificationResult(
+            severity=severity,
+            base_severity=base,
+            qualifying_finding_count=qualifying,
+            escalation_steps=escalation_steps,
+            justification=justification,
+        )

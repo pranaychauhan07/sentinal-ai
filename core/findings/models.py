@@ -92,6 +92,18 @@ class MitreMapping(BaseModel):
     attack_spec_version: str
     supporting_ioc_ids: tuple[uuid.UUID, ...] = ()
     factors: MappingConfidenceFactors
+    #: The specific `core.findings.mapping_rules.MappingRule.rule_id` that
+    #: produced this mapping — explainability requirement: a consumer must
+    #: be able to see exactly which rule fired, not just a technique ID and
+    #: a confidence number. Empty only for a mapping built by test fixtures
+    #: that predate this field (never for anything `MitreMappingEngine`
+    #: itself produces).
+    rule_id: str = ""
+    #: Human-readable explanation of why this technique was mapped — the
+    #: firing rule's `MappingRule.rationale`, restated here so it travels
+    #: with the mapping through persistence/reporting without a caller
+    #: needing to re-look-up the rule table.
+    rationale: str = ""
 
 
 class TimelineEntry(BaseModel):
@@ -156,6 +168,22 @@ class DuplicateMatchResult(BaseModel):
     reason: str = ""
 
 
+class FindingExplanation(BaseModel):
+    """Explainability payload the task requires every Finding expose:
+    which evidence actually triggered it (in human-readable form — IOC
+    values, not just IDs) and why its severity was assessed the way it was.
+    The other required pieces (triggering rule, supporting IOCs, confidence
+    calculation, MITRE rationale) already live on `MitreMapping.rule_id`/
+    `.rationale`, `FindingRecord.ioc_refs`, and `FindingRecord.confidence`
+    respectively — this model holds only what isn't already exposed
+    elsewhere, rather than duplicating those fields."""
+
+    model_config = ConfigDict(frozen=True)
+
+    evidence_summary: str
+    severity_rationale: str
+
+
 class FindingRecord(BaseModel):
     """One fully-generated Finding — the record every pipeline stage after
     `generate` operates on and what `finding_service.persist` writes."""
@@ -177,6 +205,11 @@ class FindingRecord(BaseModel):
     affected_assets: tuple[str, ...] = ()
     risk_score: float = Field(ge=0.0, le=100.0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    #: Explainability requirement (task: "every finding should expose...").
+    #: Optional only for backward compatibility with any `FindingRecord`
+    #: persisted before this field existed; `FindingGenerationEngine`
+    #: always populates it.
+    explanation: FindingExplanation | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

@@ -10,7 +10,159 @@
 
 ## Completed Features
 
-**Most recent session:** implemented blueprint §4/§13's **Report Export
+**Most recent session: Detection Quality & Explainability Remediation**
+(no new ADR — this is a bug-fix/tightening pass across `core/threat_intel`,
+`core/findings`, `core/incident_response`, and `core/reporting`, not a new
+architectural decision; every existing module boundary, leaf-package
+ownership, and dependency-rules edge is unchanged). Triggered by manually
+reviewing a real, live-generated Technical Investigation Report (the
+SSH-brute-force + exposed-legacy-host case from the prior session) and
+finding it exposed genuine backend bugs, not report-formatting issues:
+
+- **Root-cause bug — every IOC was permanently `severity=INFO`.**
+  `core.threat_intel.classification.ThreatClassificationEngine.classify`
+  already computed a real `IOCClassification` (MALICIOUS/SUSPICIOUS/
+  BENIGN/UNKNOWN) from each IOC's composite threat score, but
+  `core.services.threat_intel_service.IOCExtractionPipeline.score` never
+  fed that classification back into `IOCRecord.severity` — it only ever
+  updated `confidence`, leaving `severity` at its Pydantic default
+  (`ThreatSeverity.INFO`) forever, for every IOC, regardless of how
+  malicious it classified. This silently disconnected
+  `core.findings.severity.assign_severity` (which reads `ioc.record.
+  severity` as its base) from the actual threat signal the system already
+  computed — the root cause of Findings scoring "info"/"low" for evidence
+  a human analyst would call critical. Fixed with a new pure function,
+  `core.threat_intel.classification.derive_severity_from_classification`
+  (MALICIOUS -> CRITICAL/HIGH by score, SUSPICIOUS -> MEDIUM/LOW by score,
+  BENIGN/UNKNOWN -> INFO), called from `threat_intel_service.py`'s `score()`
+  where the classification was already being discarded.
+- **Root-cause bug — the FILE_NAME IOC pattern matched IP-address octets
+  and arbitrary log prose.** `core.threat_intel.patterns.IOC_PATTERNS
+  [IOCType.FILE_NAME]` was `\b[\w,\s-]{1,100}\.[A-Za-z0-9]{1,10}\b` — "any
+  text, then a dot, then alphanumerics" — which matched things like
+  "203.0" (an IP octet) and "Failed password for root from 203.0" (a whole
+  log line) as false-positive "file names." Confirmed against the real
+  ssh_auth.log case: 20 of that case's 39 extracted IOCs were these bogus
+  FILE_NAME matches. Those false IOCs then fed genuinely spurious MITRE
+  mappings downstream (see below). Rewritten as a real extension
+  allowlist (`\b[\w-]{1,80}\.(?:exe|dll|...|log|...)\b`, no embedded
+  spaces/commas, extension must be alphabetic and from a curated,
+  plausible list) — verified this eliminates every false match while still
+  matching genuine file names (`payload.exe`, `invoice.docx`, etc.).
+- **MITRE mapping over-generalization.** Seven of
+  `core.findings.mapping_rules.MAPPING_RULES`' twenty rules
+  (`R-T1046-network-service-discovery`, `R-T1082-system-info-discovery`,
+  `R-T1036-masquerading`, `R-T1027-obfuscated-files`, `R-T1090-proxy`,
+  `R-T1018-remote-system-discovery`, `R-T1204-user-execution`) fired on
+  bare IOC-type presence/co-occurrence alone (an IP+port pair, a bare
+  hostname, a bare file name) — conditions true of nearly *any* log,
+  regardless of whether the technique was genuinely present. Verified
+  against the real case: a single SSH auth log with no scanning,
+  masquerading, or proxy activity at all produced mappings for all seven
+  (10 total mapped techniques from one log). Six are now `match_tags`-gated
+  behind a tag nothing in this codebase sets yet (correctly dormant — "we
+  don't have genuine evidence for this yet" — rather than a false-positive
+  generator, per constitution §1.7); the seventh (`R-T1204-user-execution`)
+  now uses a new `MappingRule.require_co_occurrence: bool` field
+  (`mapping_engine.py` honors it by skipping the rule entirely, not merely
+  declining a confidence boost, when the co-occurrence type is absent) tied
+  to an EMAIL IOC — the genuine phishing-delivery signal already available
+  in this system, mirroring `R-T1566-phishing`'s existing precedent. Result
+  on the same real case: 10 mapped techniques -> 3 (Brute Force, Valid
+  Accounts, Remote Services — all three genuinely defensible for an SSH
+  auth log), IOC count 39 -> 26, Findings 10 -> 3.
+- **MITRE mapping explainability.** `MitreMapping` gained `rule_id`/
+  `rationale` fields (`core/findings/models.py`); `mapping_engine.py`
+  tracks the winning rule per technique and builds a rationale string
+  naming the actual matched IOC values (e.g. *"Repeated username IOCs...
+  Matched 7 indicator(s): username='ubuntu', username='root', ..."*), not
+  just a bare technique ID and confidence number — task requirement "show
+  exactly why each technique was selected."
+- **Finding-level explainability.** New `core.findings.models.
+  FindingExplanation` (`evidence_summary`, `severity_rationale`), attached
+  to every `FindingRecord` via a new `explanation` field.
+  `finding_generator.py`'s title/description are no longer the generic
+  `"{technique.name} ({id}) detected"` — they now name the actual
+  supporting IOC values (e.g. *"Brute Force (T1110): username 'admin',
+  username 'root', username 'test', and 4 more"*) and the firing rule ID.
+  A new `core.findings.severity.explain_severity` function (a companion to
+  the existing `assign_severity`, not a signature change to it) states
+  which IOC drove the base severity and whether/why an escalation was
+  applied.
+- **Incident severity justification.** `IncidentSeverityClassifier.
+  classify` now returns a `SeverityClassificationResult` (severity,
+  base_severity, qualifying_finding_count, escalation_steps,
+  justification: str) instead of a bare enum — task requirement "if
+  escalation to Critical occurs, provide deterministic justification."
+  `IncidentResponsePlan` gained `severity_justification: str`.
+- **Recommendation consolidation.** `core.incident_response.
+  action_ordering.order_recommendations` gained a second pass,
+  `_consolidate`: once a `ResponseCategory` accumulates 3+ distinct-target
+  recommendations after the existing per-(category,target) merge, they
+  fold into one line item naming every target (e.g. "Block network
+  traffic... (4 indicators): 203.0.113.44, 198.51.100.9, ...") instead of
+  N near-identical entries — task requirement "produce concise SOC-style
+  action plans instead of repetitive lists." Below that threshold,
+  separate entries stay separate (still readable).
+- **Report data enrichment (no template changes).** `core/reporting/
+  section_builders.py`'s `build_mitre_mapping`/`build_findings`/
+  `build_incident_response_actions` now surface `rule_id`/`rationale`,
+  `evidence_summary`/`severity_rationale`, and `severity_justification`
+  respectively — richer section *content* dicts, the existing
+  `report.html.j2` template (unmodified) already renders arbitrary dict
+  content generically. `core/services/case_service.py`'s
+  `_hydrate_mitre_mapping_records`/`_hydrate_incident_response_records`
+  extended their existing field whitelists to pass the new data through
+  (both already read `json.loads(row.finding_data_json)` directly; no new
+  import edge, no dependency-rules change).
+- **Validated against the real case, not just unit tests.** Re-ran the
+  exact SSH-auth-log + nmap-scan investigation from the prior session
+  end-to-end after these fixes: MITRE techniques 10 -> 3, IOC count 39 ->
+  26, Findings 10 -> 3, every remaining finding's title/description now
+  evidence-specific, every MITRE mapping's rationale names real IOC values,
+  the incident response plan's `severity_justification` states the actual
+  escalation math. The one still-visible oddity (the persisted
+  `IncidentResponsePlan`/`Report` showing the *previous* upload's severity
+  immediately after a second evidence upload) is the same, already-
+  disclosed "one run behind" limitation ADR-0023/0024 accepted — not
+  reopened or touched this session.
+- **Testing** — 49 new/extended tests across
+  `test_threat_intel_patterns.py` (FILE_NAME false-positive/true-positive
+  pairs), `test_threat_intel_classification.py`
+  (`derive_severity_from_classification`), new
+  `test_findings_mapping_rules.py` (every tightened rule's gating
+  data), `test_findings_mapping_engine.py` (`require_co_occurrence`
+  gating, `rule_id`/`rationale` population, an end-to-end
+  "SSH-log-shaped IOCs never map to the tightened techniques" regression
+  test), `test_findings_generator.py` (evidence-specific titles,
+  `FindingExplanation` population), `test_findings_severity.py`
+  (`explain_severity`), `test_incident_response_severity_classifier.py`
+  (rewritten for the new return type + justification text),
+  `test_incident_response_action_ordering.py` (consolidation behavior),
+  `test_reporting_section_builders.py` (new field pass-through). Full
+  pytest suite (1835 tests, up from 1786), `ruff check`/`format --check`,
+  and `scripts/check_dependency_rules.py` all pass. Every new/changed file
+  is individually `mypy --strict` clean except `core/services/
+  case_service.py`, which reproduces the pre-existing, unrelated numpy
+  stub-incompatibility failure that already blocks a whole-repo `mypy`
+  run — confirmed via `git stash` that this failure exists identically on
+  the unmodified file, not introduced this session.
+
+**Explicitly NOT touched this session:** any module boundary, leaf-package
+ownership, or `docs/dependency-rules.md` edge (zero changes to that file);
+`core/graph/*`, `core/agents/*` (agents call the same tools/engines as
+before, unaware anything changed beneath them); the "Report/
+IncidentResponsePlan is one-run-behind on a multi-upload case" limitation
+(ADR-0023/0024, unchanged, not reopened); any report *template* (`report.
+html.j2` untouched — only the data fed into it changed, per this task's
+explicit "do not redesign the report template yet" instruction); the
+`apps/web` UI (still unbuilt, unrelated to this session's scope).
+
+---
+
+### Report Export Framework (prior session, unchanged)
+
+Prior session implemented blueprint §4/§13's **Report Export
 Framework** (`docs/adr/0026-report-export-framework.md`) — the rendering
 layer `core/reporting/README.md` had explicitly deferred under ADR-0024
 ("do not build exporters yet... a future session adds the concrete

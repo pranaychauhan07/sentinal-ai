@@ -71,6 +71,53 @@ def assign_severity(
     return base
 
 
+def explain_severity(
+    iocs: list[ScoredIOC], mappings: list[MitreMapping], confidence: FindingConfidence
+) -> str:
+    """Companion to `assign_severity` — same inputs, produces the
+    human-readable "why" a task-required explainability field needs,
+    without changing `assign_severity`'s own signature/behavior (kept as a
+    second, pure function rather than folding a string return into the
+    existing one, so every existing caller of `assign_severity` is
+    unaffected)."""
+    if not iocs:
+        return "No supporting indicators."
+
+    base_ioc = max(
+        iocs, key=lambda ioc: SEVERITY_ORDER.index(_THREAT_TO_FINDING_SEVERITY[ioc.record.severity])
+    )
+    base = _THREAT_TO_FINDING_SEVERITY[base_ioc.record.severity]
+    base_text = (
+        f"Base severity '{base.value}' from the highest-severity supporting indicator: "
+        f"{base_ioc.record.ioc_type.value} {base_ioc.record.value!r} "
+        f"(classified {base_ioc.record.severity.value})."
+    )
+
+    touched_tactics = sorted(
+        {
+            tactic_id
+            for mapping in mappings
+            for tactic_id in mapping.tactic_ids
+            if tactic_id in _HIGH_IMPACT_TACTIC_IDS
+        }
+    )
+    if touched_tactics and confidence.composite >= _ESCALATION_CONFIDENCE_THRESHOLD:
+        return (
+            f"{base_text} Escalated one level because this finding maps to high-impact "
+            f"tactic(s) {', '.join(touched_tactics)} with composite confidence "
+            f"{confidence.composite:.2f} (>= the {_ESCALATION_CONFIDENCE_THRESHOLD:.2f} "
+            f"escalation threshold)."
+        )
+    if touched_tactics:
+        return (
+            f"{base_text} Maps to high-impact tactic(s) {', '.join(touched_tactics)}, but "
+            f"composite confidence {confidence.composite:.2f} is below the "
+            f"{_ESCALATION_CONFIDENCE_THRESHOLD:.2f} escalation threshold, so no escalation "
+            f"was applied."
+        )
+    return f"{base_text} No high-impact tactic mapped, so no escalation was applied."
+
+
 def assign_priority(severity: FindingSeverity, confidence: FindingConfidence) -> FindingPriority:
     """Analyst triage priority — severity dominates, confidence breaks ties
     within a severity band (task requirement: priority distinct from

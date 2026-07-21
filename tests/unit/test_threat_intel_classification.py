@@ -5,8 +5,17 @@ from __future__ import annotations
 
 import pytest
 
-from core.threat_intel.classification import ThreatClassificationEngine
-from core.threat_intel.models import RuleMatchResult, ThreatCategory, ThreatScore
+from core.threat_intel.classification import (
+    ThreatClassificationEngine,
+    derive_severity_from_classification,
+)
+from core.threat_intel.models import (
+    IOCClassification,
+    RuleMatchResult,
+    ThreatCategory,
+    ThreatScore,
+    ThreatSeverity,
+)
 
 
 def _score(composite_score: float, confidence: float = 0.5) -> ThreatScore:
@@ -63,3 +72,73 @@ def test_a_rule_match_elevates_low_score_to_suspicious() -> None:
 def test_invalid_threshold_ordering_raises() -> None:
     with pytest.raises(ValueError, match="Thresholds"):
         ThreatClassificationEngine(malicious_threshold=10.0, suspicious_threshold=50.0)
+
+
+# --- derive_severity_from_classification -----------------------------------
+# Regression coverage for a real bug: `IOCRecord.severity` previously stayed
+# at its Pydantic default (INFO) for every IOC forever, because nothing in
+# the pipeline ever derived a real value from the classification this
+# engine already computes — silently disconnecting Finding-level severity
+# (which reads `ioc.record.severity` as its base) from the actual threat
+# signal. These tests pin the derivation directly.
+
+
+def _classification(category: ThreatCategory) -> IOCClassification:
+    return IOCClassification(category=category, reason="test fixture")
+
+
+@pytest.mark.unit
+def test_malicious_high_score_derives_critical() -> None:
+    severity = derive_severity_from_classification(
+        _classification(ThreatCategory.MALICIOUS), _score(95.0)
+    )
+    assert severity == ThreatSeverity.CRITICAL
+
+
+@pytest.mark.unit
+def test_malicious_lower_score_derives_high_not_critical() -> None:
+    severity = derive_severity_from_classification(
+        _classification(ThreatCategory.MALICIOUS), _score(75.0)
+    )
+    assert severity == ThreatSeverity.HIGH
+
+
+@pytest.mark.unit
+def test_suspicious_high_score_derives_medium() -> None:
+    severity = derive_severity_from_classification(
+        _classification(ThreatCategory.SUSPICIOUS), _score(60.0)
+    )
+    assert severity == ThreatSeverity.MEDIUM
+
+
+@pytest.mark.unit
+def test_suspicious_lower_score_derives_low() -> None:
+    severity = derive_severity_from_classification(
+        _classification(ThreatCategory.SUSPICIOUS), _score(45.0)
+    )
+    assert severity == ThreatSeverity.LOW
+
+
+@pytest.mark.unit
+def test_benign_derives_info() -> None:
+    severity = derive_severity_from_classification(
+        _classification(ThreatCategory.BENIGN), _score(10.0)
+    )
+    assert severity == ThreatSeverity.INFO
+
+
+@pytest.mark.unit
+def test_unknown_derives_info() -> None:
+    severity = derive_severity_from_classification(
+        _classification(ThreatCategory.UNKNOWN), _score(0.0)
+    )
+    assert severity == ThreatSeverity.INFO
+
+
+@pytest.mark.unit
+def test_derivation_is_deterministic() -> None:
+    classification = _classification(ThreatCategory.MALICIOUS)
+    score = _score(80.0)
+    first = derive_severity_from_classification(classification, score)
+    second = derive_severity_from_classification(classification, score)
+    assert first == second == ThreatSeverity.HIGH

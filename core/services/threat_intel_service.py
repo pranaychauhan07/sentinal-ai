@@ -30,7 +30,10 @@ from core.memory.interfaces import CaseMemory
 from core.parsers.models import NormalizedEvidence
 from core.threat_intel.attribution import EvidenceAttributionTracker
 from core.threat_intel.audit import AuditAction, log_threat_intel_audit_event
-from core.threat_intel.classification import ThreatClassificationEngine
+from core.threat_intel.classification import (
+    ThreatClassificationEngine,
+    derive_severity_from_classification,
+)
 from core.threat_intel.dedup import deduplicate_iocs
 from core.threat_intel.events import (
     ThreatIntelEvent,
@@ -180,8 +183,20 @@ class IOCExtractionPipeline:
                 rule_match_count=len(own_matches),
                 source_reliability=source_reliability,
             )
-            ioc_with_confidence = ioc.model_copy(update={"confidence": confidence})
             classification = self._classification_engine.classify(score, own_matches)
+            # `IOCRecord.severity` defaults to INFO at construction (nothing
+            # observed yet) — this is the one place it is actually derived
+            # from the classification/score this pipeline just computed.
+            # Previously this update only touched `confidence`, so every
+            # persisted IOC silently kept the INFO default regardless of how
+            # malicious it classified — see
+            # `core.threat_intel.classification.derive_severity_from_classification`'s
+            # docstring for the downstream Finding-severity inconsistency
+            # this caused.
+            severity = derive_severity_from_classification(classification, score)
+            ioc_with_confidence = ioc.model_copy(
+                update={"confidence": confidence, "severity": severity}
+            )
             scored.append(
                 ScoredIOC(
                     record=ioc_with_confidence,

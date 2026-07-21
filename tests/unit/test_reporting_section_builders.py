@@ -58,6 +58,28 @@ def test_findings_aggregates_across_every_source() -> None:
     assert section.content["highest_severity"] == "critical"
 
 
+def test_findings_surfaces_evidence_summary_and_severity_rationale() -> None:
+    """Explainability requirement: the report's Findings section must carry
+    the real evidence/severity reasoning, not just a title/severity/score
+    triad."""
+    context = ReportGenerationContext(
+        case_id="c1",
+        findings=(
+            {
+                "title": "Brute Force (T1110): username 'admin'",
+                "severity": "high",
+                "risk_score": 70.0,
+                "evidence_summary": "username 'admin', ipv4 '203.0.113.5'",
+                "severity_rationale": "Base severity 'high' from...",
+            },
+        ),
+    )
+    section = build_findings(context)
+    finding = section.content["findings"][0]
+    assert finding["evidence_summary"] == "username 'admin', ipv4 '203.0.113.5'"
+    assert finding["severity_rationale"] == "Base severity 'high' from..."
+
+
 def test_findings_skips_malformed_entries_never_crashes() -> None:
     """`ReportGenerationContext`'s Pydantic validation already rejects a
     non-dict entry at construction time (the agent's `_dict_records` filters
@@ -98,6 +120,25 @@ def test_mitre_mapping_dedups_by_technique_and_aggregates_tactics() -> None:
     assert section.content["distinct_tactic_count"] == 2
 
 
+def test_mitre_mapping_surfaces_rule_id_and_rationale() -> None:
+    context = ReportGenerationContext(
+        case_id="c1",
+        mitre_mappings=(
+            {
+                "technique_id": "T1110",
+                "tactic_ids": ["TA0006"],
+                "confidence": 0.9,
+                "rule_id": "R-T1110-brute-force",
+                "rationale": "Matched 3 indicator(s): username='admin'.",
+            },
+        ),
+    )
+    section = build_mitre_mapping(context)
+    technique = section.content["techniques"][0]
+    assert technique["rule_id"] == "R-T1110-brute-force"
+    assert "admin" in technique["rationale"]
+
+
 def test_incident_response_actions_no_plan_reports_has_plan_false() -> None:
     context = ReportGenerationContext(case_id="c1")
     section = build_incident_response_actions(context)
@@ -126,6 +167,33 @@ def test_incident_response_actions_with_plan() -> None:
     section = build_incident_response_actions(context)
     assert section.content["has_plan"] is True
     assert section.content["recommendation_count"] == 1
+
+
+def test_incident_response_actions_surfaces_severity_justification() -> None:
+    context = ReportGenerationContext(
+        case_id="c1",
+        incident_response_plan={
+            "incident_severity": "critical",
+            "severity_justification": "Base severity 'high', escalated 1 level(s)...",
+            "recommendations": [
+                {
+                    "action": {
+                        "title": "Isolate host",
+                        "category": "host_isolation",
+                        "phase": "containment",
+                    },
+                    "priority": "p1_immediate",
+                    "execution_order": 1,
+                    "rationale": "Triggered by finding X.",
+                }
+            ],
+        },
+    )
+    section = build_incident_response_actions(context)
+    assert (
+        section.content["severity_justification"] == "Base severity 'high', escalated 1 level(s)..."
+    )
+    assert section.content["recommendations"][0]["rationale"] == "Triggered by finding X."
 
 
 def test_recommendations_deduplicates_across_sources() -> None:

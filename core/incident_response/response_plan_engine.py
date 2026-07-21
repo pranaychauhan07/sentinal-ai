@@ -186,6 +186,7 @@ class ResponsePlanEngine:
                 plan = IncidentResponsePlan(
                     case_id=case_id,
                     incident_severity=IncidentSeverity.INFO,
+                    severity_justification="No findings available for this case.",
                     overall_risk_score=0.0,
                     overall_confidence=0.0,
                     recommendations=(),
@@ -202,7 +203,8 @@ class ResponsePlanEngine:
                 )
                 return plan
 
-            incident_severity = self._severity_classifier.classify(findings)
+            severity_result = self._severity_classifier.classify(findings)
+            incident_severity = severity_result.severity
 
             raw_recommendations: list[ResponseRecommendation] = []
             for finding in findings:
@@ -249,6 +251,7 @@ class ResponsePlanEngine:
         plan = IncidentResponsePlan(
             case_id=case_id,
             incident_severity=incident_severity,
+            severity_justification=severity_result.justification,
             overall_risk_score=overall_risk_score,
             overall_confidence=overall_confidence,
             recommendations=ordered,

@@ -161,6 +161,11 @@ def build_mitre_mapping(context: ReportGenerationContext) -> ReportSection:
                 "technique_id": technique_id,
                 "confidence": mapping.get("confidence", 0.0),
                 "tactic_ids": tactic_ids,
+                # Explainability requirement: which rule fired and why —
+                # read straight through from the persisted `MitreMapping`,
+                # never re-derived (constitution §1.9).
+                "rule_id": mapping.get("rule_id", ""),
+                "rationale": mapping.get("rationale", ""),
             },
         )
         distinct_tactics.update(str(t) for t in tactic_ids)
@@ -187,6 +192,10 @@ def build_findings(context: ReportGenerationContext) -> ReportSection:
                 "title": finding.get("title", ""),
                 "severity": finding.get("severity", "info"),
                 "risk_score": finding.get("risk_score", 0.0),
+                # Explainability requirement: real evidence/severity
+                # reasoning, read straight through (never re-derived).
+                "evidence_summary": finding.get("evidence_summary", ""),
+                "severity_rationale": finding.get("severity_rationale", ""),
             }
         )
     for record in context.vulnerability_records:
@@ -268,6 +277,7 @@ def build_incident_response_actions(context: ReportGenerationContext) -> ReportS
                 "phase": action_dict.get("phase", ""),
                 "priority": r.get("priority", ""),
                 "execution_order": r.get("execution_order", 0),
+                "rationale": r.get("rationale", ""),
             }
         )
     return _section(
@@ -276,6 +286,11 @@ def build_incident_response_actions(context: ReportGenerationContext) -> ReportS
         {
             "has_plan": True,
             "incident_severity": plan.get("incident_severity", "info"),
+            # Explainability requirement: "if escalation to Critical
+            # occurs, provide deterministic justification" — read straight
+            # through from the persisted `IncidentResponsePlan.
+            # severity_justification`, never re-derived.
+            "severity_justification": plan.get("severity_justification", ""),
             "recommendation_count": len(recommendations),
             "recommendations": recommendations,
         },

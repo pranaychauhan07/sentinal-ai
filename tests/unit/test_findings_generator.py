@@ -65,3 +65,49 @@ def test_finding_has_positive_risk_score() -> None:
     engine = _generation_engine()
     findings = engine.generate(uuid.uuid4(), [make_scored_ioc(ioc_type=IOCType.USERNAME)])
     assert all(f.risk_score > 0.0 for f in findings)
+
+
+@pytest.mark.unit
+def test_finding_title_is_evidence_specific_not_generic() -> None:
+    """Detection-quality requirement: a Finding's title must name the
+    actual supporting evidence, not just restate the technique name/ID
+    (the previous, overly generic '{name} ({id}) detected' shape a real
+    investigation report flagged as unsupportive)."""
+    engine = _generation_engine()
+    findings = engine.generate(
+        uuid.uuid4(), [make_scored_ioc(ioc_type=IOCType.USERNAME, value="admin")]
+    )
+    brute_force = next(f for f in findings if f.mitre_mappings[0].technique_id == "T1110")
+    assert "admin" in brute_force.title
+    assert "detected" not in brute_force.title.lower()
+
+
+@pytest.mark.unit
+def test_finding_explanation_is_populated() -> None:
+    engine = _generation_engine()
+    findings = engine.generate(
+        uuid.uuid4(), [make_scored_ioc(ioc_type=IOCType.USERNAME, value="admin")]
+    )
+    for finding in findings:
+        assert finding.explanation is not None
+        assert "admin" in finding.explanation.evidence_summary
+        assert finding.explanation.severity_rationale
+
+
+@pytest.mark.unit
+def test_finding_description_names_the_triggering_rule() -> None:
+    engine = _generation_engine()
+    findings = engine.generate(
+        uuid.uuid4(), [make_scored_ioc(ioc_type=IOCType.USERNAME, value="admin")]
+    )
+    brute_force = next(f for f in findings if f.mitre_mappings[0].technique_id == "T1110")
+    assert "R-T1110-brute-force" in brute_force.description
+
+
+@pytest.mark.unit
+def test_evidence_summary_truncates_many_supporting_iocs() -> None:
+    engine = _generation_engine()
+    iocs = [make_scored_ioc(ioc_type=IOCType.USERNAME, value=f"user{i}") for i in range(6)]
+    findings = engine.generate(uuid.uuid4(), iocs)
+    brute_force = next(f for f in findings if f.mitre_mappings[0].technique_id == "T1110")
+    assert "and 3 more" in brute_force.explanation.evidence_summary
