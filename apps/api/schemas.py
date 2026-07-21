@@ -23,6 +23,7 @@ from core.db.models.ioc import IOCStatus
 from core.db.models.timeline_event import TimelineEventType
 from core.findings.models import FindingPriority, FindingSeverity, FindingStatus
 from core.parsers.models import EvidenceType, Severity
+from core.reporting.models import ReportFormat
 from core.threat_intel.models import IOCType, ThreatCategory, ThreatSeverity
 
 
@@ -269,3 +270,14 @@ class ConversationAskResponse(BaseModel):
     degraded: bool
     selected_categories: list[EvidenceCategory]
     prompt_injection_flagged: bool
+
+
+# --- Report Export (Report Export Framework, docs/adr/0026) --------------
+
+
+class ReportFormatsResponse(BaseModel):
+    """`GET /cases/{case_id}/reports/formats`'s response — every
+    `ReportFormat` `export_manager.ExportManager` has a renderer for,
+    independent of whether this case has a generated report yet."""
+
+    formats: list[ReportFormat]

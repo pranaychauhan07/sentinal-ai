@@ -10,7 +10,194 @@
 
 ## Completed Features
 
-**Most recent session:** a follow-up task asked for this same AI
+**Most recent session:** implemented blueprint §4/§13's **Report Export
+Framework** (`docs/adr/0026-report-export-framework.md`) — the rendering
+layer `core/reporting/README.md` had explicitly deferred under ADR-0024
+("do not build exporters yet... a future session adds the concrete
+exporters against this same typed model, not a redesign of it"). This
+session is exactly that future session. Before writing code, the existing
+`core/reporting/` package (models, generation engine, README's own
+declared "Future expansion" scope) and `docs/dependency-rules.md` were
+reviewed; no architecture conflict was found — the task's ten named
+components (HTML/PDF/DOCX/Markdown Renderers, Plotly Visualization Engine,
+Report Template Engine, Theme System, Asset Manager, Export Manager,
+Download Manager) map cleanly onto extending the existing package, per its
+own README.
+
+**What this session actually built** (all inside the existing
+`core/reporting/` leaf package — no new leaf, `report_engine.py`/
+`section_builders.py`/`completeness_validator.py`/
+`statistics_calculator.py`/`confidence_calculator.py` untouched):
+- `theme.py` — `ReportTheme` (branding: colors, fonts, logo, org name,
+  header/footer, page numbering), `LIGHT_THEME`/`DARK_THEME` built-in
+  presets, `resolve_theme`. Custom branding is "pass any `ReportTheme`
+  instance," never a mutable registry (constitution §2).
+- `asset_manager.py` — `AssetManager` (base64 `data:` URI embedding for
+  HTML/Markdown, validated raw-bytes pass-through for PDF/DOCX, a
+  size/MIME guard raising `AssetEmbeddingError`) + `from_data_uri` (the one
+  shared decode helper `pdf_renderer.py`/`docx_renderer.py` both call,
+  avoiding a duplicated decoder).
+- `charts.py` — the Plotly Visualization Engine: eight task-named chart
+  builders (`severity_distribution`, `risk_trend`, `timeline`,
+  `mitre_heatmap`, `ioc_categories`, `threat_intelligence_sources`,
+  `finding_distribution`, `case_statistics`), each a pure function of an
+  already-generated `GeneratedReport`'s sections/statistics — never a
+  re-derived score (constitution §1.9) — each degrading to an annotated
+  "no data" empty figure rather than raising.
+- `chart_image_encoder.py` — `ChartImageEncoder` (a `Protocol`, mirroring
+  `core.conversation.llm_provider.ChatModelProvider`'s injection shape) +
+  `KaleidoChartImageEncoder` (the real backend — new `kaleido>=1.0`
+  dependency, verified to install and function in this environment: ~1-2s
+  per chart render via a headless-Chrome subprocess) + `safe_encode`
+  (never raises; a rendering failure — e.g. no Chrome available in a given
+  deployment — degrades to "chart omitted," never aborts the export).
+- `template_engine.py` + `templates/report.html.j2` —
+  `ReportTemplateEngine`, a Jinja2 wrapper whose `render()` accepts only a
+  `template_name` from a fixed `KNOWN_TEMPLATES` allowlist (never a
+  caller-supplied template string) with autoescaping on — the task's
+  "template injection" defense requirement, made structural rather than a
+  runtime filter: attacker-controlled case data can only ever become an
+  escaped *variable value*, never compiled template *source*.
+- `html_renderer.py` — `HTMLReportRenderer`: dark/light mode (via
+  `ReportTheme`), a print stylesheet, embedded *interactive* Plotly charts
+  (Plotly's own JS runtime embedded inline once via
+  `plotly.offline.get_plotlyjs()` — genuinely offline-viewable, no CDN,
+  no Kaleido needed for this format), collapsible sections (native
+  `<details>`/`<summary>`, no JS required), and an anchor-link navigation
+  sidebar.
+- `markdown_renderer.py` — `MarkdownReportRenderer`: headings, a table of
+  contents, tables, `_escape_markdown` (a case value containing
+  `|`/`*`/`#`/etc. can never corrupt Markdown structure), charts embedded
+  as base64 data-URI images.
+- `pdf_renderer.py` — `PDFReportRenderer`: ReportLab Platypus flowables
+  driven directly from `GeneratedReport` — never an HTML-to-PDF conversion
+  (no such library is a dependency; blueprint §4's "Jinja2 -> ReportLab" is
+  satisfied as "Jinja2 for HTML/Markdown, ReportLab for PDF," both against
+  the same `GeneratedReport` source of truth, documented explicitly so this
+  isn't mistaken for an oversight). Header/footer/page-numbering via
+  ReportLab's standard two-pass `_NumberedCanvas` recipe (subclassing
+  `reportlab.pdfgen.canvas.Canvas`, an accepted, documented `mypy --strict`
+  `type: ignore[misc]` since ReportLab ships no stubs).
+- `docx_renderer.py` — `DOCXReportRenderer`: python-docx (already a
+  dependency, previously only used for *parsing* incident notes — this is
+  its first generation use), real heading styles, real tables, a
+  Word-computed Table-of-Contents field (the standard raw-XML `TOC` field
+  recipe — python-docx has no `add_toc()` API since a TOC is a computed
+  Word field, not static content).
+- `export_manager.py` — `ExportManager` + `ExportedReport` (bytes + media
+  type + filename — never a bare `bytes` return crossing a public function
+  boundary): the one place format dispatch, the oversized-export guard
+  (`OversizedReportExportError`, 25 MiB default ceiling on serialized
+  report size), and export audit/metrics events live.
+- `exceptions.py`/`audit.py`/`metrics.py` — extended, not redesigned: a
+  sibling export-stage exception hierarchy (`ReportExportError` and
+  subclasses) alongside the existing generation-stage one;
+  `AuditAction` gained `EXPORT_GENERATED`/`EXPORT_FAILED`/
+  `OVERSIZED_EXPORT_REJECTED` plus `log_report_export_audit_event`;
+  `ReportExportMetricsCollector` (per-format counts/failures/timing) added
+  alongside the existing `ReportGenerationMetricsCollector`.
+- **`core.reporting.models.ReportFormat`** gained a fifth value, `DOCX`
+  (additive — this enum is never persisted to a DB column, unlike
+  `ReportType`, so no migration was needed).
+- **`core/services/report_export_service.py`** (new) — the on-demand entry
+  point (`export_report`, `preview_report`, `list_supported_formats`),
+  mirroring `conversation_service.py`'s shape exactly. A new, documented
+  `docs/dependency-rules.md` exception (**rule 4k**, worded identically to
+  the established 4a-4j family) permits this one service to import
+  `core/reporting` directly. Reads the case's already-persisted `Report`
+  row (`ReportRepository.find_by_case`), deserializes it back into a typed
+  `GeneratedReport`, and renders on request — never regenerates report
+  content, never triggers a new investigation. `preview_report` always
+  renders HTML regardless of the caller's ultimate target format
+  (blueprint §13: "previewable in-app before download"; PDF/DOCX bytes
+  aren't directly browser-previewable).
+- **New API routes** — `GET /api/v1/cases/{case_id}/reports/formats`,
+  `/export?format=...&theme=...&include_charts=...`, `/preview?theme=...`
+  (`apps/api/routers/report_export.py`, wired into `apps/api/routers/v1.py`).
+  All three are `GET` (read-only/idempotent — no `POST` action-trigger
+  needed here, unlike `/conversation`). New `apps/api/schemas.py` addition:
+  `ReportFormatsResponse`. The router's `_download_response` helper is this
+  feature's "Download Manager": pure presentation packaging (media type +
+  `Content-Disposition` header), never a business decision (constitution
+  §6, "routers contain no business logic") — the rendering decision already
+  happened inside `ExportManager`.
+- **No persisted export artifacts** — exports render synchronously,
+  in-memory, per request; `Report.file_path` stays `NULL` (unchanged from
+  ADR-0024). A deliberate, disclosed scope boundary (docs/adr/0026 Decision
+  4), not an oversight — `data/reports_out/` disk persistence is named as
+  future work, addable behind the same `ExportedReport` shape.
+- **Testing** — 73 new tests: eleven `core/reporting` unit-test modules
+  (theme, asset_manager — including a `from_data_uri` round-trip and an
+  oversized-asset-rejection test, charts — including a "every builder
+  degrades gracefully on an empty report" test across all eight builders,
+  chart_image_encoder — including a real-failure-wrapped-as-
+  `ChartRenderingError` test and a `safe_encode`-degrades-to-`None` test,
+  template_engine, html_renderer — including a real XSS/template-injection
+  escaping test against the actual `report.html.j2` template (not a
+  synthetic Jinja2 snippet), markdown_renderer — including a
+  special-character-escaping test, pdf_renderer — including a
+  chart-rendering-failure-degrades-gracefully test, docx_renderer —
+  including a real TOC-field-present and findings-table-present assertion
+  parsed back out of the generated `.docx`, export_manager — a
+  parametrized every-`ReportFormat` round-trip test plus an
+  oversized-export-rejection test, that caught and fixed a real bug this
+  session: `export()` crashed with `AttributeError` instead of raising
+  `UnsupportedExportFormatError` when handed a non-enum format value) and
+  two extended existing modules (metrics — the new
+  `ReportExportMetricsCollector`, models — `ReportFormat.DOCX` added to the
+  existing exhaustiveness assertion), a new
+  `tests/integration/test_report_export_service.py` (not-found case,
+  no-report-yet, and a full real-pipeline test — SSH-auth-log evidence
+  uploaded, then HTML/JSON/preview export, plus a second test for PDF/DOCX
+  with a fake `ChartImageEncoder` injected to avoid the real ~15s Kaleido
+  cost in the integration tier), and a new
+  `tests/integration/test_api_report_export_routes.py` (formats list, 404s
+  for a missing case and a case with no report yet, HTML/JSON export plus
+  preview against real pipeline output via the actual FastAPI app, and a
+  dark-theme query-param test — PDF/DOCX are deliberately not re-exercised
+  at this slowest test tier with real Kaleido cost, since that exact
+  rendering path is already proven at the unit/service-integration tiers
+  with a fake encoder, a documented, deliberate boundary, not a gap). Full
+  pytest suite (1785 tests, up from 1712), `ruff check`/`format --check`,
+  `mypy --strict` on every new/changed `core/reporting`/
+  `core/services/report_export_service.py` file (required two real fixes:
+  `charts.py`'s `int(object)` call needed a defensive `_safe_int` helper;
+  `docx_renderer.py`'s `from docx import Document` conflated the
+  constructor *function* with the `docx.document.Document` *class* for
+  type-annotation purposes — fixed by importing the class from its real
+  submodule for annotations and the factory function under a distinct
+  name), and `scripts/check_dependency_rules.py` all pass. A new
+  `pyproject.toml` mypy override (`ignore_missing_imports` for
+  `plotly.*`/`reportlab.*`, the standard convention for an untyped
+  third-party dependency) was added — this repository's first `core/`
+  consumer of either library's actual API surface (previously only
+  referenced in `requirements.txt`). The pre-existing, unrelated numpy/
+  pandas whole-repo `mypy` failure (see Known Issues) is unchanged,
+  confirmed by reproducing the identical failure on the already-shipped,
+  unmodified `apps/api/routers/evidence.py`.
+
+**Explicitly NOT built this session:** an `apps/web` report/export UI page
+(no frontend page exists yet for this — API/backend only, matching this
+task's own scope); asynchronous/background export generation (named as a
+"Future" item in the task brief, not required now); persisted export
+artifacts / `data/reports_out/` disk writes; a non-Kaleido static-chart-
+rendering fallback (the graceful-degradation path already covers "Kaleido
+unavailable" without a second rasterizer implementation); golden-file
+snapshot tests (`tests/golden/`, still empty — HTML/PDF/DOCX output isn't
+naturally byte-stable across library versions/embedded timestamps, so
+correctness is asserted structurally, not byte-for-byte); any redesign of
+`core/reporting/{models,inputs,section_registry,section_builders,
+completeness_validator,statistics_calculator,confidence_calculator,
+report_engine}.py` (`models.py`'s only change is the additive
+`ReportFormat.DOCX` value), `core/tools/report_tools.py`,
+`core/agents/report_generator_agent.py`, `core/graph/*`, or any prior
+agent/framework.
+
+---
+
+### AI Investigation Assistant Response Validator (prior session, unchanged)
+
+A follow-up task asked for this same AI
 Investigation Assistant backend again (a differently-worded, thirteen-
 component spec). A pre-implementation check (per this project's own
 "never redesign completed modules" rule and constitution §14.9) confirmed

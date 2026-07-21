@@ -11,6 +11,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **Report Export Framework** (`docs/adr/0026-report-export-framework.md`) —
+  the rendering/export layer on top of the already-shipped
+  `core.reporting.models.GeneratedReport` (ADR-0024), closing
+  `core/reporting/README.md`'s own previously-declared "Future expansion"
+  scope. New within the existing `core/reporting/` package: `theme.py`
+  (`ReportTheme`, `LIGHT_THEME`/`DARK_THEME`), `asset_manager.py`
+  (`AssetManager`, `from_data_uri`), `charts.py` (the Plotly Visualization
+  Engine — `severity_distribution`, `risk_trend`, `timeline`,
+  `mitre_heatmap`, `ioc_categories`, `threat_intelligence_sources`,
+  `finding_distribution`, `case_statistics`), `chart_image_encoder.py`
+  (`ChartImageEncoder` protocol, `KaleidoChartImageEncoder`, `safe_encode`
+  — new `kaleido>=1.0` dependency for static PNG chart rasterization),
+  `template_engine.py` + `templates/report.html.j2` (`ReportTemplateEngine`
+  — a fixed template-name allowlist plus autoescaping is this framework's
+  structural template-injection defense), `html_renderer.py`
+  (`HTMLReportRenderer` — dark/light mode, print-friendly, embedded
+  interactive Plotly charts, collapsible sections, nav sidebar),
+  `markdown_renderer.py` (`MarkdownReportRenderer`), `pdf_renderer.py`
+  (`PDFReportRenderer` — ReportLab Platypus flowables, header/footer/page
+  numbering via the standard `_NumberedCanvas` recipe), `docx_renderer.py`
+  (`DOCXReportRenderer` — real headings/tables, a Word-computed
+  Table-of-Contents field), `export_manager.py` (`ExportManager` +
+  `ExportedReport` — format dispatch, the oversized-export guard, export
+  audit/metrics). `core.reporting.models.ReportFormat` gained a fifth
+  value, `DOCX` (additive). `exceptions.py`/`audit.py`/`metrics.py`
+  extended (not redesigned) with an export-stage sibling hierarchy
+  alongside each file's existing generation-stage one. New
+  `core/services/report_export_service.py` (`export_report`,
+  `preview_report`, `list_supported_formats`) — a new, documented
+  dependency-rules.md exception (rule 4k) permits this one service to
+  import `core/reporting` directly, mirroring rule 4j's precedent. New
+  `GET /api/v1/cases/{case_id}/reports/{formats,export,preview}` routes
+  (`apps/api/routers/report_export.py`). 73 new tests (unit: theme, asset
+  manager, charts, chart image encoder, template engine, all four
+  renderers, export manager, metrics/audit extensions; integration: the
+  service against a real pipeline-generated report, and the API routes) —
+  full suite now 1785 tests (up from 1712); `ruff check`/`format --check`,
+  `mypy --strict` on every new/changed `core/reporting`/
+  `core/services/report_export_service.py` file, and
+  `scripts/check_dependency_rules.py` all pass.
 - **AI Investigation Assistant / Conversational Interface**
   (`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`) —
   blueprint §13's AI Analyst Chat: free-form, case-scoped Q&A grounded in

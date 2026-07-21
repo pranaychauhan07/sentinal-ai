@@ -18,8 +18,9 @@ Framework** — `core/graph` (`state.py`, `workflow_engine.py`, `router.py`,
 `planning_agent.py`), `core/tools` (`base.py`, `registry.py`), and
 `core/memory/interfaces.py` — is implemented and tested (see ADR-0009),
 built ahead of the milestone schedule as pure infrastructure: zero domain
-reasoning, zero concrete specialist agent. `core/parsers`, `core/knowledge`,
-`core/security`, `core/reporting`, and `apps/web` are still folder-level
+reasoning, zero concrete specialist agent. `core/reporting` is implemented
+and tested (generation: ADR-0024; export/rendering: ADR-0026). `core/parsers`,
+`core/knowledge`, `core/security`, and `apps/web` are still folder-level
 scaffolding (a `README.md` each) — Milestone M1 onward.
 
 ## Layered architecture
@@ -45,7 +46,9 @@ Security (core/security)      prompt_guard, pii_redaction, approval_gate
         │
 Database (core/db)            PostgreSQL via SQLAlchemy — system of record
         │
-Reporting (core/reporting)    Jinja2 → ReportLab PDF, Plotly charts
+Reporting (core/reporting)    GeneratedReport assembly + PDF/HTML/DOCX/
+                               Markdown/JSON export (Jinja2 HTML, ReportLab
+                               PDF, python-docx DOCX, Plotly charts)
         │
 Conversation (core/conversation)  AI Analyst Chat pipeline (retrieval →
                                    context → prompt → response → citation),

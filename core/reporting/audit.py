@@ -21,6 +21,13 @@ class AuditAction(StrEnum):
     REPORT_DEGRADED = "report_degraded"
     REPORT_GENERATED = "report_generated"
     OVERSIZED_REPORT_INPUT_REJECTED = "oversized_report_input_rejected"
+    #: Export/rendering stage actions (`export_manager.py`) — a sibling set
+    #: to the generation-stage actions above, sharing this same enum and
+    #: `_logger` since both are `core/reporting`'s one observability surface
+    #: (constitution §1.6, "one clear home").
+    EXPORT_GENERATED = "export_generated"
+    EXPORT_FAILED = "export_failed"
+    OVERSIZED_EXPORT_REJECTED = "oversized_export_rejected"
 
 
 def log_report_generation_audit_event(
@@ -40,6 +47,18 @@ def log_report_generation_audit_event(
         section_type=section_type,
         detail=detail,
     )
+
+
+def log_report_export_audit_event(
+    *, action: AuditAction, case_id: str | None = None, detail: str = ""
+) -> None:
+    """Export/rendering-stage counterpart to
+    `log_report_generation_audit_event` — a distinct function (not a
+    parameter overload) because export events carry no `section_type`, only
+    `case_id`/`detail`, matching `core.conversation.audit`'s precedent of
+    one small, purpose-named logging function per pipeline stage rather
+    than one do-everything function with optional fields. Never raises."""
+    _logger.info("report_export_audit_event", action=action.value, case_id=case_id, detail=detail)
 
 
 @contextmanager

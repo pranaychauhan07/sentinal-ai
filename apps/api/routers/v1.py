@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from apps.api.routers import cases, conversation, evidence, findings, iocs
+from apps.api.routers import cases, conversation, evidence, findings, iocs, report_export
 
 api_v1_router = APIRouter(prefix="/api/v1")
 api_v1_router.include_router(cases.router)
@@ -17,3 +17,4 @@ api_v1_router.include_router(evidence.router)
 api_v1_router.include_router(iocs.router)
 api_v1_router.include_router(findings.router)
 api_v1_router.include_router(conversation.router)
+api_v1_router.include_router(report_export.router)

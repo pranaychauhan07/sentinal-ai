@@ -12,6 +12,8 @@ apps/web , apps/api            (frontends — presentation only)
 core/services                  (orchestration for frontends)
         ↓ may import           ↘ core/conversation, core/memory, core/security
                                   (AI Analyst Chat — conversation_service.py only, rule 4j)
+                                ↘ core/reporting
+                                  (Report export/rendering — report_export_service.py only, rule 4k)
         ↓ may import
 core/graph                     (LangGraph workflow)
         ↓ may import           ↘ core/parsers, core/memory (evidence ingestion only — rule 4a)
@@ -182,6 +184,19 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    layers, not new leaf packages built for this exception. See
    `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`.
    No other `core/services` module gets this exception without its own ADR.
+
+4k. **`core/services/report_export_service.py` may import `core/reporting`
+   directly** — the eleventh documented exception to "services only call
+   `core/graph`," worded identically to 4a-4j's established shape.
+   Rendering an already-persisted `GeneratedReport` to a concrete file
+   format (PDF/HTML/Markdown/DOCX/JSON) is deterministic, no-LLM-reasoning
+   post-processing over data the Report Generator Agent already produced
+   and `core/db/report_repository.py` already persisted — it never
+   triggers a new investigation, never regenerates report content, and
+   never touches `core/memory`/`core/security` (unlike 4j, export has no
+   untrusted-input-screening or chat-history dimension). See
+   `docs/adr/0026-report-export-framework.md`. No other `core/services`
+   module gets this exception without its own ADR.
 
 4. **`core/agents` may import `core/tools`, `core/parsers`, `core/knowledge`,
    `core/memory`, `core/security`, and — as the one explicit exception to

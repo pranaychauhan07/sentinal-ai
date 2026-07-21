@@ -421,15 +421,19 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       cross-cutting like `MitreMappingAgent`/`IncidentResponseAgent`,
       auto-generating a Technical Investigation Report on every upload), and
       real DB persistence (extending the placeholder `reports` table,
-      blueprint §8's literal `Case -> 1 Report (nullable)`). Per this
-      session's explicit task instruction, the Jinja2/ReportLab/Plotly
-      *exporters* (`templates/`, `charts.py`, `pdf_builder.py`) are
-      deliberately **not** built yet — only the backend models and
-      generation pipeline (`GeneratedReport` is already format-agnostic,
-      structured to support PDF/HTML/Markdown/JSON equally once a concrete
-      exporter exists). No `/api/v1/cases/{case_id}/reports` route yet
-      either — deferred, not scheduled (see `context/current_state.md`'s
-      Remaining Work section).
+      blueprint §8's literal `Case -> 1 Report (nullable)`). At the time,
+      per that session's explicit task instruction, the Jinja2/ReportLab/
+      Plotly *exporters* were deliberately not built — only the backend
+      models and generation pipeline. **A later session
+      (`docs/adr/0026-report-export-framework.md`) closed that gap**,
+      genuinely completing this milestone's demo criterion: `core/reporting/`
+      gained `theme.py`/`asset_manager.py`/`charts.py` (the eight task-named
+      Plotly chart types)/`chart_image_encoder.py`/`template_engine.py`
+      + `templates/report.html.j2`/`{html,markdown,pdf,docx}_renderer.py`/
+      `export_manager.py`; new `core/services/report_export_service.py`
+      (rule 4k) and `GET /api/v1/cases/{case_id}/reports/{formats,export,
+      preview}` — a case now genuinely produces a real, branded, chart-embedded
+      PDF (and HTML/Markdown/DOCX/JSON) on request, previewable in-app first.
 
 - [ ] **M6 — Memory + Threat Timeline + UX polish.** ChromaDB long-term
       memory, Threat Timeline cross-evidence view, MITRE ATT&CK heatmap,

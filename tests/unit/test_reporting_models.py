@@ -36,12 +36,13 @@ def test_report_type_has_eight_task_named_report_types() -> None:
     assert len(named) == 8
 
 
-def test_all_report_formats_covers_pdf_html_markdown_json() -> None:
+def test_all_report_formats_covers_pdf_html_markdown_json_docx() -> None:
     assert set(ALL_REPORT_FORMATS) == {
         ReportFormat.PDF,
         ReportFormat.HTML,
         ReportFormat.MARKDOWN,
         ReportFormat.JSON,
+        ReportFormat.DOCX,
     }
 
 

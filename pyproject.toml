@@ -52,6 +52,14 @@ disallow_incomplete_defs = true
 module = "apps.*"
 disallow_untyped_defs = false
 
+# plotly and reportlab ship no py.typed marker / stub package (core/reporting's
+# chart/PDF renderers are this repo's first consumers of either) — the
+# standard mypy convention for an untyped third-party dependency, not a
+# suppression of a real type error.
+[[tool.mypy.overrides]]
+module = ["plotly.*", "reportlab.*"]
+ignore_missing_imports = true
+
 # ---------------------------------------------------------------------------
 # pytest
 # ---------------------------------------------------------------------------

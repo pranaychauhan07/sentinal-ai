@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en" data-theme="{{ 'dark' if theme.dark_mode else 'light' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ report.title }} - {{ report.case_id }}</title>
+<style>
+  :root {
+    --primary: {{ theme.primary_color }};
+    --secondary: {{ theme.secondary_color }};
+    --background: {{ theme.background_color }};
+    --text: {{ theme.text_color }};
+    --accent: {{ theme.accent_color }};
+    --font: {{ theme.font_family }};
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--font); background: var(--background); color: var(--text);
+    display: flex; min-height: 100vh;
+  }
+  nav#sidebar {
+    width: 260px; flex-shrink: 0; padding: 1.5rem 1rem; border-right: 1px solid var(--secondary);
+    position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow-y: auto;
+  }
+  nav#sidebar a { display: block; color: var(--text); text-decoration: none; padding: 0.35rem 0; }
+  nav#sidebar a:hover { color: var(--primary); }
+  main { flex: 1; padding: 2rem 3rem; max-width: 960px; }
+  header.report-header { border-bottom: 2px solid var(--primary); margin-bottom: 1.5rem; padding-bottom: 1rem; }
+  header.report-header img.logo { max-height: 60px; margin-bottom: 0.5rem; }
+  h1 { color: var(--primary); margin: 0 0 0.25rem 0; }
+  h2 { color: var(--primary); border-bottom: 1px solid var(--secondary); padding-bottom: 0.25rem; }
+  details.section { margin-bottom: 1.5rem; }
+  details.section summary { cursor: pointer; font-size: 1.15rem; font-weight: 600; color: var(--primary); padding: 0.5rem 0; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; color: #fff; }
+  .badge.degraded { background: var(--accent); }
+  .badge.ok { background: #2ea043; }
+  table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
+  th, td { border: 1px solid var(--secondary); padding: 0.4rem 0.6rem; text-align: left; }
+  th { background: color-mix(in srgb, var(--primary) 15%, transparent); }
+  .chart-container { margin: 1rem 0; }
+  footer.report-footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--secondary); font-size: 0.85rem; color: var(--secondary); }
+  @media print {
+    nav#sidebar { display: none; }
+    main { max-width: 100%; padding: 0.5rem; }
+    details.section { break-inside: avoid; }
+    body { background: #fff; color: #000; }
+  }
+</style>
+{% if plotlyjs %}<script>{{ plotlyjs | safe }}</script>{% endif %}
+</head>
+<body>
+<nav id="sidebar">
+  <strong>{{ report.title }}</strong>
+  <ul style="list-style:none; padding-left:0;">
+    {% for section in report.sections %}
+    <li><a href="#section-{{ section.section_type.value }}">{{ section.title }}</a></li>
+    {% endfor %}
+    {% if charts_html %}<li><a href="#charts">Charts</a></li>{% endif %}
+  </ul>
+</nav>
+<main>
+  <header class="report-header">
+    {% if theme.logo_data_uri %}<img class="logo" src="{{ theme.logo_data_uri }}" alt="Organization logo">{% endif %}
+    {% if theme.organization_name %}<div>{{ theme.organization_name }}</div>{% endif %}
+    <h1>{{ report.title }}</h1>
+    <div>Case: {{ report.case_id }} &middot; Type: {{ report.report_type.value }} &middot; Generated: {{ report.generated_at }}</div>
+    <div>
+      Confidence: {{ "%.0f"|format(report.confidence * 100) }}%
+      {% if report.degraded %}<span class="badge degraded">Degraded</span>{% else %}<span class="badge ok">Complete</span>{% endif %}
+    </div>
+    {% if theme.header_text %}<div>{{ theme.header_text }}</div>{% endif %}
+  </header>
+
+  {% macro render_value(value) %}
+    {% if value is mapping %}
+      <dl>
+      {% for k, v in value.items() %}
+        <dt><strong>{{ k }}</strong></dt>
+        <dd>{{ render_value(v) }}</dd>
+      {% endfor %}
+      </dl>
+    {% elif value is sequence and value is not string %}
+      {% if value and value[0] is mapping %}
+        <table>
+          <thead><tr>{% for key in value[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
+          <tbody>
+          {% for row in value %}
+            <tr>{% for cell in row.values() %}<td>{{ render_value(cell) }}</td>{% endfor %}</tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <ul>{% for item in value %}<li>{{ render_value(item) }}</li>{% endfor %}</ul>
+      {% endif %}
+    {% else %}
+      {{ value }}
+    {% endif %}
+  {% endmacro %}
+
+  {% for section in report.sections %}
+  <details class="section" id="section-{{ section.section_type.value }}" {{ "open" if not section.is_empty else "" }}>
+    <summary>{{ section.title }}{% if section.is_empty %} (no data){% endif %}</summary>
+    {% if section.is_empty %}
+      <p><em>No data available for this section.</em></p>
+    {% else %}
+      {{ render_value(section.content) }}
+    {% endif %}
+  </details>
+  {% endfor %}
+
+  {% if charts_html %}
+  <section id="charts">
+    <h2>Charts</h2>
+    {% for name, html in charts_html.items() %}
+    <div class="chart-container">
+      <h3>{{ name.replace('_', ' ').title() }}</h3>
+      {{ html | safe }}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <footer class="report-footer">
+    {% if theme.footer_text %}<div>{{ theme.footer_text }}</div>{% endif %}
+    <div>Generated by Cyber Defense Copilot{% if theme.page_numbering %} &middot; Report ID: {{ report.report_id }}{% endif %}</div>
+  </footer>
+</main>
+</body>
+</html>

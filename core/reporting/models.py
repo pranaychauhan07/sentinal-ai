@@ -43,22 +43,24 @@ class ReportType(StrEnum):
 class ReportFormat(StrEnum):
     """Output formats this pipeline's models are shaped to support
     (blueprint §10/§16 — "structured report models suitable for future
-    export to PDF/HTML/Markdown/JSON"). No exporter for any of these exists
-    yet (task instruction: "implement only the backend models and generation
-    pipeline... do not build exporters yet") — this enum documents the
-    contract a future `core/reporting/pdf_builder.py`/`charts.py`/Jinja2
-    template set will target, it is not itself an export capability."""
+    export to PDF/HTML/Markdown/JSON"). Every format below has a concrete
+    renderer in `core/reporting/{pdf,html,markdown,docx}_renderer.py`,
+    dispatched by `export_manager.ExportManager` — see
+    `docs/adr/0026-report-export-framework.md`. `DOCX` was added additively
+    (the task's named "DOCX Renderer" requirement) alongside the original
+    four; this enum is never persisted to a DB column (unlike `ReportType`),
+    so extending it needs no migration."""
 
     PDF = "pdf"
     HTML = "html"
     MARKDOWN = "markdown"
     JSON = "json"
+    DOCX = "docx"
 
 
-#: Every format this pipeline's output is already structured to support —
-#: a `GeneratedReport` is format-agnostic (a typed tree of sections/
-#: statistics), so every report supports every format equally until a
-#: concrete exporter is built.
+#: Every format `export_manager.ExportManager` has a registered renderer
+#: for — a `GeneratedReport` is format-agnostic (a typed tree of sections/
+#: statistics), so every report supports every format equally.
 ALL_REPORT_FORMATS: tuple[ReportFormat, ...] = tuple(ReportFormat)
 
 
