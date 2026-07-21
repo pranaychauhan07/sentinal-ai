@@ -76,6 +76,13 @@ async def test_full_pipeline_from_case_creation_to_soc_analysis(
     # least one mapped ATT&CK technique for this case.
     assert result.mitre_technique_count is not None
     assert result.mitre_technique_count > 0
+    # ADR-0023: IncidentResponseAgent is cross-cutting like MitreMappingAgent
+    # and reads this case's just-persisted Finding rows
+    # (`_hydrate_incident_response_records`), so a T1110/TA0006-mapped
+    # finding should synthesize at least one response recommendation.
+    assert result.incident_response_recommendation_count is not None
+    assert result.incident_response_recommendation_count > 0
+    assert result.incident_severity is not None
 
     async with database.session_factory() as session:
         updated_case = await case_service.get_case(session, case.id)
@@ -90,6 +97,7 @@ async def test_full_pipeline_from_case_creation_to_soc_analysis(
         assert TimelineEventType.IOC_EXTRACTED in event_types
         assert TimelineEventType.AGENT_ANALYSIS in event_types
         assert TimelineEventType.CASE_STATUS_CHANGED in event_types
+        assert TimelineEventType.INCIDENT_RESPONSE_PLAN_GENERATED in event_types
 
 
 async def test_phishing_email_upload_routes_to_phishing_agent_not_soc(

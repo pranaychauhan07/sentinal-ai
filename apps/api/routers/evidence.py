@@ -69,6 +69,8 @@ async def upload_evidence(
         highest_sast_risk_level=result.highest_sast_risk_level,
         mitre_technique_count=result.mitre_technique_count,
         mitre_distinct_group_count=result.mitre_distinct_group_count,
+        incident_response_recommendation_count=result.incident_response_recommendation_count,
+        incident_severity=result.incident_severity,
     )
 
 

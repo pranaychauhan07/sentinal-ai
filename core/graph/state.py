@@ -187,6 +187,27 @@ class CaseInvestigationState(BaseModel):
     #: stays generic.
     mitre_mapping_records: Annotated[list[Any], operator.add] = Field(default_factory=list)
 
+    #: This case's already-persisted `Finding` rows (SOC Analyst / Threat
+    #: Hunting / Phishing-derived, case-wide across every prior upload),
+    #: reduced to plain `dict[str, object]` entries by
+    #: `core/services/case_service.py::_hydrate_incident_response_records`
+    #: for `core.agents.incident_response_agent.IncidentResponseAgent` to
+    #: normalize into `core.incident_response.inputs.IncidentInputFinding`.
+    #: Deliberately a **different** field name from every other
+    #: ``*_records`` field — this one is case-wide (mirrors
+    #: ``mitre_mapping_records``'s scope), while
+    #: ``vulnerability_records``/``linux_security_records``/
+    #: ``linux_advisory_records``/``owasp_web_records``/
+    #: ``owasp_security_records`` are scoped to the current upload only
+    #: (docs/adr/0023-incident-response-agent.md, Decision 1). Kept generic
+    #: (``list[Any]``) for the same reason ``mitre_mapping_records`` is:
+    #: `core/graph` has no dependency-rules.md import edge onto
+    #: `core/incident_response`, so this field is never a typed
+    #: `IncidentInputFinding` list.
+    incident_response_finding_records: Annotated[list[Any], operator.add] = Field(
+        default_factory=list
+    )
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

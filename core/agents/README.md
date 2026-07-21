@@ -156,9 +156,29 @@ knowledge, not a sibling leaf's private model. Cross-cutting, not
 evidence-type-gated: routed to on every evidence upload, regardless of
 which other specialist(s) also ran. This closes M2 entirely.
 
-No other specialist agent (Incident Response, Report Generator, Memory, ...)
-exists yet — see `docs/agent-design.md` for how to add one on top of this
-framework.
+**Implemented (Milestone M5, `docs/adr/0023-incident-response-agent.md`):**
+`incident_response_agent.py` — the ninth concrete specialist agent
+(`IncidentResponseAgent`), declaring capability
+`incident_response_synthesis`. Blueprint §7's downstream, cross-agent
+synthesizer — "pulls from every other agent's output already in case state,
+never re-parses evidence itself." Reads this case's already-persisted
+`Finding` rows (`CaseInvestigationState.incident_response_finding_records`,
+hydrated case-wide by `case_service.py`, mirroring
+`mitre_mapping_records`'s scope) plus the current upload's already-hydrated
+`vulnerability_records`/`linux_security_records`/`linux_advisory_records`/
+`owasp_web_records`/`owasp_security_records`, normalizes them into
+`core.incident_response.inputs.IncidentInputFinding`, and calls
+`core.tools.ir_tools.IncidentResponsePlanGenerationTool` to produce a
+deterministic, NIST SP 800-61-aligned `IncidentResponsePlan`. Never computes
+a severity, risk score, MITRE mapping, or response recommendation itself —
+all of that lives in `core/incident_response/`. Cross-cutting, not
+evidence-type-gated, mirroring `MitreMappingAgent`'s identical routing.
+Persisted (unlike every prior M4 "advisory" framework) via
+`core.db.incident_response_plan_repository.IncidentResponsePlanRepository` —
+blueprint §8 names `IncidentResponsePlan` as a real, one-per-case table.
+
+No other specialist agent (Report Generator, Memory, ...) exists yet — see
+`docs/agent-design.md` for how to add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

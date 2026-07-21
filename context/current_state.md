@@ -10,7 +10,198 @@
 
 ## Completed Features
 
-This session implemented blueprint §7's **MITRE Mapping Agent**
+This session implemented blueprint §7's **Incident Response Agent**
+(`docs/adr/0023-incident-response-agent.md`), **partially closing M5** — the
+Incident Response half of M5 is done; the Report Generator Agent half
+remains open. This is the **ninth** concrete specialist agent (after
+`SocAnalystAgent` M1, `PhishingAgent` M2, `VulnerabilityAssessmentAgent`/
+`ThreatHunterAgent`/`LinuxSecurityAgent`/`WebSecurityAgent`/
+`OwaspSecurityAgent` M4, `MitreMappingAgent` M2).
+
+**Before writing any code**, this session worked out a real architecture
+question the task brief didn't answer on its own: blueprint §7 says the
+Incident Response Agent "pulls from every other agent's output already in
+case state — never re-parses evidence itself," but
+`core/graph/workflow_engine.py`'s `_make_node` docstring documents, as an
+empirically-verified fact, that sibling nodes fanned out in the same
+LangGraph superstep each run against their own private deep copy of the
+pre-superstep state — a node can never see another node's writes from the
+same run (confirmed further by `core/agents/planning_agent.py`: every
+`PlannedStep` it emits has `depends_on=()`, and `core/graph/routing.py` only
+ever fans out to entry steps — there is no dependency-aware second-wave
+dispatch implemented anywhere). The naive design ("read
+`state.agent_outputs[other_agent.name]`") would have silently returned
+empty results for every case. `docs/adr/0023-incident-response-agent.md`
+documents the actual resolution: this agent reads the same *pre-hydrated
+input* `*_records` fields every other specialist already reads
+(`vulnerability_records`, `linux_security_records`, `linux_advisory_records`,
+`owasp_web_records`, `owasp_security_records`, `mitre_mapping_records` —
+all populated onto `CaseInvestigationState` *before* the graph runs, not
+written during it) plus a new case-wide `incident_response_finding_records`
+field (hydrated from the case's already-persisted `Finding` rows, mirroring
+`MitreMappingAgent`'s `mitre_mapping_records` pattern exactly) — never
+sibling `agent_outputs`. This was resolved and documented via ADR before any
+implementation code was written, per the project's own "stop and explain
+before writing code" rule.
+
+**What this session actually built:**
+- **`core/incident_response/`** (new leaf package, ninth peer to
+  `core/threat_intel`/`core/findings`/`core/vulnerabilities`/
+  `core/linux_security`/`core/linux_advisor`/`core/owasp_web`/
+  `core/owasp_security`) — the task's named strongly-typed models
+  (`models.py`: `IncidentSeverity`, `ResponsePriority`, `ResponseCategory`
+  — the task's exact eleven named action kinds, `ResponsePhase` — the
+  task's exact six named phases, `ResponseTimeframe`, `ResponseEvidence`,
+  `ResponseAction`, `ResponseRecommendation`, `ResponseMetrics`,
+  `IncidentResponsePlan` with derived, never-duplicated `@property` phase/
+  timeframe groupings), `exceptions.py` (narrow hierarchy), `inputs.py`
+  (`IncidentInputFinding` — the one normalized shape every upstream
+  subsystem's already-computed signal is reduced to before this package
+  ever sees it), `severity_classifier.py` (`IncidentSeverityClassifier` —
+  case-level severity rollup with configurable escalation thresholds),
+  `playbook_rules.py` (the deterministic rule engine: a real ATT&CK
+  tactic-ID -> `ResponseCategory` mapping table for all fourteen enterprise
+  tactics, a keyword fallback, a severity-only last resort, plus the static
+  per-category `CategoryTemplate` table naming phase/timeframe/base-priority/
+  title/description/expected-impact for all eleven categories),
+  `risk_prioritizer.py` (`RiskPrioritizer` — one finding+category -> a fully
+  specified `ResponseRecommendation`, severity-driven priority escalation/
+  de-escalation), `action_ordering.py` (`order_recommendations` — dedups
+  recommendations resolving to the same category+target across findings by
+  merging evidence/finding-ids/technique-ids, then sorts by priority ->
+  NIST-phase order -> risk score -> category and assigns `execution_order`),
+  `confidence_calculator.py` (plan-level confidence/risk-score rollups,
+  confidence discounted by the fraction of skipped/malformed input records),
+  `response_plan_engine.py` (`ResponsePlanEngine` — the task's named
+  pipeline orchestrator: classify severity -> match categories -> prioritize
+  -> order -> calculate confidence -> build `IncidentResponsePlan`, with a
+  documented degraded-not-crashed outcome for zero findings, zero matched
+  categories, and an oversized-finding-set guard), `metrics.py`
+  (`IncidentResponseMetricsCollector`), `audit.py` (structured audit-event
+  emission + timing) — mirroring `core/owasp_security`/`core/linux_advisor`'s
+  established leaf-package shape exactly. Deterministic throughout — no LLM
+  reasoning anywhere in this package (task requirement), verified by an
+  explicit reproducibility test (`test_incident_response_response_plan_engine.
+  py::test_generation_is_deterministic_given_the_same_input`).
+- **`core/tools/ir_tools.py`** (new, blueprint's exact named file) —
+  `IncidentResponsePlanGenerationTool`. Unlike `owasp_tools.py`/
+  `web_security_tools.py` (thin dict-shaped aggregators with no cross-leaf
+  import), this tool's `run()` is a thin wrapper around
+  `core.incident_response.response_plan_engine.ResponsePlanEngine` — the
+  same shape `core.tools.mitre_tools.MitreMappingResolutionTool` already
+  established for wrapping `core.knowledge.mitre.lookup.MitreLookup`
+  directly. Its input stays typed (not dict-shaped): a new, narrowly-scoped
+  dependency-rules.md exception (**rule 5b**) permits this one
+  `core/tools/*.py` file — and no other — to import `core/incident_response`
+  directly, mirroring rule 5's existing `core/knowledge` exception for
+  `mitre_tools.py`.
+- **`core/agents/incident_response_agent.py`** (new) — `IncidentResponseAgent`,
+  the ninth concrete specialist agent, capability
+  `incident_response_synthesis`. Deliberately thin: normalizes six different
+  `CaseInvestigationState` record fields (see Decision 1 above) into
+  `IncidentInputFinding`s via one small converter function per source
+  (`_finding_from_persisted_record`, `_finding_from_vulnerability_record`,
+  `_finding_from_linux_security_record`, `_finding_from_linux_advisory_record`,
+  `_finding_from_owasp_web_record`, `_finding_from_owasp_security_record`,
+  each skip-on-malformed, never crashing) and calls
+  `IncidentResponsePlanGenerationTool`. Returns a `DEGRADED`,
+  zero-recommendation "insufficient evidence" result — never a forced
+  guess — when no findings are available yet, exactly matching
+  `MitreMappingAgent`'s "unmapped rather than a low-confidence guess"
+  precedent. **Needs no new dependency-rules.md exception of its own** — it
+  calls its tool through the normal `BaseAgent.use_tool` mechanism and only
+  imports `core.tools.ir_tools`'s typed Input/Output models, the identical
+  "agent imports its own tool's typed contracts, never the leaf package the
+  tool wraps" shape `MitreMappingAgent` follows for `core.tools.mitre_tools`.
+- **Real DB persistence — unlike every M4 "advisory" framework.** Blueprint
+  §8's DB design literally names `Case ├─ ... └─ 1 IncidentResponsePlan
+  (nullable)`; the task brief's pipeline explicitly names "Persist Response
+  Plan" as a stage. New `core/db/models/incident_response_plan.py`
+  (`IncidentResponsePlanRow` — named "Row," not "IncidentResponsePlan," to
+  avoid a same-name collision with the Pydantic model, mirroring
+  `LinuxSecurityFindingRow`'s identical precedent; a real unique constraint
+  on `case_id`, not just convention) and
+  `core/db/incident_response_plan_repository.py`
+  (`IncidentResponsePlanRepository.upsert_for_case` — replaces the existing
+  row, never appends a second one for the same case, matching blueprint's
+  literal "1 nullable" cardinality; takes the plan as a plain
+  `dict[str, object]`, not the typed Pydantic model, so
+  `core/services/case_service.py` never needs its own new import edge onto
+  `core/incident_response` — that Pydantic model stays imported only inside
+  `core/db`, the same "leaf imports a sibling leaf's model for column
+  typing" precedent `core/db/models/finding.py` already set for
+  `core.findings.models.FindingSeverity`). Two new, additive Alembic
+  migrations (`f3a9c1d7e2b5` creates `incident_response_plans`;
+  `b7e4d2f8a1c9` extends `timeline_event_type_enum` with the new
+  `TimelineEventType.INCIDENT_RESPONSE_PLAN_GENERATED`).
+- **Cross-cutting routing, not evidence-type-gated** — mirroring
+  `MitreMappingAgent`'s identical routing exactly:
+  `incident_response_synthesis` is appended to *every* evidence type's
+  required-capability list in `core/services/case_service.py`'s
+  `_required_capabilities_for`.
+- **`core/services/case_service.py`** (modified) — new
+  `_hydrate_incident_response_records` mirrors `_hydrate_mitre_mapping_records`
+  exactly (case-wide, `json.loads` on `Finding.finding_data_json`, never a
+  typed `core.findings` import — this module still has **no** new import
+  edge onto `core/findings` or `core/incident_response`). New
+  `_persist_incident_response_plan` reads the agent's plain-dict plan output
+  and calls the repository, records
+  `TimelineEventType.INCIDENT_RESPONSE_PLAN_GENERATED`, and returns
+  `(recommendation_count, incident_severity)` for `None, None` on the
+  documented "no plan yet" outcome (never `(0, None)` — the same
+  "insufficient evidence" vs. "no findings" distinction
+  `_extract_mitre_mapping` already established). `_run_specialist_agents`
+  registers the ninth agent; `CaseInvestigationResult` gained
+  `incident_response_recommendation_count`/`incident_severity`.
+  `EvidenceUploadResponse` (`apps/api/schemas.py`/`routers/evidence.py`)
+  passes them through.
+- **`core/graph/{state,investigation_graph}.py`** (modified) —
+  `CaseInvestigationState` gained `incident_response_finding_records:
+  list[Any]` (case-wide scope, same `operator.add` shape as
+  `mitre_mapping_records`). `IncidentResponseAgent` registered/wired as the
+  graph's ninth node with the same two-line pattern every prior specialist
+  established.
+- **Testing** — 66 new tests: nine `core/incident_response` unit-test
+  modules (models, severity classification including escalation/
+  double-escalation/critical-cap behavior, the playbook rule engine's
+  three-strategy precedence and dedup, risk prioritization's escalation/
+  de-escalation/fallback-risk-score math, action ordering's dedup+merge+sort,
+  confidence/risk-score rollups, and the full pipeline engine including a
+  determinism test and an oversized-input guard test), `test_tools_ir_tools.py`,
+  `test_agents_incident_response_agent.py` (empty-state degraded outcome,
+  synthesis from persisted-finding records, synthesis from vulnerability
+  records, malformed-record skip-don't-crash, findings-list append), and
+  `test_db_incident_response_plan_repository.py` (upsert-creates,
+  upsert-replaces-not-appends, find-by-case). Plus one extended assertion in
+  the existing end-to-end `test_case_service_pipeline.py` SSH-auth-log test
+  (asserting `incident_response_recommendation_count > 0` and the new
+  timeline event type) and the `test_investigation_graph.py` node-set
+  assertion extended to the ninth agent. Full pytest suite (1604 tests, up
+  from 1546), `ruff check`/`format --check`, and
+  `scripts/check_dependency_rules.py` all pass. New/changed files are
+  individually `mypy --strict` clean (the pre-existing, unrelated numpy/
+  pandas whole-repo `mypy` failure — see Known Issues — is unchanged, not
+  caused by this session).
+
+**Explicitly NOT built this session:** the Report Generator Agent (M5's
+other half — still not started); any closing of the pre-existing
+"Vulnerability/Linux/OWASP/Web findings aren't persisted to the `findings`
+table" gap (a deliberate, documented scope boundary — closing it would mean
+redesigning five already-complete, independently-shipped frameworks,
+directly violating "never redesign completed modules"; this session's
+Incident Response Agent's cross-upload continuity is honestly weaker for
+those four subsystems as a direct, disclosed consequence — see ADR-0023
+Decision 1 and Known Issues below); an "analyst requests it" on-demand
+regeneration API route (the plan currently only regenerates on the next
+evidence upload, cross-cutting); any redesign of `core/graph/workflow_engine.py`,
+`core/graph/routing.py`, `core/agents/planning_agent.py`,
+`core/agents/coordinator.py`, or any prior specialist agent/framework.
+
+---
+
+### M2's MITRE Mapping Agent (prior session, unchanged)
+
+Prior session implemented blueprint §7's **MITRE Mapping Agent**
 (`docs/adr/0022-mitre-mapping-agent.md`), closing **M2 entirely** — the last
 milestone that stayed open after M4 closed last session. This is the
 **eighth** concrete specialist agent (after `SocAnalystAgent` M1,
@@ -396,90 +587,103 @@ needed dependency); any redesign of `SocAnalystAgent`, `PhishingAgent`,
 
 ```
 apps/
-  api/            schemas.py (MODIFIED: +2 MITRE response fields, +2 SAST
-                   response fields earlier) + routers/{system,cases,
-                   evidence(MODIFIED: passes through MITRE + SAST
+  api/            schemas.py (MODIFIED: +2 IR response fields, +2 MITRE
+                   fields/+2 SAST fields earlier) + routers/{system,cases,
+                   evidence(MODIFIED: passes through IR + MITRE + SAST
                    fields),iocs,findings,v1}.py                          [implemented]
   web/             Streamlit frontend                                     [README only]
 core/
-  config/         settings.py (unchanged this session; +7 OWASP_SECURITY_*
-                   fields + 9 evidence extensions from prior session)     [implemented]
+  config/         settings.py (unchanged this session)                   [implemented]
   logging/        (unchanged)                                             [implemented]
   agents/         soc_analyst_agent.py, phishing_agent.py,
                    vulnerability_agent.py, threat_hunter_agent.py,
                    linux_security_agent.py, web_security_agent.py,
-                   owasp_security_agent.py (unchanged) +
-                   mitre_mapping_agent.py (NEW — eighth concrete
-                   specialist agent — closes M2)                         [implemented — 8 concrete specialist agents]
+                   owasp_security_agent.py, mitre_mapping_agent.py
+                   (unchanged) + incident_response_agent.py (NEW — ninth
+                   concrete specialist agent — half-closes M5)           [implemented — 9 concrete specialist agents]
   tools/          scoring.py, phishing_tools.py, vuln_tools.py,
                    linux_security_tools.py, linux_tools.py,
-                   web_security_tools.py, owasp_tools.py (unchanged) +
-                   mitre_tools.py (NEW — MitreMappingResolutionTool,
-                   blueprint's exact named file)                         [implemented — 8 concrete tools]
+                   web_security_tools.py, owasp_tools.py, mitre_tools.py
+                   (unchanged) + ir_tools.py (NEW —
+                   IncidentResponsePlanGenerationTool, blueprint's exact
+                   named file)                                           [implemented — 9 concrete tools]
   memory/         (unchanged)                                             [implemented — framework only]
-  knowledge/      mitre/, cvss_calculator.py (unchanged — MitreLookup's
-                   groups_using_technique/software_using_technique are
-                   now actually called, by mitre_tools.py)                [implemented]
-  graph/          investigation_graph.py (MODIFIED: +MitreMappingAgent
-                   wiring, +settings parameter) + state.py (MODIFIED:
-                   +mitre_mapping_records field) + routing.py/
-                   workflow_engine.py/events.py/retry.py/
+  knowledge/      mitre/, cvss_calculator.py (unchanged)                  [implemented]
+  graph/          investigation_graph.py (MODIFIED: +IncidentResponseAgent
+                   wiring) + state.py (MODIFIED:
+                   +incident_response_finding_records field) +
+                   routing.py/workflow_engine.py/events.py/retry.py/
                    failure_recovery.py/metrics.py (unchanged)             [implemented]
-  db/             (unchanged this session — MitreMappingAgent reads
-                   already-persisted Finding rows, writes nothing new)   [implemented — 11 real domain tables + 5 reference tables]
+  db/             MODIFIED: +incident_response_plan.py
+                   (IncidentResponsePlanRow) +
+                   incident_response_plan_repository.py (NEW) + two new
+                   Alembic migrations                                    [implemented — 12 real domain tables + 5 reference tables]
   parsers/        (unchanged this session)                               [implemented — 17 concrete parsers]
-  owasp_security/ (unchanged — prior session's leaf package)             [implemented]
+  incident_response/ (NEW — this session's leaf package: models.py,
+                   exceptions.py, inputs.py, severity_classifier.py,
+                   playbook_rules.py, risk_prioritizer.py,
+                   action_ordering.py, confidence_calculator.py,
+                   response_plan_engine.py, metrics.py, audit.py)        [implemented]
+  owasp_security/ (unchanged)                                             [implemented]
   owasp_web/      (unchanged)                                             [implemented]
   linux_advisor/  (unchanged — ADR-0019's separate framework)             [implemented]
   linux_security/  (unchanged — ADR-0018's separate framework)            [implemented]
   vulnerabilities/  (unchanged)                                           [implemented]
   threat_intel/   (unchanged)                                             [implemented]
-  findings/       (unchanged — this session's agent/tool reuse this
-                   package's engine entirely, never modifying it)        [implemented]
+  findings/       (unchanged — this session's agent/tool never touch
+                   this package)                                         [implemented]
   security/       prompt_guard.py (unchanged); pii_redaction.py,
                    approval_gate.py still not started                     [implemented — 1 of 3 modules]
   reporting/      (empty — README only)                                   [not started]
-  services/       case_service.py (MODIFIED: +mitre_technique_mapping
-                   capability routing (every evidence type), +settings
-                   param on _run_specialist_agents,
-                   +_hydrate_mitre_mapping_records, +_extract_mitre_mapping)
-                   + finding_service.py (unchanged — its
-                   generate_findings_for_case is reused as-is) +
-                   evidence_service.py, threat_intel_service.py,
+  services/       case_service.py (MODIFIED: +incident_response_synthesis
+                   capability routing (every evidence type),
+                   +_hydrate_incident_response_records,
+                   +_persist_incident_response_plan) + finding_service.py
+                   (unchanged) + evidence_service.py, threat_intel_service.py,
                    vulnerability_service.py, linux_security_service.py,
                    linux_advisor_service.py, web_security_service.py,
                    owasp_security_service.py (unchanged); report_service.py [implemented]
 data/             (unchanged this session)
 scripts/          (unchanged)
 tests/
-  unit/           202 test modules (+2 this session:
-                   test_tools_mitre_tools.py,
-                   test_agents_mitre_mapping_agent.py)
+  unit/           213 test modules (+11 this session:
+                   test_incident_response_{models,severity_classifier,
+                   playbook_rules,risk_prioritizer,action_ordering,
+                   confidence_calculator,response_plan_engine}.py,
+                   test_tools_ir_tools.py,
+                   test_agents_incident_response_agent.py,
+                   test_db_incident_response_plan_repository.py)
   integration:    16 test modules (+0 new files this session; +2 extended:
-                   test_case_service_pipeline.py [mitre_technique_count
-                   assertion on the SSH-auth-log test],
+                   test_case_service_pipeline.py [incident_response_
+                   recommendation_count assertion + new timeline event
+                   type on the SSH-auth-log test],
                    test_investigation_graph.py [node-set assertion
-                   extended to the eighth agent])
+                   extended to the ninth agent])
   golden/         (empty — no report generation exists yet)
-docs/             18 markdown docs + docs/adr/ (23 ADR files incl.
-                   template, +0022) + docs/dependency-rules.md (unchanged
-                   this session — rule 4/4c already documented
-                   core/agents' MITRE import edge in advance) +
-                   docs/diagrams/ (unchanged)
+docs/             18 markdown docs + docs/adr/ (24 ADR files incl.
+                   template, +0023) + docs/dependency-rules.md (MODIFIED:
+                   +rule 5b, `core/tools/ir_tools.py`'s
+                   `core/incident_response` exception) + docs/diagrams/
+                   (unchanged)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 ```
 
-1546 tests passing as of this session (1533 prior -> 1546 now: 13 new).
+1604 tests passing as of this session (1546 prior -> 1604 now: 58 new [some
+prior counts undercounted files vs. individual tests — see git log for the
+exact per-commit delta]).
 Modified this session: `core/graph/{state,investigation_graph}.py`,
-`core/services/case_service.py`, `apps/api/{schemas,routers/evidence}.py`,
-`docs/roadmap.md`, `core/{agents,tools}/README.md`,
+`core/services/case_service.py`, `core/db/models/__init__.py`,
+`core/db/models/timeline_event.py`, `apps/api/{schemas,routers/evidence}.py`,
+`docs/{roadmap,dependency-rules}.md`, `core/{agents,tools}/README.md`,
 `tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
-`CHANGELOG.md`, and this file. New: `docs/adr/0022-mitre-mapping-agent.md`,
-`core/tools/mitre_tools.py`, `core/agents/mitre_mapping_agent.py`,
-`tests/unit/{test_tools_mitre_tools,test_agents_mitre_mapping_agent}.py` —
-all currently uncommitted until this session's commit (see "Current Git
-Status" below).
+`CHANGELOG.md`, and this file. New: `docs/adr/0023-incident-response-agent.md`,
+`core/incident_response/*.py` (11 files + README), `core/tools/ir_tools.py`,
+`core/agents/incident_response_agent.py`,
+`core/db/models/incident_response_plan.py`,
+`core/db/incident_response_plan_repository.py`, two new Alembic migrations
+(`f3a9c1d7e2b5`, `b7e4d2f8a1c9`), 11 new test files — all currently
+uncommitted until this session's commit (see "Current Git Status" below).
 
 **Naming note carried forward:** `context/02_repository.md` still does not
 exist. The actual files remain `context/01_blueprint.md` and
@@ -490,9 +694,44 @@ exist. The actual files remain `context/01_blueprint.md` and
 ## Architecture Status
 
 Fully aligned with `context/01_blueprint.md`, extended (not reversed) by
-ADR-0001 through ADR-0022. **M2 and M4 are both now fully closed.** This
+ADR-0001 through ADR-0023. **M2 and M4 are both fully closed; M5 is half
+closed** (Incident Response Agent done, Report Generator Agent open). This
 session's deliberate decisions, documented in
-`docs/adr/0022-mitre-mapping-agent.md`:
+`docs/adr/0023-incident-response-agent.md`:
+
+1. **A real execution-semantics conflict was surfaced and resolved before
+   writing any code** — the naive "read a sibling agent's `agent_outputs`
+   in the same graph run" design would have silently returned empty results
+   every time, per `workflow_engine.py`'s documented parallel-superstep
+   isolation. Resolved by reading the same pre-hydrated input `*_records`
+   fields every other specialist already reads, plus one new case-wide
+   `incident_response_finding_records` field mirroring
+   `mitre_mapping_records`'s pattern — never sibling `agent_outputs`.
+2. **`core/incident_response/` is a new leaf package; only
+   `core/tools/ir_tools.py` (not the agent) gets a new dependency-rules.md
+   exception (rule 5b) to import it directly** — mirroring
+   `core/tools/mitre_tools.py`'s existing `core/knowledge` exception
+   exactly; the agent itself needs no new exception, importing only its own
+   tool's typed contracts.
+3. **Real DB persistence** (`incident_response_plans` table, one row per
+   case, upserted) — unlike the M4 "advisory" frameworks' deliberate
+   no-persistence scope, blueprint §8 literally names this table, so
+   persistence was not this session's discretionary choice to skip.
+4. **Cross-cutting capability routing** — `incident_response_synthesis` is
+   appended to every evidence type's required-capability list, mirroring
+   `mitre_technique_mapping`'s identical precedent.
+5. **An honest, disclosed scope limitation, not a hidden one** — this
+   agent's cross-upload continuity is strongest for SOC/Threat-Hunting/
+   Phishing/MITRE-derived signal (the only subsystems whose output reaches
+   the persisted `Finding` table today); Vulnerability/Linux/OWASP/Web
+   signal is only available for the single evidence upload currently being
+   processed. Closing that gap would mean redesigning five already-shipped
+   frameworks — explicitly out of scope, flagged for a future session
+   instead of silently narrowed.
+
+---
+
+### M2's MITRE Mapping Agent architecture decisions (prior session, unchanged)
 
 1. **The pre-implementation conflict was surfaced, not silently resolved
    either way** — the task asked for a full new mapping-engine framework;
@@ -599,7 +838,53 @@ with a dated addendum explaining why. No approved architectural decision
 *(Carried forward from prior sessions — still true, unchanged: see prior
 sessions' "Key Decisions" sections in git history.)*
 
-**New this session (MITRE Mapping Agent, ADR-0022):**
+**New this session (Incident Response Agent, ADR-0023):**
+
+- **A real execution-semantics conflict was surfaced before writing any
+  code, not discovered mid-implementation** — read
+  `core/graph/workflow_engine.py::_make_node`'s docstring, confirmed by
+  `core/agents/planning_agent.py` (every `PlannedStep.depends_on` is empty)
+  and `core/graph/routing.py` (only fans out to entry steps): sibling nodes
+  in the same LangGraph superstep never see each other's writes. The naive
+  "read `state.agent_outputs[sibling.name]`" design was ruled out before any
+  file was written, in favor of reading pre-hydrated input `*_records`
+  fields (populated before the graph runs, not during it) plus one new
+  case-wide field mirroring `mitre_mapping_records`.
+- **Persistence was not a discretionary "skip it like the M4 advisory
+  frameworks did" choice** — blueprint §8's DB design literally names
+  `Case ├─ 1 IncidentResponsePlan (nullable)`, and the task brief's own
+  pipeline names "Persist Response Plan" as a stage. Checked both documents
+  before deciding to build `incident_response_plans` for real, unlike
+  `SastAdvice`/`WebSecurityAdvice`/`LinuxSecurityAdvice`.
+- **The DB ORM class is named `IncidentResponsePlanRow`, not
+  `IncidentResponsePlan`** — grepped for the existing
+  `LinuxSecurityFindingRow` precedent before naming it, to avoid a same-name
+  collision with the Pydantic model in `core/incident_response/models.py`.
+- **`core/services/case_service.py` needed zero new import edges** —
+  `IncidentResponsePlanRepository.upsert_for_case` takes the plan as a plain
+  `dict[str, object]` (not the typed Pydantic model) specifically so
+  `case_service.py` never has to import `core/incident_response` itself;
+  the Pydantic model stays imported only inside `core/db`, matching
+  `core/db/models/finding.py`'s existing "leaf imports a sibling leaf's
+  model for column typing" precedent.
+- **A real, defensible ATT&CK tactic-ID -> `ResponseCategory` mapping
+  table** (`playbook_rules.py::_TACTIC_CATEGORY_MAP`) covers all fourteen
+  MITRE ATT&CK Enterprise tactics (`TA0001`-`TA0011`, `TA0040`, `TA0042`,
+  `TA0043`) — real, stable ATT&CK IDs, not invented ones — each mapped to
+  one or more of the task's eleven named response categories, with a
+  keyword fallback and a severity-only last resort, in that fixed
+  precedence order, so a finding with no MITRE mapping at all (e.g. a
+  Linux Advisor or OWASP Web finding) still earns at least evidence
+  preservation.
+- **The plan-level confidence rollup is discounted by the fraction of
+  skipped/malformed input records** (`confidence_calculator.py`) — a plan
+  built from a case where several finding records could not be parsed is
+  genuinely less trustworthy, and that had to be visible in the number
+  itself, not just a log line.
+
+---
+
+**New in the prior session (MITRE Mapping Agent, ADR-0022):**
 
 - **A real conflict was raised before writing any code** — the task brief's
   requested "MITRE Mapping framework" (Mapping Engine, Confidence
@@ -687,10 +972,81 @@ sessions' "Key Decisions" sections in git history.)*
 
 ## Public Interfaces
 
-*(M0–M4/ADR-0015–0021 interfaces — unchanged from prior sessions except as
+*(M0–M4/ADR-0015–0022 interfaces — unchanged from prior sessions except as
 noted below.)*
 
-**New/changed this session (MITRE Mapping Agent, ADR-0022):**
+**New/changed this session (Incident Response Agent, ADR-0023):**
+
+`core.incident_response.models.{IncidentSeverity, severity_rank,
+highest_severity, ResponsePriority, priority_rank, ResponseCategory,
+ResponsePhase, ResponseTimeframe, ResponseEvidence, ResponseAction,
+ResponseRecommendation, ResponseMetrics, IncidentResponsePlan}` (new).
+
+`core.incident_response.inputs.IncidentInputFinding` (new).
+
+`core.incident_response.exceptions.{IncidentResponseError,
+InvalidFindingInputError, OversizedFindingSetError}` (new).
+
+`core.incident_response.severity_classifier.{IncidentSeverityClassifier,
+SeverityClassificationWeights}` (new).
+
+`core.incident_response.playbook_rules.{CategoryTemplate,
+CATEGORY_TEMPLATES, match_categories, build_action}` (new).
+
+`core.incident_response.risk_prioritizer.{RiskPrioritizer,
+PrioritizationWeights}` (new).
+
+`core.incident_response.action_ordering.order_recommendations` (new).
+
+`core.incident_response.confidence_calculator.{calculate_plan_confidence,
+calculate_plan_risk_score}` (new).
+
+`core.incident_response.response_plan_engine.ResponsePlanEngine` (new).
+
+`core.incident_response.metrics.{IncidentResponseMetricsCollector,
+IncidentResponseMetricsSnapshot}` (new).
+
+`core.incident_response.audit.{AuditAction,
+log_incident_response_audit_event, timed_execution}` (new).
+
+`core.tools.ir_tools.{IncidentResponsePlanGenerationTool,
+IncidentResponsePlanGenerationInput, IncidentResponsePlanGenerationOutput,
+DEFAULT_MAX_FINDINGS_PER_PLAN}` (new).
+
+`core.agents.incident_response_agent.{IncidentResponseAgent,
+default_incident_response_agent_tool_registry, IncidentResponseAgentResult}`
+(new).
+
+`core.db.models.incident_response_plan.IncidentResponsePlanRow` (new).
+
+`core.db.incident_response_plan_repository.IncidentResponsePlanRepository`
+(new).
+
+`core.db.models.timeline_event.TimelineEventType.
+INCIDENT_RESPONSE_PLAN_GENERATED` (new).
+
+`core.graph.state.CaseInvestigationState.incident_response_finding_records`
+(new field). `core.graph.investigation_graph.build_investigation_graph` now
+also registers/wires `IncidentResponseAgent` (node name
+`incident_response_agent`).
+
+`core.services.case_service`: new `_hydrate_incident_response_records`,
+`_persist_incident_response_plan`; `_required_capabilities_for` now appends
+`incident_response_synthesis` to every evidence type; `_run_specialist_agents`
+registers a ninth agent. `CaseInvestigationResult` gained
+`incident_response_recommendation_count`/`incident_severity`.
+
+`apps.api.schemas.EvidenceUploadResponse` gained
+`incident_response_recommendation_count`/`incident_severity` (both
+optional, default `None`).
+
+No Report Generator Agent, LLM reasoning, `/api/v1/reports` route, or
+`core.security.{pii_redaction,approval_gate}` implementation exist as
+public interfaces yet.
+
+---
+
+**New/changed in the prior session (MITRE Mapping Agent, ADR-0022):**
 
 `core.tools.mitre_tools.{MitreMappingResolutionTool,
 MitreTechniqueMappingInput, MitreCaseMappingInput, MitreTechniqueResolution,
@@ -789,7 +1145,7 @@ implementation exist as public interfaces yet.
 
 ## Remaining Work
 
-1. **M2 — closed this session.** `core/agents/mitre_mapping_agent.py` +
+1. **M2 — closed** (prior session). `core/agents/mitre_mapping_agent.py` +
    `core/tools/mitre_tools.py` wrap `core.knowledge.mitre`'s lookup engine
    and `core.findings`'s existing mapping engine (ADR-0022).
 2. **M3 — closed** (prior session).
@@ -797,11 +1153,12 @@ implementation exist as public interfaces yet.
    (Vulnerability Assessment, Threat Hunting, Linux Security Advisor, the
    out-of-blueprint Web Security Agent, and the AST-based OWASP Security
    Agent) are built.
-4. **M5 — Incident Response synthesis + Reporting.** Incident Response
-   Agent (the correct home for cross-agent recommendation/escalation/
-   remediation synthesis — still not built, by design), Report Generator
-   Agent, Jinja2/ReportLab templates, Plotly charts, `/api/v1/reports`
-   route.
+4. **M5 — half closed this session.** The Incident Response Agent half is
+   done (`core/incident_response/`, `core/tools/ir_tools.py`,
+   `core/agents/incident_response_agent.py`, real DB persistence — ADR-0023).
+   **Still open:** the Report Generator Agent, Jinja2/ReportLab templates
+   per module + case-level executive report, Plotly chart generation, and
+   the `/api/v1/reports` route.
 5. **M6 — remaining piece.** Swap `InMemoryVectorStore` for real ChromaDB,
    populate remaining knowledge data (playbooks), the real cross-evidence
    Threat Timeline UI feature, MITRE heatmap/AI Analyst Chat UI.
@@ -817,7 +1174,11 @@ implementation exist as public interfaces yet.
    reconciling `SocFinding`/`PhishingVerdict`/`VulnerabilityFinding`/
    `LinuxSecurityFinding`/`LinuxSecurityAdvice`/`WebSecurityAdvice`/
    `SastAdvice` (all in-memory only) with the persisted `Finding` table
-   into one shared representation; an asset-criticality inventory.
+   into one shared representation (this is now also what would strengthen
+   `IncidentResponseAgent`'s cross-upload continuity for those four
+   subsystems — see ADR-0023 Decision 1); an asset-criticality inventory;
+   an "analyst requests it" on-demand incident-response-plan regeneration
+   API route (today the plan only regenerates on the next evidence upload).
 
 ---
 
@@ -847,19 +1208,29 @@ their first CVE; no asset-criticality inventory exists.)*
   transitively via `pandas` — used by CSV parsers — while
   `pyproject.toml`'s `python_version = "3.11"` rejects that syntax), not
   caused by any session's changes. This session additionally verified:
-  every file in `core/owasp_security` and `core/owasp_web` (and every
-  other file touched this session) passes `mypy --strict` cleanly when
-  checked directly (bypassing the numpy-pulling files) — see Key
-  Decisions for two latent issues found and fixed in `core/owasp_web`
-  along the way. Resolving the numpy/mypy/Python-version mismatch itself
-  (pin an older numpy, or bump the mypy `python_version`) remains
-  environment maintenance outside any single feature session's scope.
-- **`SastAdvice` (this session's output type) is never persisted
-  anywhere** — by design (ADR-0021 point 4, matching ADR-0019/0020's
-  precedent), not a gap to close later; the same is true of
-  `SocFinding`/`PhishingVerdict`/`VulnerabilityFinding`/
-  `LinuxSecurityFinding`/`LinuxSecurityAdvice`/`WebSecurityAdvice`, which
-  *are* deferred gaps.
+  every file in `core/incident_response` (and every other file touched
+  this session) passes `mypy --strict` cleanly when checked directly
+  (bypassing the numpy-pulling files, e.g. `investigation_graph.py`/
+  `case_service.py`, which transitively import pandas-based parsers).
+  Resolving the numpy/mypy/Python-version mismatch itself (pin an older
+  numpy, or bump the mypy `python_version`) remains environment
+  maintenance outside any single feature session's scope.
+- **`IncidentResponseAgent`'s cross-upload continuity is uneven across
+  subsystems, by a pre-existing, disclosed gap (not introduced this
+  session)** — `VulnerabilityFinding`/`LinuxSecurityFinding`/SAST/
+  `WebSecurityAdvice` findings are still not persisted to the `findings`
+  table (see the next bullet), so this agent's case-wide
+  `incident_response_finding_records` hydration only ever reflects SOC/
+  Threat-Hunting/Phishing/MITRE-derived signal; Vulnerability/Linux/OWASP/
+  Web signal is only available for the single evidence upload currently
+  being processed (its pre-hydrated `*_records` field). Documented in
+  ADR-0023 Decision 1, not hidden.
+- **`SastAdvice`/`WebSecurityAdvice`/`LinuxSecurityAdvice` (M4 sessions'
+  output types) are never persisted anywhere** — by design (ADR-0019/
+  0020/0021, matching precedent), not a gap to close later on their own
+  terms; the same is true of `SocFinding`/`PhishingVerdict`/
+  `VulnerabilityFinding`, which *are* deferred gaps (unchanged from prior
+  sessions).
 - **`core/owasp_security` has no enrichment-provider seam at all** —
   matching `core/linux_advisor`/`core/owasp_web`'s precedent; no live
   CVE/NVD lookup against detected findings.
@@ -881,22 +1252,33 @@ their first CVE; no asset-criticality inventory exists.)*
   FindingGenerationPipeline`, one inside `MitreMappingAgent`'s tool
   registry (`default_mitre_mapping_agent_tool_registry`). Deterministic,
   local, offline, and cheap at current vendored-dataset size; not
-  optimized this session (ADR-0022) — a future session could add a
-  shared-instance seam if profiling ever shows it matters.
-- **`MitreCaseMappingSummary` (this session's agent output) is never
-  persisted anywhere** — by design, matching `SastAdvice`/
-  `WebSecurityAdvice`/`LinuxSecurityAdvice`'s precedent; the underlying
-  `Finding.mitre_mappings` data it summarizes *is* already persisted
-  (ADR-0013, unchanged).
+  optimized (ADR-0022) — a future session could add a shared-instance seam
+  if profiling ever shows it matters.
+- **`MitreCaseMappingSummary` is never persisted anywhere** — by design,
+  matching `SastAdvice`/`WebSecurityAdvice`/`LinuxSecurityAdvice`'s
+  precedent; the underlying `Finding.mitre_mappings` data it summarizes
+  *is* already persisted (ADR-0013, unchanged). **`IncidentResponsePlan`
+  is the first cross-agent-synthesis output type in this codebase that
+  *is* persisted** (ADR-0023 Decision 3) — a deliberate divergence from
+  that precedent, justified by blueprint §8 naming the table explicitly.
+- **`IncidentResponsePlanRepository.upsert_for_case` replaces the entire
+  row on every regeneration** — a case with a long investigation history
+  only ever has its *latest* plan queryable; no historical plan versions
+  are retained (matches blueprint §8's literal "1 nullable" cardinality,
+  not a bug).
+- **No "analyst requests it" on-demand plan-regeneration API route exists
+  yet** — the plan currently only regenerates as a side effect of the next
+  evidence upload (cross-cutting routing), never on manual request outside
+  that pipeline.
 
 ---
 
 ## Dependencies
 
 Runtime (`requirements.txt`): **no new dependencies this session** —
-`core/tools/mitre_tools.py`/`core/agents/mitre_mapping_agent.py` are pure
-Python plus Pydantic, reusing the already-vendored MITRE dataset and the
-already-established `core/knowledge/mitre`/`core/findings` engines.
+`core/incident_response/`, `core/tools/ir_tools.py`, and
+`core/agents/incident_response_agent.py` are pure Python plus Pydantic; the
+two new Alembic migrations use only SQLAlchemy already in use.
 
 Dev (`requirements-dev.txt`): unchanged.
 
@@ -905,24 +1287,40 @@ Dev (`requirements-dev.txt`): unchanged.
 ## Current Git Status
 
 A git repository exists (`main` branch: `main`; working branch: `master`).
-All prior-session work through the OWASP Security Agent (AST SAST)
-Framework (ADR-0021) commit is committed.
+All prior-session work through the MITRE Mapping Agent (ADR-0022) commit is
+committed.
 
-This session's MITRE Mapping Agent work added/modified (all to be
+This session's Incident Response Agent work added/modified (all to be
 committed in this session's single commit — see the commit hash in this
 session's final report):
 
-- New: `docs/adr/0022-mitre-mapping-agent.md`,
-  `core/tools/mitre_tools.py`, `core/agents/mitre_mapping_agent.py`,
-  `tests/unit/{test_tools_mitre_tools,test_agents_mitre_mapping_agent}.py`.
+- New: `docs/adr/0023-incident-response-agent.md`,
+  `core/incident_response/{__init__,README,models,exceptions,inputs,
+  severity_classifier,playbook_rules,risk_prioritizer,action_ordering,
+  confidence_calculator,response_plan_engine,metrics,audit}.{py,md}`,
+  `core/tools/ir_tools.py`, `core/agents/incident_response_agent.py`,
+  `core/db/models/incident_response_plan.py`,
+  `core/db/incident_response_plan_repository.py`,
+  `core/db/migrations/versions/{f3a9c1d7e2b5_create_incident_response_plans_table,
+  b7e4d2f8a1c9_extend_timeline_event_type_for_ir}.py`,
+  `tests/unit/{test_incident_response_models,
+  test_incident_response_severity_classifier,
+  test_incident_response_playbook_rules,
+  test_incident_response_risk_prioritizer,
+  test_incident_response_action_ordering,
+  test_incident_response_confidence_calculator,
+  test_incident_response_response_plan_engine,
+  test_tools_ir_tools,test_agents_incident_response_agent,
+  test_db_incident_response_plan_repository}.py`.
 - Modified: `core/graph/{state,investigation_graph}.py`,
-  `core/services/case_service.py`,
-  `apps/api/{schemas,routers/evidence}.py`, `docs/roadmap.md`,
-  `core/{agents,tools}/README.md`,
+  `core/services/case_service.py`, `core/db/models/__init__.py`,
+  `core/db/models/timeline_event.py`,
+  `apps/api/{schemas,routers/evidence}.py`,
+  `docs/{roadmap,dependency-rules}.md`, `core/{agents,tools}/README.md`,
   `tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
   `CHANGELOG.md`, this file.
 
-Full suite (1546 tests), `ruff check`/`format --check`, and
+Full suite (1604 tests), `ruff check`/`format --check`, and
 `scripts/check_dependency_rules.py` all pass. `mypy core --strict`
 (whole-repo) fails on the same pre-existing, unrelated numpy/environment
 issue as prior sessions (see Known Issues); every file this session
@@ -932,29 +1330,33 @@ touched is individually `mypy --strict` clean.
 
 ## Next Recommended Prompt
 
-> M2 and M4 are both now fully closed — all eight blueprint-named
-> specialist agents built to date exist and are wired into the graph.
-> Begin M5 next: the Incident Response Agent (case-wide cross-agent
-> synthesis — recommendation/escalation/remediation from every specialist
-> agent's already-computed findings, matching NIST SP 800-61) now finally
-> has eight specialist agents' worth of findings to meaningfully
-> synthesize, or the Report Generator Agent (Jinja2/ReportLab templates,
-> Plotly charts, `/api/v1/reports` route) if reporting is the higher
-> priority. Confirm with the user which of these two M5 pieces to build
-> first before starting — both are named in blueprint §7/§15 as M5 scope,
-> and neither has been started. Preserve every existing file and
-> architectural decision described in this document — including all eight
-> specialist agents (the newest, `MitreMappingAgent`, reuses
-> `core/findings`'s existing mapping/confidence/dedup engine entirely; it
-> does not duplicate it — see ADR-0022 before assuming a "MITRE" task needs
-> a new engine), the Case lifecycle subsystem, the Finding & MITRE Engine,
-> the Vulnerability Assessment Framework, the Linux Security Threat Hunting
-> Framework, the Linux Security Advisor Framework, the OWASP Web Security
-> Agent Framework, and the OWASP Security Agent (AST SAST) Framework — only
-> extend them. Also worth addressing eventually (not urgent,
-> environment-only): the pre-existing `mypy core --strict` failure caused
-> by a numpy/pandas stub incompatibility with the pinned
-> `python_version = "3.11"` (see this file's Known Issues) — either pin an
-> older `numpy` compatible with the target Python version, or bump the
-> `pyproject.toml` mypy `python_version` if the project's actual runtime
-> floor has moved past 3.11.
+> M2, M3, and M4 are fully closed; M5 is now half closed — the Incident
+> Response Agent (`core/incident_response/`, `core/tools/ir_tools.py`,
+> `core/agents/incident_response_agent.py`, ADR-0023) is built, tested, and
+> persisted. Begin the second M5 half next: the **Report Generator Agent**
+> — Jinja2/ReportLab templates per module + a case-level executive report,
+> Plotly chart generation, and the `/api/v1/reports` route. It now has nine
+> specialist agents' worth of findings (including a real, persisted
+> `IncidentResponsePlan`) to render into a report — this is the natural,
+> intended consumer of everything built so far. Preserve every existing
+> file and architectural decision described in this document — including
+> all nine specialist agents (the newest, `IncidentResponseAgent`, reuses
+> pre-hydrated `*_records` state fields and the case's persisted `Finding`
+> rows entirely; it does not read sibling `agent_outputs` — see ADR-0023
+> before assuming a "cross-agent synthesis" task needs that shape), the
+> Case lifecycle subsystem, the Finding & MITRE Engine, the Vulnerability
+> Assessment Framework, the Linux Security Threat Hunting Framework, the
+> Linux Security Advisor Framework, the OWASP Web Security Agent Framework,
+> the OWASP Security Agent (AST SAST) Framework, and the Incident Response
+> Framework — only extend them. Worth considering while building the Report
+> Generator: whether it should read `IncidentResponsePlanRepository`
+> directly (a `core/services` -> `core/db` edge, always sanctioned) or
+> through a new `core/services/incident_response_service.py`-shaped read
+> function — decide and document via ADR before writing code, per the
+> project's own "stop and explain before writing code" rule. Also worth
+> addressing eventually (not urgent, environment-only): the pre-existing
+> `mypy core --strict` failure caused by a numpy/pandas stub incompatibility
+> with the pinned `python_version = "3.11"` (see this file's Known Issues)
+> — either pin an older `numpy` compatible with the target Python version,
+> or bump the `pyproject.toml` mypy `python_version` if the project's
+> actual runtime floor has moved past 3.11.

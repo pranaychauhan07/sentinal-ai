@@ -11,6 +11,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **Incident Response Agent** (`docs/adr/0023-incident-response-agent.md`)
+  — blueprint §7's downstream, cross-agent synthesizer, the ninth concrete
+  specialist agent (**M5, half-closed** — the Report Generator Agent half
+  remains open). New leaf package `core/incident_response/` (deterministic,
+  NIST SP 800-61-aligned response-plan synthesis: `IncidentSeverityClassifier`,
+  a MITRE-tactic/keyword/severity-fallback playbook rule engine,
+  `RiskPrioritizer`, `order_recommendations` dedup+ordering,
+  plan-level confidence/risk rollups, metrics, audit) with typed models
+  (`IncidentResponsePlan`, `ResponseAction`, `ResponseRecommendation`,
+  `ResponsePriority`, `ResponseCategory`, `ResponsePhase`, `ResponseEvidence`,
+  `ResponseMetrics`). `core/tools/ir_tools.py` (blueprint's exact named file,
+  `IncidentResponsePlanGenerationTool`) wraps
+  `core.incident_response.response_plan_engine.ResponsePlanEngine`, mirroring
+  `mitre_tools.py`'s shape — a new documented dependency-rules.md exception
+  (rule 5b) lets this one tool file import `core/incident_response` directly.
+  `core/agents/incident_response_agent.py` (`IncidentResponseAgent`,
+  capability `incident_response_synthesis`) never computes a severity, risk
+  score, MITRE mapping, or recommendation itself — it normalizes this case's
+  already-persisted `Finding` rows (new `CaseInvestigationState.
+  incident_response_finding_records`, case-wide, hydrated by
+  `case_service._hydrate_incident_response_records` mirroring
+  `_hydrate_mitre_mapping_records`) plus the current upload's already-
+  hydrated `vulnerability_records`/`linux_security_records`/
+  `linux_advisory_records`/`owasp_web_records`/`owasp_security_records` into
+  `IncidentInputFinding`s and calls its one tool. Cross-cutting, not
+  evidence-type-gated, mirroring `MitreMappingAgent`'s routing. **Real DB
+  persistence** (unlike the M4 "advisory" frameworks) — blueprint §8 names
+  `IncidentResponsePlan` as a literal `Case -> 1 IncidentResponsePlan
+  (nullable)` table: new `incident_response_plans` table
+  (`IncidentResponsePlanRow`, `IncidentResponsePlanRepository.upsert_for_case`
+  — replaces, never appends, matching the "1 nullable" cardinality), new
+  `TimelineEventType.INCIDENT_RESPONSE_PLAN_GENERATED`, two new Alembic
+  migrations. `CaseInvestigationResult`/`EvidenceUploadResponse` gained
+  `incident_response_recommendation_count`/`incident_severity`. A documented,
+  honest scope limitation (not hidden): `VulnerabilityFinding`/
+  `LinuxSecurityFinding`/SAST/`WebSecurityAdvice` findings are still not
+  persisted to the `findings` table (a pre-existing gap), so this agent's
+  cross-upload continuity is strongest for SOC/Threat-Hunting/Phishing/
+  MITRE-derived signal. No Report Generator, no LLM reasoning, no redesign
+  of any prior agent/framework.
 - **MITRE Mapping Agent** (`docs/adr/0022-mitre-mapping-agent.md`) —
   blueprint §7's cross-cutting MITRE Mapping Agent, the eighth concrete
   specialist agent (**closes M2 entirely**). A pre-implementation review

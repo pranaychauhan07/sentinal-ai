@@ -87,6 +87,21 @@ MITRE dataset), so `_run_specialist_agents` and `build_investigation_graph`
 both gained a `settings` parameter this session — additive, every other
 caller of `build_investigation_graph` still works via its `Settings()`
 default.
+
+ADR-0023 (Incident Response Agent) extends this module additively:
+importing `core.agents.incident_response_agent` directly is the same
+sibling-service/agent-registration composition every prior specialist agent
+already established. `_hydrate_incident_response_records` mirrors
+`_hydrate_mitre_mapping_records` exactly (case-wide, `json.loads` on
+`Finding.finding_data_json`, never a typed `core.findings` import).
+`_persist_incident_response_plan` calls
+`core.db.incident_response_plan_repository.IncidentResponsePlanRepository.
+upsert_for_case` with the plan as a plain dict — this module still has no
+import edge onto `core/incident_response` at all (that Pydantic model stays
+imported only inside `core/db`, per that repository's own docstring), so no
+new dependency-rules.md exception was needed for `case_service.py` itself;
+the one new exception this ADR introduces (`docs/dependency-rules.md` rule
+5b) is scoped to `core/tools/ir_tools.py`, not this module.
 """
 
 from __future__ import annotations
@@ -98,6 +113,10 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.agents.incident_response_agent import (
+    IncidentResponseAgent,
+    default_incident_response_agent_tool_registry,
+)
 from core.agents.linux_security_agent import (
     LinuxSecurityAgent,
     default_linux_security_agent_tool_registry,
@@ -129,6 +148,7 @@ from core.config import Settings
 from core.db.case_note_repository import CaseNoteRepository
 from core.db.case_repository import CaseRepository
 from core.db.case_tag_repository import CaseTagRepository
+from core.db.incident_response_plan_repository import IncidentResponsePlanRepository
 from core.db.ioc_repository import IOCRepository
 from core.db.models.case import Case, CasePriority, CaseStatus
 from core.db.models.case_note import CaseNote
@@ -176,6 +196,7 @@ _LINUX_ADVISORY_CAPABILITY = LinuxSecurityAgent.capabilities[0].name
 _OWASP_WEB_SECURITY_CAPABILITY = WebSecurityAgent.capabilities[0].name
 _OWASP_SOURCE_CODE_REVIEW_CAPABILITY = OwaspSecurityAgent.capabilities[0].name
 _MITRE_MAPPING_CAPABILITY = MitreMappingAgent.capabilities[0].name
+_INCIDENT_RESPONSE_CAPABILITY = IncidentResponseAgent.capabilities[0].name
 
 #: Which capabilities a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
@@ -252,15 +273,18 @@ _OWASP_SECURITY_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset({EvidenceTyp
 
 
 def _required_capabilities_for(evidence_type: EvidenceType) -> list[str]:
-    """`_MITRE_MAPPING_CAPABILITY` is appended for every evidence type,
-    regardless of what specialist(s) it also routes to (ADR-0022): Finding
-    generation (and therefore MITRE mapping) already runs unconditionally on
-    every evidence upload (`generate_findings_for_case` in
-    `investigate_new_evidence`), so `MitreMappingAgent` is cross-cutting
-    rather than evidence-type-gated, exactly like blueprint §7 describes it
-    ("used by SOC/Threat Hunting/Incident agents")."""
+    """`_MITRE_MAPPING_CAPABILITY`/`_INCIDENT_RESPONSE_CAPABILITY` are both
+    appended for every evidence type, regardless of what specialist(s) it
+    also routes to (ADR-0022, ADR-0023): Finding generation (and therefore
+    MITRE mapping, and now incident response synthesis) already runs
+    unconditionally on every evidence upload
+    (`generate_findings_for_case` in `investigate_new_evidence`), so both
+    `MitreMappingAgent` and `IncidentResponseAgent` are cross-cutting rather
+    than evidence-type-gated, exactly like blueprint §7 describes MITRE
+    mapping ("used by SOC/Threat Hunting/Incident agents")."""
     capabilities = list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
     capabilities.append(_MITRE_MAPPING_CAPABILITY)
+    capabilities.append(_INCIDENT_RESPONSE_CAPABILITY)
     return capabilities
 
 
@@ -291,6 +315,8 @@ class CaseInvestigationResult(BaseModel):
     highest_sast_risk_level: str | None = None
     mitre_technique_count: int | None = None
     mitre_distinct_group_count: int | None = None
+    incident_response_recommendation_count: int | None = None
+    incident_severity: str | None = None
 
 
 async def create_case(
@@ -664,6 +690,55 @@ async def _hydrate_mitre_mapping_records(
     return records
 
 
+async def _hydrate_incident_response_records(
+    session: AsyncSession, *, case_id: uuid.UUID, settings: Settings
+) -> list[dict[str, object]]:
+    """Reduces this case's already-persisted `Finding` rows (title,
+    severity, risk_score, confidence, and their own `mitre_mappings`) to
+    plain dicts for `CaseInvestigationState.incident_response_finding_records`
+    — never re-derives a severity/risk score/MITRE mapping (constitution
+    §1.9). Mirrors `_hydrate_mitre_mapping_records` exactly: reads
+    `json.loads(row.finding_data_json)` directly rather than importing
+    `core.findings.models.FindingRecord` (this module has no import edge
+    onto `core/findings`; that edge belongs to `finding_service.py`
+    specifically, rule 4c). Scoped to the whole case, matching
+    `_hydrate_mitre_mapping_records`'s identical case-wide scope
+    (docs/adr/0023-incident-response-agent.md, Decision 1)."""
+    rows = await list_findings_for_case(
+        session, case_id, limit=settings.finding_max_candidates_per_case
+    )
+    records: list[dict[str, object]] = []
+    for row in rows:
+        try:
+            data = json.loads(row.finding_data_json)
+        except (TypeError, ValueError):
+            _logger.warning(
+                "incident_response_hydration_skipped_malformed_finding", finding_id=str(row.id)
+            )
+            continue
+        mitre_mappings = [m for m in data.get("mitre_mappings", []) if isinstance(m, dict)]
+        technique_ids = [m["technique_id"] for m in mitre_mappings if "technique_id" in m]
+        tactic_ids = sorted(
+            {tactic_id for m in mitre_mappings for tactic_id in m.get("tactic_ids", ())}
+        )
+        confidence = data.get("confidence")
+        composite_confidence = (
+            confidence.get("composite", 1.0) if isinstance(confidence, dict) else 1.0
+        )
+        records.append(
+            {
+                "finding_id": str(row.id),
+                "title": data.get("title", ""),
+                "severity": data.get("severity", "info"),
+                "risk_score": data.get("risk_score", 0.0),
+                "confidence": composite_confidence,
+                "mitre_technique_ids": technique_ids,
+                "mitre_tactic_ids": tactic_ids,
+            }
+        )
+    return records
+
+
 async def _run_specialist_agents(
     session: AsyncSession,
     *,
@@ -677,14 +752,15 @@ async def _run_specialist_agents(
     owasp_web_records: list[dict[str, object]] | None = None,
     owasp_security_records: list[dict[str, object]] | None = None,
     mitre_mapping_records: list[dict[str, object]] | None = None,
+    incident_response_finding_records: list[dict[str, object]] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`. Registers all eight concrete specialist
+    delegating to `core/graph`. Registers all nine concrete specialist
     agents built to date (`SocAnalystAgent`, `PhishingAgent`,
     `VulnerabilityAssessmentAgent`, `ThreatHunterAgent`,
     `LinuxSecurityAgent`, `WebSecurityAgent`, `OwaspSecurityAgent`,
-    `MitreMappingAgent`); which one(s) the
+    `MitreMappingAgent`, `IncidentResponseAgent`); which one(s) the
     Coordinator actually fans out to is decided by `required_capabilities`,
     computed per-artifact from its `EvidenceType`
     (`_required_capabilities_for`) — this is what lets a log upload, an
@@ -731,6 +807,9 @@ async def _run_specialist_agents(
             tool_registry=default_mitre_mapping_agent_tool_registry(settings=settings)
         )
     )
+    registry.register(
+        IncidentResponseAgent(tool_registry=default_incident_response_agent_tool_registry())
+    )
     engine = build_investigation_graph(agent_registry=registry, settings=settings)
 
     required_capabilities = _required_capabilities_for(evidence_items[0].evidence_type)
@@ -745,6 +824,7 @@ async def _run_specialist_agents(
         owasp_web_records=list(owasp_web_records or []),
         owasp_security_records=list(owasp_security_records or []),
         mitre_mapping_records=list(mitre_mapping_records or []),
+        incident_response_finding_records=list(incident_response_finding_records or []),
         metadata={"required_capabilities": required_capabilities},
     )
     return engine.run(state)
@@ -1011,6 +1091,9 @@ async def investigate_new_evidence(
         mitre_mapping_records = await _hydrate_mitre_mapping_records(
             session, case_id=case_id, settings=settings
         )
+        incident_response_finding_records = await _hydrate_incident_response_records(
+            session, case_id=case_id, settings=settings
+        )
 
         result_state = await _run_specialist_agents(
             session,
@@ -1024,6 +1107,7 @@ async def investigate_new_evidence(
             owasp_web_records=owasp_web_records,
             owasp_security_records=owasp_security_records,
             mitre_mapping_records=mitre_mapping_records,
+            incident_response_finding_records=incident_response_finding_records,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
@@ -1048,12 +1132,18 @@ async def investigate_new_evidence(
             WebSecurityAgent.name,
             OwaspSecurityAgent.name,
             MitreMappingAgent.name,
+            IncidentResponseAgent.name,
         ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
                 await _record_timeline(
                     session, case_id, TimelineEventType.AGENT_ANALYSIS, agent_output.thought
                 )
+
+        (
+            incident_response_recommendation_count,
+            incident_severity,
+        ) = await _persist_incident_response_plan(session, case_id=case_id, state=result_state)
 
         case = await get_case(session, case_id)
         if case is not None and case.status is CaseStatus.OPEN:
@@ -1085,6 +1175,8 @@ async def investigate_new_evidence(
             highest_sast_risk_level=highest_sast_risk_level,
             mitre_technique_count=mitre_technique_count,
             mitre_distinct_group_count=mitre_distinct_group_count,
+            incident_response_recommendation_count=incident_response_recommendation_count,
+            incident_severity=incident_severity,
         )
 
 
@@ -1200,3 +1292,37 @@ def _extract_mitre_mapping(state: CaseInvestigationState) -> tuple[int | None, i
     if not summary:
         return None, None
     return summary["technique_count"], summary["distinct_group_count"]
+
+
+async def _persist_incident_response_plan(
+    session: AsyncSession, *, case_id: uuid.UUID, state: CaseInvestigationState
+) -> tuple[int | None, str | None]:
+    """Persists this run's `IncidentResponsePlan` (if `IncidentResponseAgent`
+    produced one) via `IncidentResponsePlanRepository.upsert_for_case` —
+    passing the plan through as the plain dict `AgentExecutionResult.output`
+    already carries, never importing `core.incident_response.models.
+    IncidentResponsePlan` here (see `IncidentResponsePlanRepository`'s
+    docstring for why that stays a `core/db`-only import). Returns
+    `(None, None)` for the documented "no findings yet" DEGRADED outcome (no
+    plan to persist) — never persists a placeholder, mirroring
+    `_extract_mitre_mapping`'s identical "insufficient evidence" distinction."""
+    output = state.agent_outputs.get(IncidentResponseAgent.name)
+    if output is None:
+        return None, None
+    plan_data = output.output.get("plan")
+    if not plan_data:
+        return None, None
+
+    repository = IncidentResponsePlanRepository(session)
+    await repository.upsert_for_case(case_id, plan_data)
+
+    recommendation_count = len(plan_data.get("recommendations", []))
+    incident_severity = plan_data.get("incident_severity")
+    await _record_timeline(
+        session,
+        case_id,
+        TimelineEventType.INCIDENT_RESPONSE_PLAN_GENERATED,
+        f"{recommendation_count} response recommendation(s) generated; "
+        f"incident severity '{incident_severity}'.",
+    )
+    return recommendation_count, incident_severity

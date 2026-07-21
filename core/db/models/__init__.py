@@ -14,6 +14,7 @@ from core.db.models.case_tag import CaseTag
 from core.db.models.evidence import Evidence, EvidenceStatus
 from core.db.models.finding import Finding
 from core.db.models.finding_mitre_mapping import FindingMitreMapping
+from core.db.models.incident_response_plan import IncidentResponsePlanRow
 from core.db.models.ioc import IOC, IOCStatus
 from core.db.models.mitre_group import MitreGroup
 from core.db.models.mitre_mitigation import MitreMitigation
@@ -36,6 +37,7 @@ __all__ = [
     "Finding",
     "FindingMitreMapping",
     "IOCStatus",
+    "IncidentResponsePlanRow",
     "MitreGroup",
     "MitreMitigation",
     "MitreSoftware",

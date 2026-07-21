@@ -21,8 +21,10 @@ core/agents                    (specialist agents)
                                 ↘ (no edge onto core/linux_advisor — rule 4g is services-only)
                                 ↘ (no edge onto core/owasp_web — rule 4h is services-only)
                                 ↘ (no edge onto core/owasp_security — rule 4i is services-only)
+                                ↘ (no edge onto core/incident_response — it is core/tools-only, rule 5b)
 core/tools , core/parsers , core/threat_intel , core/findings , core/vulnerabilities ,
-core/linux_security , core/linux_advisor , core/owasp_web , core/owasp_security
+core/linux_security , core/linux_advisor , core/owasp_web , core/owasp_security ,
+core/incident_response
         (deterministic functions)
         ↓ may import
 core/knowledge , core/memory , core/security , core/db , core/reporting , core/config
@@ -218,6 +220,20 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    point 1, `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`
    point 2, `docs/adr/0017-vulnerability-assessment-framework.md` point 5,
    and `docs/adr/0018-linux-security-threat-hunting-framework.md`.
+
+5b. **`core/tools/ir_tools.py` may import `core/incident_response`
+   directly** — a second, narrower instance of the same shape rule 5's blanket
+   `core/knowledge` permission already establishes for every leaf, granted
+   here to one specific file rather than the whole `core/tools` package
+   (mirroring how `core/tools/mitre_tools.py` is the one `core/tools/*.py`
+   file with a typed, non-dict-shaped input, for the identical reason: its
+   `run()` is a thin wrapper around a leaf package's own engine —
+   `core.incident_response.response_plan_engine.ResponsePlanEngine` here,
+   `core.knowledge.mitre.lookup.MitreLookup` there — never a duplicate
+   reimplementation). No other `core/tools/*.py` file gets this exception;
+   every other tool in this package stays dict-shaped, matching `docs/adr/
+   0017`-`0021`'s established "no cross-leaf import" precedent. See
+   `docs/adr/0023-incident-response-agent.md`.
 
 6. **`core/memory` is the only layer allowed to import a vector-store client
    (ChromaDB).** No other layer talks to ChromaDB directly.

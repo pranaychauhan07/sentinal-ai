@@ -97,7 +97,17 @@ stays typed rather than dict-shaped — `core/tools` is explicitly allowed to
 import `core/knowledge` directly (docs/dependency-rules.md rule 5)). Backs
 `core.agents.mitre_mapping_agent.MitreMappingAgent`.
 
-No other concrete tool (`log_tools.py`, `ir_tools.py`) exists yet.
+**Implemented (Milestone M5, `docs/adr/0023-incident-response-agent.md`):**
+`ir_tools.py` (`IncidentResponsePlanGenerationTool`) — blueprint's exact
+named file. A thin `BaseTool` wrapper around
+`core.incident_response.response_plan_engine.ResponsePlanEngine`, mirroring
+`mitre_tools.py`'s shape exactly: its input stays typed (not dict-shaped)
+and `core/tools/ir_tools.py` is granted the same kind of exception
+`mitre_tools.py` has for `core/knowledge` — here, to import
+`core/incident_response` directly (docs/dependency-rules.md rule 5b). Backs
+`core.agents.incident_response_agent.IncidentResponseAgent`.
+
+No other concrete tool (`log_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*
 tool to call and interpret the result, not to do the math itself.

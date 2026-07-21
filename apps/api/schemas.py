@@ -172,6 +172,12 @@ class EvidenceUploadResponse(ApiSchema):
     #: §13's versioning rule; docs/adr/0022-mitre-mapping-agent.md).
     mitre_technique_count: int | None = None
     mitre_distinct_group_count: int | None = None
+    #: Populated once at least one finding exists for the case — cross-
+    #: cutting, so populated regardless of which specialist(s) this upload
+    #: also routed to (additive, per constitution §13's versioning rule;
+    #: docs/adr/0023-incident-response-agent.md).
+    incident_response_recommendation_count: int | None = None
+    incident_severity: str | None = None
 
 
 # --- IOC --------------------------------------------------------------------

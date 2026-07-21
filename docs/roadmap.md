@@ -400,6 +400,17 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       Agent (case-wide synthesis), Report Generator Agent with Jinja2/
       ReportLab templates per module + executive report, Plotly charts.
       *Demo: full case → "Generate Executive Report" → real branded PDF with charts.*
+      **Partially closed** (`docs/adr/0023-incident-response-agent.md`): the
+      Incident Response Agent half is done — `core/incident_response/`
+      (deterministic NIST SP 800-61-aligned response-playbook synthesis:
+      severity classification, MITRE-tactic/keyword/severity-fallback rule
+      matching, prioritization, execution ordering, confidence rollups),
+      `core/tools/ir_tools.py` (blueprint's named tool file), the ninth
+      concrete specialist agent (`IncidentResponseAgent`, cross-cutting like
+      `MitreMappingAgent`), and real DB persistence
+      (`incident_response_plans` table, blueprint §8's literal
+      `Case -> 1 IncidentResponsePlan (nullable)`). The Report Generator
+      Agent half remains open.
 
 - [ ] **M6 — Memory + Threat Timeline + UX polish.** ChromaDB long-term
       memory, Threat Timeline cross-evidence view, MITRE ATT&CK heatmap,
