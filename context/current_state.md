@@ -10,7 +10,176 @@
 
 ## Completed Features
 
-**Most recent session: M6 Production Memory, Embedding, Chat-Provider &
+**Most recent session: Memory Agent — graph-integrated cross-case retrieval,
+closing M6** (`docs/adr/0028-memory-agent.md`) — the last named M6
+intelligence component: `core.agents.memory_agent.MemoryAgent`, an eleventh
+concrete specialist agent, runs automatically on every case investigation,
+surfacing similar past cases/findings/IOCs/MITRE techniques/reports and
+relevant knowledge-base documents — blueprint §7's exact "Memory Agent"
+responsibility, which ADR-0027 (the prior session) deliberately built every
+supporting piece for but explicitly left as "named future work, not
+silently dropped" (a service-level write hook existed; there was no graph
+node). Before writing code, `core/memory/`, `core/agents/`,
+`core/graph/state.py`/`investigation_graph.py`, and `core/services/
+case_service.py` were audited against the blueprint/constitution/
+dependency-rules per this project's "never redesign completed modules"
+rule; the one real architecture question this task raised (**how** can a
+graph node do memory retrieval when `BaseAgent.execute()` is synchronous and
+`LongTermMemoryManager` is entirely `async def`) was resolved before any
+code was written — documented in `docs/adr/0028-memory-agent.md` — by
+reusing the exact "resolve pre-hydrated data" shape `MitreMappingAgent`/
+`IncidentResponseAgent`/`ReportGeneratorAgent` already established for the
+identical reason, not by teaching `BaseAgent`/`WorkflowEngine` a new
+async-execution capability (which would be a change to already-shipped,
+tested framework code).
+
+**What this session actually built:**
+- **`core/memory/investigation_context.py`** (new) — the Memory Agent's
+  "Memory Service": `MemoryRetrievalConfig` (configurable categories,
+  `top_k_per_category`, `min_similarity`, over-fetch multiplier) and
+  `build_investigation_memory_context`, which queries every configured
+  category via `LongTermMemory.find_similar_excluding_case` (already
+  advisory — ADR-0006), then ranks, confidence-thresholds, cross-call
+  deduplicates (`(case_id, finding_id)` pairs — a defensive guard against a
+  backend returning the same match under more than one call), and
+  per-category top-K truncates. One category failing (a backend error) is
+  caught and marked `degraded` on that category's `RetrievalOutcome` alone —
+  it never blocks the other four categories, and the function itself never
+  raises. Kept inside `core/memory` (never `core/tools`, which
+  `docs/dependency-rules.md` rule 5 explicitly forbids from importing
+  `core/memory` — no exception exists for it and this session does not add
+  one), independently reusable by a future on-demand API route.
+- **`core/tools/memory_tools.py`** (new) — `MemoryContextResolutionTool`,
+  `core/tools`'s deterministic reconstruction/labeling/aggregation step:
+  turns the already-retrieved, already-ranked matches into the typed public
+  output — `MemoryContext` (`similar_cases`/`similar_findings`/
+  `similar_iocs`/`similar_mitre_techniques`/`similar_reports`/
+  `related_knowledge`/`metrics`), each item carrying a similarity score, a
+  deterministic confidence label (`high`/`medium`/`low`, threshold
+  bucketing), a `source` tag, a `recorded_at` timestamp, and a per-item
+  "reason for retrieval" string — plus a case-level `RetrievalMetrics`
+  (categories queried, candidates considered, below-threshold/duplicate/
+  oversized-truncation counts, per-stage latency, hit/degraded flags). Every
+  model is strongly typed (no dicts) and defined *locally* to this module —
+  never importing `core.memory.interfaces.SimilarResult`/
+  `core.knowledge.models.KnowledgeSearchResult` directly, since rule 5
+  forbids `core/tools` from importing `core/memory` at all (unlike
+  `mitre_tools.py`'s narrower, explicit `core/knowledge` exception). A
+  hard `MAX_TOTAL_ITEMS` ceiling (50) truncates deterministically
+  (largest-category-first) as defense-in-depth against a misconfigured
+  retrieval strategy producing an oversized context — never expected to
+  trigger under the default config (5 categories × top_k=5 = 25).
+- **`core/agents/memory_agent.py`** (new) — `MemoryAgent(BaseAgent)`,
+  capability `memory_retrieval`. Never queries a vector store or the
+  Knowledge Layer itself (ADR-0028 §1): reads the already-hydrated
+  `CaseInvestigationState.memory_context_record` dict (skip-on-malformed
+  parsing for every category, mirroring `MitreMappingAgent`'s
+  `_valid_mapping_records` pattern exactly), calls
+  `MemoryContextResolutionTool` via `self.use_tool(...)`, and appends the
+  resulting `MemoryContext` to `state.findings`. Three distinct outcomes,
+  each with its own thought text: no `memory_context_record` at all
+  (`DEGRADED`, "retrieval was skipped or unavailable"); a real record with
+  zero hits (`SUCCEEDED`, "a clean bill, not insufficient coverage" —
+  constitution §7's exact "no threats found" vs. "insufficient evidence"
+  distinction, applied here); a real record with hits (`SUCCEEDED` or
+  `DEGRADED` if any category itself degraded, narrating exactly how many
+  items were found per category).
+- **`core.memory.interfaces.SimilarResult`** gains `recorded_at: datetime |
+  None = None` (additive, backward-compatible — the task's explicit "every
+  item must include ... Timestamp" requirement had no existing field to
+  read). `LongTermMemoryManager.record` now stamps an ISO-8601 UTC
+  timestamp into every vector's metadata; `ChromaVectorStore`/
+  `InMemoryVectorStore` parse it back defensively (`None` for a vector
+  recorded before this field existed, or a malformed stored value — never
+  raises).
+- **`core/services/case_service.py`** (extended) — `_build_memory_query_text`
+  (builds the retrieval query from this case's already-persisted Finding
+  titles/descriptions, the identical signal `_record_long_term_memory`
+  already embeds for the write path, falling back to the evidence
+  artifact's own type/source when no Finding exists yet) and
+  `_hydrate_memory_context_record` (the read half of blueprint §9's "Memory
+  Agent (read)" step: awaits `build_investigation_memory_context` plus a
+  read-only Knowledge Layer search via `core.knowledge.retrieval.
+  KeywordKnowledgeRetriever` — mirroring `conversation_service.py`'s
+  `_hydrate_knowledge_documents` exactly, no `source_types` filter so an
+  empty/partially-populated registry yields fewer results, never a
+  `NotFoundError` — then reduces both to the plain dict
+  `CaseInvestigationState.memory_context_record` carries). New,
+  documented `docs/dependency-rules.md` rule 4d exception:
+  `core.memory.investigation_context` and `core.knowledge.{registry,
+  retrieval, models}` (worded identically to rule 4j's existing grant of the
+  same three knowledge modules to `conversation_service.py`).
+  `_required_capabilities_for` appends `memory_retrieval` to every evidence
+  type's required capabilities (cross-cutting, exactly like MITRE mapping/
+  incident response/report generation); `MemoryAgent` registered in
+  `_run_specialist_agents`'s `AgentRegistry`; `CaseInvestigationResult`
+  gains `memory_context_item_count`/`memory_similar_finding_count`
+  (`_extract_memory_context`, mirroring `_extract_mitre_mapping`'s
+  `(None, None)` vs. `(0, 0)` distinction).
+- **`core/graph/{state,investigation_graph}.py`** (modified) —
+  `CaseInvestigationState` gained `memory_context_record: dict[str, Any] |
+  None` (single-writer, mirrors `incident_response_plan_record`'s identical
+  shape — hydrated before the run, never written by an agent during it, so
+  no concurrent-write reducer is needed). `MemoryAgent` registered
+  (`_ensure_memory_agent_registered`) and wired as an eleventh graph node
+  (`engine.add_agent_node(MemoryAgent.name)` / `add_edge(..., END)`),
+  running in the same parallel entry-step fan-out as every other
+  cross-cutting agent (MITRE mapping, incident response, report
+  generation) — the graph has no sequential-phase concept to place it
+  "before" SOC Analyst in, mirroring blueprint §9's conceptual (not literal)
+  step ordering, per `docs/threat-pipeline.md`'s updated implementation
+  note.
+- **New settings** (`core/config/settings.py`, `.env.example`):
+  `MEMORY_AGENT_TOP_K_PER_CATEGORY` (default 5),
+  `MEMORY_AGENT_MIN_SIMILARITY` (default 0.35),
+  `MEMORY_AGENT_MAX_QUERY_CHARS` (default 2000).
+- **Testing** — 100+ new/extended tests: `test_memory_investigation_context.py`
+  (new — empty-query short-circuit, per-category querying, cross-case
+  exclusion, min-similarity thresholding, top-K truncation, cross-call
+  deduplication, one-category-failure isolation, a 200-record large-collection
+  top-K regression), `test_tools_memory_tools.py` (new — confidence-label
+  bucketing, per-item reason text, knowledge-item resolution, metrics
+  aggregation, the oversized-context guard truncating exactly to
+  `MAX_TOTAL_ITEMS`), `test_agents_memory_agent.py` (new — the three outcome
+  branches, malformed-record skipping, deterministic confidence), extended
+  `test_memory_vector_store.py`/`test_memory_chroma_vector_store.py`/
+  `test_memory_long_term.py` (`recorded_at` round-trip, missing/malformed
+  defaulting to `None`), extended `tests/integration/test_investigation_graph.py`
+  (`memory_agent` added to the expected node set), new
+  `tests/integration/test_case_service_memory_agent.py` (a real case
+  investigation against a real temp-directory ChromaDB, then a second case
+  investigating the same evidence surfacing the first case's findings
+  through `MemoryAgent`'s resolved `MemoryContext` — not hand-built
+  fixtures). Full pytest suite (**1960 tests**, up from 1930 — some tests
+  extended in place, not all net-new), `ruff check`/`format --check`, and
+  `scripts/check_dependency_rules.py` all pass. Every new/changed file is
+  individually `mypy --strict` clean; `core/services/case_service.py` and
+  `core/memory/investigation_context.py` reproduce the pre-existing,
+  documented numpy/Python-3.11 stub incompatibility on a whole-file
+  `mypy --strict` run (see Known Issues) — confirmed via the same
+  `--python-version 3.12` probe prior sessions used that these files have
+  zero other type errors.
+
+**Explicitly NOT built this session, per ADR-0028's documented scope
+boundary:** a dedicated `similar_malware_families`/`known_threat_actors`
+structured field (no `MalwareFamily`/`ThreatActor` model or knowledge
+source exists anywhere in this codebase — inventing one with no backing
+detection logic would be fabrication, per constitution §1.9/§10); an
+`apps/web` "Similar Cases" UI panel (still no `apps/web` code at all,
+unrelated to this session's scope); teaching `core/graph` genuine
+dependency-ordered waves so a future Memory Agent could run strictly
+*before* other specialists within one graph invocation (ADR-0023's
+identical, still-open alternative — the pre-hydration workaround remains
+the accepted shape); any redesign of `core/memory/{long_term,manager,
+context_builder,conversation_memory,case_memory,chroma_vector_store,
+vector_store}.py`'s existing methods (only additive fields/parameters),
+`core/graph/workflow_engine.py`, `core/graph/routing.py`,
+`core/agents/{coordinator,planning_agent}.py`, or any prior specialist
+agent/framework.
+
+---
+
+**Prior session: M6 Production Memory, Embedding, Chat-Provider &
 Knowledge Infrastructure** (`docs/adr/0027-production-memory-embedding-
 chat-provider-infrastructure.md`) — closes three of `docs/roadmap.md`'s four
 remaining M6 items (a real ChromaDB backend, populated MITRE/OWASP
@@ -1601,90 +1770,79 @@ needed dependency); any redesign of `SocAnalystAgent`, `PhishingAgent`,
 
 ## Repository Status
 
+**Note (this session, kept concise per the file's own "regenerated, not
+appended" rule): the block below reflects the state as of this session's
+work — ADR-0028's Memory Agent, layered on top of every ADR-0027/ADR-0025
+component it depended on.**
+
 ```
 apps/
-  api/            schemas.py (MODIFIED: +ConversationAskRequest/
-                   ConversationAskResponse/SourceReferenceResponse) +
-                   routers/{system,cases,evidence,iocs,findings,
-                   conversation(NEW),v1(MODIFIED: +conversation router)}.py [implemented]
-  web/             Streamlit frontend                                     [README only]
+  api/            unchanged this session (still: schemas.py, routers/
+                   {system,cases,evidence,iocs,findings,conversation,
+                   report_export,v1}.py)                                 [implemented]
+  web/             Streamlit frontend                                    [README only]
 core/
-  config/         settings.py (unchanged this session — no new config
-                   knobs needed, mirroring core/reporting's/
-                   core/incident_response's identical "no dedicated
-                   settings section" precedent)                          [implemented]
+  config/         settings.py (MODIFIED: +MEMORY_AGENT_TOP_K_PER_CATEGORY/
+                   MEMORY_AGENT_MIN_SIMILARITY/MEMORY_AGENT_MAX_QUERY_CHARS) [implemented]
   logging/        (unchanged)                                             [implemented]
-  agents/         (unchanged this session — this feature is a service,
-                   not a graph node; still 10 concrete specialist agents) [implemented — 10 concrete specialist agents]
-  tools/          (unchanged this session — 10 concrete tools)           [implemented — 10 concrete tools]
-  memory/         (unchanged this session — conversation_memory.py/
-                   context_builder.py reused as-is, per ADR-0025's
-                   "never duplicate" decision)                            [implemented — framework only]
-  knowledge/      mitre/, cvss_calculator.py (unchanged)                  [implemented]
-  graph/          (unchanged this session — this feature never touches
-                   the LangGraph investigation graph)                     [implemented]
-  db/             (unchanged this session — no new tables; conversation
-                   turns stay in-memory per ADR-0010's existing scope)   [implemented — 12 real domain tables + 5 reference tables]
-  parsers/        (unchanged this session)                               [implemented — 17 concrete parsers]
-  incident_response/ (unchanged this session)                            [implemented]
-  reporting/      (unchanged this session)                               [implemented — pipeline only, no exporters]
-  conversation/   (NEW — this session's leaf package: models.py,
-                   exceptions.py, retrieval.py, tool_selection.py,
-                   context_builder.py, prompt_builder.py, llm_provider.py,
-                   response_orchestrator.py, citation_engine.py,
-                   session_manager.py, conversation_manager.py, audit.py,
-                   metrics.py; deliberately `core/memory`-free — see
-                   docs/adr/0025 Decision 1)                              [implemented — pipeline + default template provider, no real LLM client]
+  agents/         memory_agent.py (NEW)                                  [implemented — 11 concrete specialist agents + Coordinator + Planning Agent]
+  tools/          memory_tools.py (NEW)                                  [implemented — 11 concrete tools]
+  memory/         investigation_context.py (NEW — the Memory Agent's
+                   Memory Service); interfaces.py (MODIFIED: +SimilarResult.
+                   recorded_at); long_term.py (MODIFIED: record() stamps
+                   recorded_at); vector_store.py/chroma_vector_store.py
+                   (MODIFIED: parse recorded_at back defensively)          [implemented — real ChromaDB backend + real embedders, ADR-0027]
+  knowledge/      mitre/, owasp/, playbooks/, detection/ (unchanged this
+                   session)                                                [implemented — 4 of 6 KnowledgeSourceType sources populated]
+  graph/          state.py (MODIFIED: +memory_context_record field);
+                   investigation_graph.py (MODIFIED: +MemoryAgent node)    [implemented]
+  db/             (unchanged this session)                                [implemented — 12 real domain tables + 5 reference tables]
+  parsers/        (unchanged this session)                                [implemented — 17 concrete parsers]
+  incident_response/ (unchanged this session)                             [implemented]
+  reporting/      (unchanged this session)                                [implemented — pipeline + 5-format export]
+  conversation/   (unchanged this session)                                [implemented]
   owasp_security/ (unchanged)                                             [implemented]
   owasp_web/      (unchanged)                                             [implemented]
-  linux_advisor/  (unchanged — ADR-0019's separate framework)             [implemented]
-  linux_security/  (unchanged — ADR-0018's separate framework)            [implemented]
+  linux_advisor/  (unchanged)                                             [implemented]
+  linux_security/  (unchanged)                                            [implemented]
   vulnerabilities/  (unchanged)                                           [implemented]
   threat_intel/   (unchanged)                                             [implemented]
-  findings/       (unchanged — this session's service never touches
-                   this package directly)                                [implemented]
-  security/       prompt_guard.py (unchanged — reused, not modified, by
-                   conversation_service.py); pii_redaction.py,
+  findings/       (unchanged)                                             [implemented]
+  security/       prompt_guard.py (unchanged); pii_redaction.py,
                    approval_gate.py still not started                     [implemented — 1 of 3 modules]
-  services/       conversation_service.py (NEW — ask_question(),
-                   docs/dependency-rules.md rule 4j) + case_service.py/
-                   finding_service.py/evidence_service.py/
-                   threat_intel_service.py/vulnerability_service.py/
-                   linux_security_service.py/linux_advisor_service.py/
-                   web_security_service.py/owasp_security_service.py
-                   (unchanged this session)                               [implemented]
+  services/       case_service.py (MODIFIED: +_build_memory_query_text/
+                   _hydrate_memory_context_record/_extract_memory_context,
+                   MemoryAgent registration, memory_retrieval capability) [implemented]
 data/             (unchanged this session)
 scripts/          (unchanged)
 tests/
-  unit/           235 test modules (+12 this session:
-                   test_conversation_{models,retrieval,tool_selection,
-                   context_builder,prompt_builder,llm_provider,
-                   citation_engine,response_orchestrator,session_manager,
-                   conversation_manager,audit,metrics}.py)
-  integration:    18 test modules (+2 this session:
-                   test_conversation_service.py, test_api_conversation_routes.py)
-  golden:         (empty — no concrete report renderer/exporter exists yet)
-docs/             19 markdown docs + docs/adr/ (26 ADR files incl.
-                   template, +0025) + docs/dependency-rules.md (MODIFIED:
-                   +rule 4j, `core/services/conversation_service.py`'s
-                   `core/conversation`/`core/memory`/`core/security`
-                   exception) + docs/architecture.md (MODIFIED: +core/
-                   conversation layer) + docs/diagrams/ (unchanged)
+  unit/           238+ test modules (+3 this session: test_memory_
+                   investigation_context.py, test_tools_memory_tools.py,
+                   test_agents_memory_agent.py; 3 extended:
+                   test_memory_{vector_store,chroma_vector_store,long_term}.py)
+  integration:    19+ test modules (+1 this session:
+                   test_case_service_memory_agent.py; 1 extended:
+                   test_investigation_graph.py)
+  golden:         (empty)
+docs/             +docs/adr/0028-memory-agent.md; docs/dependency-rules.md
+                   (MODIFIED: rule 4d extended); docs/{architecture,roadmap,
+                   threat-pipeline}.md (MODIFIED); core/{agents,memory,
+                   tools,services}/README.md (MODIFIED)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 ```
 
-1704 tests passing as of this session (1653 prior -> 1704 now: 51 new).
-Modified this session: `apps/api/{schemas,routers/v1}.py`,
-`docs/{roadmap,dependency-rules,architecture}.md`,
-`core/services/README.md`, `CHANGELOG.md`, and this file. New:
-`docs/adr/0025-ai-investigation-assistant-conversational-interface.md`,
-`core/conversation/{__init__,models,exceptions,retrieval,tool_selection,
-context_builder,prompt_builder,llm_provider,response_orchestrator,
-citation_engine,session_manager,conversation_manager,audit,metrics,
-README}.py`, `core/services/conversation_service.py`,
-`apps/api/routers/conversation.py`, 14 new test files — all currently
-uncommitted until this session's commit (see "Current Git Status" below).
+**1960 tests passing as of this session** (1930 prior -> 1960 now: 30 net
+new — several existing files extended in place rather than duplicated).
+Modified this session: `core/{config/settings,graph/state,graph/
+investigation_graph,services/case_service}.py`, `core/memory/{interfaces,
+long_term,vector_store,chroma_vector_store}.py`, `.env.example`,
+`docs/{roadmap,dependency-rules,architecture,threat-pipeline}.md`,
+`core/{agents,memory,tools,services}/README.md`, `CHANGELOG.md`, and this
+file. New: `docs/adr/0028-memory-agent.md`, `core/agents/memory_agent.py`,
+`core/tools/memory_tools.py`, `core/memory/investigation_context.py`, 4 new
+test files (3 unit, 1 integration) — see "Current Git Status" below for
+commit state.
 
 **Naming note carried forward:** `context/02_repository.md` still does not
 exist. The actual files remain `context/01_blueprint.md` and
@@ -1695,10 +1853,26 @@ exist. The actual files remain `context/01_blueprint.md` and
 ## Architecture Status
 
 Fully aligned with `context/01_blueprint.md`, extended (not reversed) by
-ADR-0001 through ADR-0025. **M2, M4, and M5 are all now fully closed; M6
-gains its AI Analyst Chat backend, though the milestone's own demo
-criterion (ChromaDB, populated knowledge, a real LLM provider, the chat UI)
-still is not met.** This session's deliberate decisions, documented in
+ADR-0001 through ADR-0028. **M2, M4, and M5 are fully closed. Every named
+M6 intelligence component is now built** (a real ChromaDB backend, populated
+MITRE/OWASP/playbook/detection knowledge, a real LLM-backed
+`ChatModelProvider`, and — as of this session — the graph-integrated Memory
+Agent) — **M6 as a whole is still not closed**, since its own demo criterion
+(the full Investigation Workspace UI: Threat Timeline, MITRE heatmap, AI
+Analyst Chat, all in `apps/web`) remains unbuilt (still folder-scaffolding
+only). ADR-0025's/ADR-0027's decisions are unchanged and carried forward
+below; this session's own decisions are documented in full in
+`docs/adr/0028-memory-agent.md` (§1: retrieval happens in
+`core/services/case_service.py`, never inside `MemoryAgent.execute()`,
+because `BaseAgent.execute()` is synchronous and `LongTermMemoryManager` is
+async; §2: the ranking/threshold/dedup "Memory Service" lives in
+`core/memory/investigation_context.py`, never `core/tools`, which rule 5
+forbids from importing `core/memory`; §3: `SimilarResult` gains
+`recorded_at`, additive; §4: cross-cutting, and no
+`similar_malware_families`/`known_threat_actors` field — no such data model
+exists in this codebase).
+
+### Prior sessions' decisions (ADR-0025, unchanged), documented in
 `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`:
 
 1. **`core/conversation` stays a `core/memory`-free leaf, even though its
@@ -2456,14 +2630,19 @@ implementation exist as public interfaces yet.
    built, per this session's task instruction:** the Jinja2/ReportLab/
    Plotly exporters (`core/reporting/{templates,charts.py,pdf_builder.py}`);
    an on-demand `/api/v1/cases/{case_id}/reports` route.
-5. **M6 — further progress this session, still not fully closed.** The AI
-   Analyst Chat's backend (`core/conversation/`, `core/services/
-   conversation_service.py`, `POST /api/v1/cases/{case_id}/conversation` —
-   ADR-0025) is built. Remaining: swap `InMemoryVectorStore` for real
-   ChromaDB, populate remaining knowledge data (playbooks), a real
-   OpenAI/Gemini/Ollama `ChatModelProvider` (interface-only this session,
-   per explicit task scope), the real cross-evidence Threat Timeline UI
-   feature, MITRE heatmap/AI Analyst Chat `apps/web` UI pages.
+5. **M6 — every named intelligence component is now built; the milestone
+   itself remains open pending its UI demo criterion.** The AI Analyst
+   Chat's backend (`core/conversation/`, ADR-0025), the real ChromaDB
+   backend + real embedding/chat providers + populated knowledge
+   (ADR-0027), and the graph-integrated Memory Agent (`core/agents/
+   memory_agent.py`, `core/memory/investigation_context.py`,
+   `core/tools/memory_tools.py` — ADR-0028) are all built and tested.
+   Remaining, all `apps/web` UI work (none of it started): the real
+   cross-evidence Threat Timeline feature, the MITRE ATT&CK heatmap, the AI
+   Analyst Chat UI page, and a "Similar Cases" panel surfacing
+   `MemoryAgent`'s output. Also remaining, not urgent: a dedicated
+   malware-family/threat-actor knowledge category (ADR-0028 — no such data
+   model exists in this codebase yet).
 6. **M7 — Hardening, tests, docs, GitHub polish.**
 7. **Deferred, not scheduled:** `core/security/pii_redaction.py`/
    `approval_gate.py`; a structured read endpoint for `Case.labels`; a
@@ -2505,6 +2684,36 @@ ownership check; the duplicate-case guard is intentionally narrow; CVSS
 v4.0 is vector-validation-only; multi-CVE scan findings fold to their first
 CVE; no asset-criticality inventory exists.)*
 
+- **New this session — `core.knowledge.registry.default_knowledge_registry()`
+  is a process-wide `lru_cache` singleton `tests/conftest.py`'s
+  `_clear_process_wide_singleton_caches` does not clear** (unlike
+  `default_long_term_memory`/`get_settings`/`default_chat_model_provider`,
+  which it does clear). In practice this means the Memory Agent's Knowledge
+  Layer search can return real (non-empty) results even for a case's very
+  first-ever investigation, if any earlier test in the same pytest session
+  triggered `core.knowledge.bootstrap.register_default_knowledge_sources`
+  (e.g. via a FastAPI `TestClient`-driven test hitting `apps/api/main.py`'s
+  startup lifespan) — not a bug (the Knowledge Layer is deliberately
+  read-only, cross-case, non-case-specific reference data; production
+  behavior is unaffected, since a real deployment registers it once at
+  startup and expects exactly this), but `tests/integration/
+  test_case_service_memory_agent.py`'s first-upload test asserts on
+  `memory_similar_finding_count` (the vector-memory signal, genuinely
+  per-test-isolated via `CHROMA_PERSIST_DIR=tmp_path`) rather than the
+  overall `memory_context_item_count` for exactly this reason. A future
+  session could add `default_knowledge_registry.cache_clear()` to the
+  conftest helper if a test ever needs the Knowledge Layer itself isolated.
+- **New this session — no `MalwareFamily`/`ThreatActor` model or knowledge
+  source exists anywhere in this codebase**, so `core.agents.memory_agent.
+  MemoryAgent`'s `MemoryContext` has no `similar_malware_families`/
+  `known_threat_actors` field, even though the task brief that requested
+  the Memory Agent named both — a deliberate scope boundary (ADR-0028
+  "Alternatives Considered"), not an oversight: inventing a field with no
+  backing detection logic would be fabrication. Free-text finding/report
+  excerpts already indexed under the `finding`/`report` categories may
+  incidentally mention a malware or actor name and remain retrievable
+  through `similar_findings`/`similar_reports`.
+
 - **Still open — `mypy core --strict` (whole-repo) cannot run to
   completion.** Unchanged in root cause from prior sessions:
   `numpy/__init__.pyi:737: error: Type statement is only supported in
@@ -2524,7 +2733,12 @@ CVE; no asset-criticality inventory exists.)*
   configured version) that all six files have zero other type errors.
   Resolving the numpy/mypy/Python-version mismatch itself (pin an older
   numpy, or bump the mypy `python_version`) remains environment maintenance
-  outside any single feature session's scope.
+  outside any single feature session's scope. This session's
+  `core/services/case_service.py` (already affected, unchanged root cause)
+  and `core/memory/investigation_context.py` (new — transitively imports
+  `core.memory.long_term`, which pulls in the same chain) hit the identical
+  crash; verified via the same `--python-version 3.12` probe that every file
+  this session touched has zero other type errors.
 - **`Report`'s original "still has no consumer" gap is closed** —
   `ReportGeneratorAgent`/`ReportRepository` are now that consumer
   (ADR-0024); the placeholder is no longer schema-only.
@@ -2627,75 +2841,81 @@ Dev (`requirements-dev.txt`): unchanged.
 
 ## Current Git Status
 
-A git repository exists (`main` branch: `main`; working branch: `master`).
-All prior-session work through the Report Generator Agent (ADR-0024)
-commit is committed.
+A git repository exists (`main` branch: `main`; working branch: `master`,
+currently 17 commits ahead of `origin/master` — every prior session's work,
+including ADR-0027's production memory/embedding/chat-provider/knowledge
+infrastructure, is already committed to `master`). This session's Memory
+Agent work is uncommitted in the working tree as of this report:
 
-This session's AI Investigation Assistant work added/modified (all to be
-committed in this session's single commit — see the commit hash in this
-session's final report):
+- New: `docs/adr/0028-memory-agent.md`, `core/agents/memory_agent.py`,
+  `core/tools/memory_tools.py`, `core/memory/investigation_context.py`,
+  `tests/unit/{test_memory_investigation_context,test_tools_memory_tools,
+  test_agents_memory_agent}.py`,
+  `tests/integration/test_case_service_memory_agent.py`.
+- Modified: `core/{config/settings,graph/state,graph/investigation_graph,
+  services/case_service}.py`, `core/memory/{interfaces,long_term,
+  vector_store,chroma_vector_store}.py`, `.env.example`,
+  `docs/{roadmap,dependency-rules,architecture,threat-pipeline}.md`,
+  `core/{agents,memory,tools,services}/README.md`,
+  `tests/unit/test_memory_{vector_store,chroma_vector_store,long_term}.py`,
+  `tests/integration/test_investigation_graph.py`, `CHANGELOG.md`, this
+  file.
 
-- New: `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`,
-  `core/conversation/{__init__,models,exceptions,retrieval,tool_selection,
-  context_builder,prompt_builder,llm_provider,response_orchestrator,
-  citation_engine,session_manager,conversation_manager,audit,metrics,
-  README}.py`, `core/services/conversation_service.py`,
-  `apps/api/routers/conversation.py`,
-  `tests/unit/{test_conversation_models,test_conversation_retrieval,
-  test_conversation_tool_selection,test_conversation_context_builder,
-  test_conversation_prompt_builder,test_conversation_llm_provider,
-  test_conversation_citation_engine,test_conversation_response_orchestrator,
-  test_conversation_session_manager,test_conversation_manager,
-  test_conversation_audit,test_conversation_metrics}.py`,
-  `tests/integration/{test_conversation_service,
-  test_api_conversation_routes}.py`.
-- Modified: `apps/api/{schemas,routers/v1}.py`,
-  `docs/{roadmap,dependency-rules,architecture}.md`,
-  `core/services/README.md`, `CHANGELOG.md`, this file.
-
-Full suite (1704 tests), `ruff check`/`format --check`, and
+Full suite (1960 tests), `ruff check`/`format --check`, and
 `scripts/check_dependency_rules.py` all pass. `mypy core --strict`
 (whole-repo) fails on the same pre-existing, unrelated numpy/environment
 issue as prior sessions (see Known Issues); every file this session
-touched is individually `mypy --strict` clean.
+touched is individually `mypy --strict` clean (verified via the
+documented `--python-version 3.12` probe).
 
 ---
 
 ## Next Recommended Prompt
 
-> The AI Investigation Assistant's backend (`core/conversation/`,
-> `core/services/conversation_service.py`,
-> `POST /api/v1/cases/{case_id}/conversation`, ADR-0025) is built, tested,
-> and answering grounded, cited questions from real persisted case data,
-> with a deterministic, non-generative default `ChatModelProvider`. The
-> natural next steps, in rough priority order: (1) implement a real
-> `ChatModelProvider` (OpenAI/Gemini/Ollama, selected via
-> `Settings.llm_provider`) behind the existing Protocol — a provider swap,
-> not a pipeline rewrite; (2) the `apps/web` AI Analyst Chat UI page
-> (`6_AI_Analyst_Chat.py`), calling `core.services.conversation_service.
-> ask_question` the same way `apps/api`'s router does; (3) swap
-> `InMemoryVectorStore` for real ChromaDB (`core/memory/long_term.py`) and
-> populate MITRE/OWASP knowledge data to close out the rest of M6; or (4)
-> the two explicitly-deferred report-generation gaps from ADR-0024: the
-> Jinja2/ReportLab/Plotly exporters (`core/reporting/{templates,charts.py,
-> pdf_builder.py}`) and an on-demand `/api/v1/cases/{case_id}/reports`
-> route for the other seven report types. Preserve every existing file and
-> architectural decision described in this document — including all ten
-> specialist agents, the Case lifecycle subsystem, the Finding & MITRE
-> Engine, every M4 specialist framework, the Incident Response Framework,
-> the Report Generation Framework, and the AI Conversation Assistant
-> (`core/conversation` is deliberately `core/memory`/`core/db`/
-> `core/security`-free — all of that access lives in
-> `core/services/conversation_service.py` via rule 4j; don't try to make
-> `core/conversation` import `core/memory` directly for a future feature
-> without first re-reading ADR-0025's Decision 1) — only extend them. If
-> implementing a real LLM provider, decide up front (via ADR) how its
-> structured tool-calling response maps to `ChatCompletion.used_source_ids`
-> so `CitationEngine`'s "never fabricate a citation" guarantee survives the
-> swap from a template provider to a real model. Also worth addressing
-> eventually (not urgent, environment-only): the pre-existing
-> `mypy core --strict` failure caused by a numpy/pandas stub incompatibility
-> with the pinned `python_version = "3.11"` (see this file's Known Issues) —
-> either pin an older `numpy` compatible with the target Python version, or
-> bump the `pyproject.toml` mypy `python_version` if the project's actual
-> runtime floor has moved past 3.11.
+> Every named M6 intelligence component is now built: a real ChromaDB
+> backend, real OpenAI/Gemini/Ollama embedding/chat providers, populated
+> MITRE/OWASP/playbook/detection knowledge, and — as of this session — the
+> graph-integrated Memory Agent (`core/agents/memory_agent.py`,
+> `core/memory/investigation_context.py`, `core/tools/memory_tools.py`,
+> ADR-0028), running automatically on every investigation and surfacing
+> cross-case history into the Investigation Trail. M6 as a whole is not
+> closed, though: its own demo criterion is the full Investigation Workspace
+> UI, and `apps/web` still has no code at all. The natural next steps, in
+> rough priority order: (1) build the `apps/web` Streamlit pages — Threat
+> Timeline, MITRE ATT&CK heatmap, and the AI Analyst Chat page
+> (`6_AI_Analyst_Chat.py`, calling `core.services.conversation_service.
+> ask_question`) are the three explicitly named in blueprint §13 and
+> `docs/roadmap.md`'s M6 demo criterion; a "Similar Cases" panel reading
+> `MemoryAgent`'s output (`agent_outputs["memory_agent"]` /
+> `AgentExecutionResult.output["context"]`) would be a natural fourth,
+> closing the loop on this session's work; (2) M7 — hardening pass: full
+> test-coverage review, `mypy`/`ruff` clean sweep, README/diagrams/
+> CONTRIBUTING/ROADMAP finalized, tagged `v1.0` release; or (3) the two
+> explicitly-deferred report-generation gaps from ADR-0024 that are still
+> open: an on-demand `/api/v1/cases/{case_id}/reports` route for the seven
+> report types that currently have no caller (Executive Summary, IOC
+> Summary, MITRE ATT&CK, Timeline, Threat Intelligence, Evidence, and an
+> on-request Incident Response report), and reconciling the still-unpersisted
+> `SocFinding`/`PhishingVerdict`/`VulnerabilityFinding`/`LinuxSecurityFinding`/
+> etc. into the `findings` table (would also strengthen
+> `IncidentResponseAgent`/`ReportGeneratorAgent`/`MemoryAgent`'s cross-upload
+> continuity — the same signal gap ADR-0023/0024 already documented,
+> restated here since it now also limits how much the Memory Agent's write
+> path has to work with). Preserve every existing file and architectural
+> decision described in this document — including all eleven specialist
+> agents, the Case lifecycle subsystem, the Finding & MITRE Engine, every M4
+> specialist framework, the Incident Response Framework, the Report
+> Generation Framework, the AI Conversation Assistant, and the Memory Agent
+> (`core/agents/memory_agent.py` deliberately never queries `core/memory`
+> itself — all vector/knowledge retrieval lives in `core/services/
+> case_service.py`'s `_hydrate_memory_context_record`, because
+> `BaseAgent.execute()` is synchronous and `LongTermMemoryManager` is async;
+> don't try to make `MemoryAgent.execute()` `await` anything directly for a
+> future feature without first re-reading ADR-0028 §1's "Alternatives
+> Considered") — only extend them. Also worth addressing eventually (not
+> urgent, environment-only): the pre-existing `mypy core --strict` failure
+> caused by a numpy/pandas stub incompatibility with the pinned
+> `python_version = "3.11"` (see this file's Known Issues) — either pin an
+> older `numpy` compatible with the target Python version, or bump the
+> `pyproject.toml` mypy `python_version` if the project's actual runtime
+> floor has moved past 3.11.

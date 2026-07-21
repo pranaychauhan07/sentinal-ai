@@ -118,6 +118,18 @@ thin `BaseTool` wrapper around
 `core.agents.report_generator_agent.ReportGeneratorAgent`. This closes M5
 entirely.
 
+**Implemented (Milestone M6, `docs/adr/0028-memory-agent.md`):**
+`memory_tools.py` (`MemoryContextResolutionTool`) — resolves already-
+retrieved, already-ranked/thresholded/deduplicated cross-case memory matches
+and Knowledge Layer documents into a typed, labeled `MemoryContext`.
+**Unlike** `mitre_tools.py`/`ir_tools.py`/`report_tools.py`, this tool stays
+dict/primitive-shaped: `docs/dependency-rules.md` rule 5 explicitly forbids
+`core/tools` from importing `core/memory` (no exception exists for it, and
+this ADR does not add one — the actual retrieval/ranking logic lives in
+`core/memory/investigation_context.py` instead, called directly by
+`core/services/case_service.py`). Backs
+`core.agents.memory_agent.MemoryAgent`.
+
 No other concrete tool (`log_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*

@@ -25,8 +25,13 @@ long-term-memory backend, real OpenAI/Gemini/Ollama embedding and chat
 providers (graceful fallback to deterministic defaults when unconfigured/
 unreachable), and populated MITRE/OWASP/security-playbook/detection-
 engineering knowledge sources feeding both the specialist agents and the AI
-Analyst Chat's `KNOWLEDGE`/`SIMILAR_CASE` retrieval categories. `apps/web`
-is still folder-level scaffolding (a `README.md` only) — a future milestone.
+Analyst Chat's `KNOWLEDGE`/`SIMILAR_CASE` retrieval categories. The
+graph-integrated Memory Agent (ADR-0028) closes M6's last named intelligence
+component: `core.agents.memory_agent.MemoryAgent` runs on every
+investigation, surfacing cross-case history automatically via
+`core/memory/investigation_context.py`'s ranking/threshold/dedup Memory
+Service. `apps/web` is still folder-level scaffolding (a `README.md` only) —
+a future milestone.
 
 ## Layered architecture
 
@@ -37,7 +42,7 @@ API (apps/api)                FastAPI service boundary (same core/services)
         │
 Workflow (core/graph)         LangGraph StateGraph — the Case Investigation Graph
         │
-Agents (core/agents)          Coordinator + 12 specialist/support agents
+Agents (core/agents)          Coordinator + 13 specialist/support agents
         │
 Tools (core/tools)            Deterministic functions agents call — never LLM math
         │
@@ -49,7 +54,9 @@ Knowledge (core/knowledge)    MITRE ATT&CK, OWASP Top-10, security/incident-
         │
 Memory (core/memory)          short_term (case scratchpad) + long_term
                                (real ChromaDB backend, real semantic
-                               embeddings — ADR-0027)
+                               embeddings — ADR-0027) + investigation_context
+                               (Memory Agent's ranking/threshold/dedup
+                               retrieval service — ADR-0028)
         │
 Security (core/security)      prompt_guard, pii_redaction, approval_gate
         │
@@ -83,7 +90,8 @@ described above. Design rationale: `docs/adr/0009-multi-agent-framework-shape.md
 ## Data flow (evidence → report)
 
 See `docs/threat-pipeline.md` for the full 12-step walkthrough (blueprint §9),
-from evidence upload through Memory Agent write-back.
+from evidence upload through Memory Agent read (automatic, on every
+investigation — ADR-0028) and write-back.
 
 ## Central data model
 

@@ -44,3 +44,15 @@ scripts (see blueprint §1).
   verdict) does not require full incident-response synthesis.
 - Step 11 is best-effort: a ChromaDB outage must not block case closure (see
   `docs/adr/0006-memory-strategy.md`).
+- Step 4 is implemented (`docs/adr/0028-memory-agent.md`): `MemoryAgent`
+  runs in the same parallel entry-step fan-out as step 7's MITRE Agent
+  (blueprint's own numbered sequence is conceptual — the actual
+  `core/graph` execution model has no sequential-phase concept; see ADR-0023
+  §"Alternatives Considered" for why teaching it one is out of scope). Its
+  retrieval (`core.memory.investigation_context.
+  build_investigation_memory_context`) is performed, awaited, by
+  `core/services/case_service.py` *before* the graph runs — `BaseAgent.
+  execute()` is synchronous, `LongTermMemoryManager` is async — and hydrated
+  onto `CaseInvestigationState.memory_context_record` for the agent to
+  resolve into a typed `MemoryContext`, mirroring how step 7's MITRE Agent
+  resolves pre-computed mapping data rather than mapping it live.

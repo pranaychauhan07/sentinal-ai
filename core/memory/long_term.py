@@ -21,6 +21,7 @@ graph-integrated Memory Agent, see ADR-0027's "Alternatives Considered").
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from core.logging import get_logger
@@ -160,6 +161,11 @@ class LongTermMemoryManager:
                         "finding_id": str(finding_id),
                         "excerpt": content[:280],
                         "category": category,
+                        # ADR-0028: recorded so `SimilarResult.recorded_at` can
+                        # surface "how old is this match" to a retrieval
+                        # consumer (the Memory Agent) without a separate
+                        # lookup.
+                        "recorded_at": datetime.now(UTC).isoformat(),
                     },
                 )
         except Exception as exc:  # noqa: BLE001 - advisory boundary: a write failure degrades, never raises

@@ -315,6 +315,17 @@ class Settings(BaseSettings):
         default=2_000, alias="FINDING_MAX_CANDIDATES_PER_CASE"
     )
 
+    # --- Memory Agent (core/agents/memory_agent.py, core/memory/investigation_context.py) ---
+    memory_agent_top_k_per_category: int = Field(
+        default=5, gt=0, alias="MEMORY_AGENT_TOP_K_PER_CATEGORY"
+    )
+    memory_agent_min_similarity: float = Field(
+        default=0.35, ge=0.0, le=1.0, alias="MEMORY_AGENT_MIN_SIMILARITY"
+    )
+    memory_agent_max_query_chars: int = Field(
+        default=2_000, gt=0, alias="MEMORY_AGENT_MAX_QUERY_CHARS"
+    )
+
     # --- Frontend / API ---
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     api_base_url: str = Field(default="http://localhost:8000", alias="API_BASE_URL")

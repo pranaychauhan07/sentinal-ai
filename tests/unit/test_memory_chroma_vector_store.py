@@ -138,6 +138,29 @@ async def test_upsert_coerces_non_primitive_metadata_to_string(store: ChromaVect
     assert store.count() == 1
 
 
+async def test_recorded_at_round_trips(store: ChromaVectorStore) -> None:
+    await store.upsert_embedding(
+        id="a",
+        embedding=[1.0],
+        metadata={
+            "case_id": str(uuid4()),
+            "finding_id": str(uuid4()),
+            "recorded_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+    results = await store.query_embedding([1.0])
+    assert results[0].recorded_at is not None
+    assert results[0].recorded_at.year == 2026
+
+
+async def test_missing_recorded_at_defaults_to_none(store: ChromaVectorStore) -> None:
+    await store.upsert_embedding(
+        id="a", embedding=[1.0], metadata={"case_id": str(uuid4()), "finding_id": str(uuid4())}
+    )
+    results = await store.query_embedding([1.0])
+    assert results[0].recorded_at is None
+
+
 async def test_persistence_survives_reopening_the_same_directory(tmp_path: object) -> None:
     case_id, finding_id = uuid4(), uuid4()
     first = ChromaVectorStore(persist_dir=str(tmp_path))

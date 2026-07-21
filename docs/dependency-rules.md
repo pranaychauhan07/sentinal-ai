@@ -86,8 +86,9 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
 
 4d. **`core/services/case_service.py` may import `core.agents.{registry,
    soc_analyst_agent, phishing_agent, vulnerability_agent}`,
-   `core.memory.{case_memory, repository, long_term, manager}`, and
-   `core.parsers.models` directly** — the fourth documented exception to
+   `core.memory.{case_memory, repository, long_term, manager,
+   investigation_context}`, `core.knowledge.{registry, retrieval, models}`,
+   and `core.parsers.models` directly** — the fourth documented exception to
    "services only call `core/graph`," worded identically to 4a/4b/4c. Every
    other `core/services` call in this module (`evidence_service`,
    `threat_intel_service`, `finding_service`, `vulnerability_service`,
@@ -110,8 +111,20 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    already established. See
    `docs/adr/0014-case-model-and-first-api-routes-shape.md`, extended by
    `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`,
-   `docs/adr/0017-vulnerability-assessment-framework.md`, and
-   `docs/adr/0027-production-memory-embedding-chat-provider-infrastructure.md`.
+   `docs/adr/0017-vulnerability-assessment-framework.md`,
+   `docs/adr/0027-production-memory-embedding-chat-provider-infrastructure.md`,
+   and `docs/adr/0028-memory-agent.md`. ADR-0028 extends this exception
+   again: `core.memory.investigation_context` (the Memory Agent's read-only
+   ranking/threshold/dedup "Memory Service" — never a vector-store client
+   itself, rule 6 still reserves that to `long_term.py`/
+   `chroma_vector_store.py`) and `core.knowledge.{registry, retrieval,
+   models}` (a read-only Knowledge Layer search for the Memory Agent's
+   "relevant knowledge documents," worded identically to rule 4j's
+   already-established grant of the same three modules to
+   `conversation_service.py`) — both awaited in
+   `_hydrate_memory_context_record` and reduced to a plain dict *before*
+   `engine.run(state)`, the same "no new business decision, only a read"
+   shape every prior exception in this list already established.
    This module also reads `core.db.{ioc_repository, finding_repository}`
    directly — not a new exception, since `core/services` -> `core/db` is
    always sanctioned (constitution §7) and every other repository this

@@ -118,11 +118,32 @@ as a plain dict — this module still has no import edge onto
 dependency-rules.md exception was needed for `case_service.py` itself; the
 one new exception this ADR introduces (`docs/dependency-rules.md` rule 5c)
 is scoped to `core/tools/report_tools.py`, not this module.
+
+ADR-0028 (Memory Agent) extends this module additively: importing
+`core.agents.memory_agent` directly is the same sibling-service/
+agent-registration composition every prior specialist agent already
+established. `_hydrate_memory_context_record` is the read half of blueprint
+§9's "Memory Agent (read)" step: it calls
+`core.memory.investigation_context.build_investigation_memory_context`
+(new — rule 4d extended to add `core.memory.investigation_context`, worded
+identically to the existing `core.memory.{case_memory, repository,
+long_term, manager}` grant) and, new, `core.knowledge.{registry, retrieval,
+models}` directly (rule 4d extended again, worded identically to rule 4j's
+already-established grant of the same three modules to
+`conversation_service.py`) for a read-only Knowledge Layer search — never a
+new business decision, exactly like every other reads-only lookup this
+module already performs. Both calls are awaited, reduced to a plain dict,
+and hydrated onto `CaseInvestigationState.memory_context_record` *before*
+`engine.run(state)`, mirroring `_hydrate_mitre_mapping_records`'s/
+`_hydrate_incident_response_records`'s identical shape — see
+`docs/adr/0028-memory-agent.md` for why retrieval cannot happen inside
+`MemoryAgent.execute()` itself.
 """
 
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -137,6 +158,7 @@ from core.agents.linux_security_agent import (
     LinuxSecurityAgent,
     default_linux_security_agent_tool_registry,
 )
+from core.agents.memory_agent import MemoryAgent, default_memory_agent_tool_registry
 from core.agents.mitre_mapping_agent import (
     MitreMappingAgent,
     default_mitre_mapping_agent_tool_registry,
@@ -180,8 +202,15 @@ from core.db.timeline_event_repository import TimelineEventRepository
 from core.exceptions import BusinessRuleError
 from core.graph.investigation_graph import build_investigation_graph
 from core.graph.state import CaseInvestigationState
+from core.knowledge.models import KnowledgeQuery
+from core.knowledge.registry import KnowledgeSourceRegistry, default_knowledge_registry
+from core.knowledge.retrieval import KeywordKnowledgeRetriever
 from core.logging import get_logger, logging_context
 from core.memory.case_memory import SQLiteCaseMemory
+from core.memory.investigation_context import (
+    MemoryRetrievalConfig,
+    build_investigation_memory_context,
+)
 from core.memory.long_term import LongTermMemoryManager
 from core.memory.manager import default_long_term_memory
 from core.memory.repository import MemoryRepository
@@ -222,6 +251,7 @@ _OWASP_SOURCE_CODE_REVIEW_CAPABILITY = OwaspSecurityAgent.capabilities[0].name
 _MITRE_MAPPING_CAPABILITY = MitreMappingAgent.capabilities[0].name
 _INCIDENT_RESPONSE_CAPABILITY = IncidentResponseAgent.capabilities[0].name
 _REPORT_GENERATION_CAPABILITY = ReportGeneratorAgent.capabilities[0].name
+_MEMORY_RETRIEVAL_CAPABILITY = MemoryAgent.capabilities[0].name
 
 #: Which capabilities a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
@@ -298,19 +328,23 @@ _OWASP_SECURITY_EVIDENCE_TYPES: frozenset[EvidenceType] = frozenset({EvidenceTyp
 
 
 def _required_capabilities_for(evidence_type: EvidenceType) -> list[str]:
-    """`_MITRE_MAPPING_CAPABILITY`/`_INCIDENT_RESPONSE_CAPABILITY` are both
+    """`_MITRE_MAPPING_CAPABILITY`/`_INCIDENT_RESPONSE_CAPABILITY`/
+    `_REPORT_GENERATION_CAPABILITY`/`_MEMORY_RETRIEVAL_CAPABILITY` are all
     appended for every evidence type, regardless of what specialist(s) it
-    also routes to (ADR-0022, ADR-0023): Finding generation (and therefore
-    MITRE mapping, and now incident response synthesis) already runs
-    unconditionally on every evidence upload
-    (`generate_findings_for_case` in `investigate_new_evidence`), so both
-    `MitreMappingAgent` and `IncidentResponseAgent` are cross-cutting rather
-    than evidence-type-gated, exactly like blueprint §7 describes MITRE
-    mapping ("used by SOC/Threat Hunting/Incident agents")."""
+    also routes to (ADR-0022, ADR-0023, ADR-0024, ADR-0028): Finding
+    generation (and therefore MITRE mapping, incident response synthesis,
+    and report generation) already runs unconditionally on every evidence
+    upload (`generate_findings_for_case` in `investigate_new_evidence`), and
+    memory retrieval is meaningful for every case regardless of evidence type
+    — so `MitreMappingAgent`, `IncidentResponseAgent`, `ReportGeneratorAgent`,
+    and `MemoryAgent` are all cross-cutting rather than evidence-type-gated,
+    exactly like blueprint §7 describes MITRE mapping ("used by SOC/Threat
+    Hunting/Incident agents")."""
     capabilities = list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
     capabilities.append(_MITRE_MAPPING_CAPABILITY)
     capabilities.append(_INCIDENT_RESPONSE_CAPABILITY)
     capabilities.append(_REPORT_GENERATION_CAPABILITY)
+    capabilities.append(_MEMORY_RETRIEVAL_CAPABILITY)
     return capabilities
 
 
@@ -347,6 +381,8 @@ class CaseInvestigationResult(BaseModel):
     report_type: str | None = None
     report_section_count: int | None = None
     report_confidence: float | None = None
+    memory_context_item_count: int | None = None
+    memory_similar_finding_count: int | None = None
 
 
 async def create_case(
@@ -816,6 +852,150 @@ async def _hydrate_incident_response_plan_record(
     return data if isinstance(data, dict) else None
 
 
+async def _build_memory_query_text(
+    session: AsyncSession,
+    *,
+    case_id: uuid.UUID,
+    evidence_items: list[NormalizedEvidence],
+    settings: Settings,
+) -> str:
+    """Builds the text `build_investigation_memory_context` embeds and
+    searches against — this case's already-persisted Finding titles/
+    descriptions (the identical signal `_record_long_term_memory` already
+    embeds for the write path), falling back to the evidence artifact's own
+    type/source when no Finding has been generated for this case yet (a
+    parser producing zero IOCs, or an evidence type with no capability
+    match). Never re-derives a Finding or IOC (constitution §1.9) — a pure
+    text reduction of already-computed data."""
+    rows = await list_findings_for_case(
+        session, case_id, limit=settings.finding_max_candidates_per_case
+    )
+    fragments: list[str] = []
+    for row in rows:
+        try:
+            data = json.loads(row.finding_data_json)
+        except (TypeError, ValueError):
+            continue
+        fragment = f"{data.get('title', '')}. {data.get('description', '')}".strip()
+        if fragment and fragment != ".":
+            fragments.append(fragment)
+    if fragments:
+        return " ".join(fragments)[: settings.memory_agent_max_query_chars]
+    return " ".join(
+        f"{item.evidence_type.value} evidence from {item.source}" for item in evidence_items
+    )
+
+
+async def _hydrate_memory_context_record(
+    session: AsyncSession,
+    *,
+    case_id: uuid.UUID,
+    evidence_items: list[NormalizedEvidence],
+    settings: Settings,
+    long_term_memory: LongTermMemoryManager | None = None,
+    knowledge_registry: KnowledgeSourceRegistry | None = None,
+) -> dict[str, object]:
+    """The read half of blueprint §9's "Memory Agent (read) — check ChromaDB
+    for similar past findings; attach as context" (ADR-0028). Queries every
+    long-term-memory category
+    (`core.memory.investigation_context.build_investigation_memory_context`)
+    plus the Knowledge Layer (`core.knowledge.retrieval.
+    KeywordKnowledgeRetriever`, mirroring `conversation_service.py`'s
+    `_hydrate_knowledge_documents` exactly — no `source_types` filter, so an
+    empty/partially-populated registry simply yields fewer results, never a
+    `NotFoundError`), reducing both to the plain dict
+    `CaseInvestigationState.memory_context_record` carries. Always advisory:
+    `LongTermMemoryManager`/`build_investigation_memory_context` never raise,
+    and the Knowledge Layer search below is wrapped in its own `try`/`except`
+    so a Knowledge Layer failure never drops the vector-memory half of the
+    context that already succeeded."""
+    memory = long_term_memory or default_long_term_memory()
+    query_text = await _build_memory_query_text(
+        session, case_id=case_id, evidence_items=evidence_items, settings=settings
+    )
+
+    config = MemoryRetrievalConfig(
+        top_k_per_category=settings.memory_agent_top_k_per_category,
+        min_similarity=settings.memory_agent_min_similarity,
+    )
+    raw_context = await build_investigation_memory_context(
+        query_text, case_id=case_id, long_term_memory=memory, config=config
+    )
+
+    category_state_field: dict[str, str] = {
+        "case_summary": "similar_cases",
+        "finding": "similar_findings",
+        "ioc": "similar_iocs",
+        "mitre_technique": "similar_mitre_techniques",
+        "report": "similar_reports",
+    }
+    record: dict[str, object] = {
+        "query_text": raw_context.query_text,
+        "total_latency_ms": raw_context.total_latency_ms,
+        "min_similarity": config.min_similarity,
+        "top_k_per_category": config.top_k_per_category,
+        "degraded": raw_context.degraded,
+        "category_metrics": [
+            {
+                "category": outcome.category,
+                "raw_candidate_count": outcome.raw_candidate_count,
+                "below_threshold_dropped": outcome.below_threshold_dropped,
+                "duplicate_dropped": outcome.duplicate_dropped,
+                "latency_ms": outcome.latency_ms,
+                "degraded": outcome.degraded,
+                "error": outcome.error,
+            }
+            for outcome in raw_context.outcomes
+        ],
+    }
+    for outcome in raw_context.outcomes:
+        field_name = category_state_field.get(outcome.category)
+        if field_name is None:
+            continue
+        record[field_name] = [
+            {
+                "case_id": str(item.case_id),
+                "record_id": str(item.finding_id),
+                "score": item.score,
+                "excerpt": item.excerpt,
+                "category": item.category,
+                "recorded_at": item.recorded_at.isoformat() if item.recorded_at else None,
+            }
+            for item in outcome.results
+        ]
+
+    knowledge_items: list[dict[str, object]] = []
+    knowledge_error: str | None = None
+    knowledge_started = time.perf_counter()
+    if query_text.strip():
+        try:
+            retriever = KeywordKnowledgeRetriever(
+                knowledge_registry or default_knowledge_registry()
+            )
+            results = retriever.retrieve(
+                KnowledgeQuery(text=query_text, limit=settings.memory_agent_top_k_per_category)
+            )
+            knowledge_items = [
+                {
+                    "source_type": result.document.source_type.value,
+                    "document_id": result.document.id,
+                    "title": result.document.title,
+                    "content": result.document.content,
+                    "score": result.score,
+                }
+                for result in results
+            ]
+        except Exception as exc:  # noqa: BLE001 - advisory boundary: never blocks the caller
+            _logger.error(
+                "memory_agent_knowledge_search_failed", case_id=str(case_id), error=str(exc)
+            )
+            knowledge_error = str(exc)
+    record["related_knowledge"] = knowledge_items
+    record["knowledge_latency_ms"] = (time.perf_counter() - knowledge_started) * 1000
+    record["knowledge_error"] = knowledge_error
+    return record
+
+
 async def _run_specialist_agents(
     session: AsyncSession,
     *,
@@ -831,6 +1011,7 @@ async def _run_specialist_agents(
     mitre_mapping_records: list[dict[str, object]] | None = None,
     incident_response_finding_records: list[dict[str, object]] | None = None,
     incident_response_plan_record: dict[str, object] | None = None,
+    memory_context_record: dict[str, object] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
@@ -892,6 +1073,7 @@ async def _run_specialist_agents(
     registry.register(
         ReportGeneratorAgent(tool_registry=default_report_generator_agent_tool_registry())
     )
+    registry.register(MemoryAgent(tool_registry=default_memory_agent_tool_registry()))
     engine = build_investigation_graph(agent_registry=registry, settings=settings)
 
     required_capabilities = _required_capabilities_for(evidence_items[0].evidence_type)
@@ -908,6 +1090,7 @@ async def _run_specialist_agents(
         mitre_mapping_records=list(mitre_mapping_records or []),
         incident_response_finding_records=list(incident_response_finding_records or []),
         incident_response_plan_record=incident_response_plan_record,
+        memory_context_record=memory_context_record,
         metadata={"required_capabilities": required_capabilities},
     )
     return engine.run(state)
@@ -1180,6 +1363,9 @@ async def investigate_new_evidence(
         incident_response_plan_record = await _hydrate_incident_response_plan_record(
             session, case_id=case_id
         )
+        memory_context_record = await _hydrate_memory_context_record(
+            session, case_id=case_id, evidence_items=[normalized], settings=settings
+        )
 
         result_state = await _run_specialist_agents(
             session,
@@ -1195,6 +1381,7 @@ async def investigate_new_evidence(
             mitre_mapping_records=mitre_mapping_records,
             incident_response_finding_records=incident_response_finding_records,
             incident_response_plan_record=incident_response_plan_record,
+            memory_context_record=memory_context_record,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
@@ -1210,6 +1397,9 @@ async def investigate_new_evidence(
         owasp_web_finding_count, highest_owasp_web_risk_level = _extract_web_security(result_state)
         sast_finding_count, highest_sast_risk_level = _extract_owasp_security(result_state)
         mitre_technique_count, mitre_distinct_group_count = _extract_mitre_mapping(result_state)
+        memory_context_item_count, memory_similar_finding_count = _extract_memory_context(
+            result_state
+        )
         for agent_name in (
             SocAnalystAgent.name,
             PhishingAgent.name,
@@ -1221,6 +1411,7 @@ async def investigate_new_evidence(
             MitreMappingAgent.name,
             IncidentResponseAgent.name,
             ReportGeneratorAgent.name,
+            MemoryAgent.name,
         ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
@@ -1283,6 +1474,8 @@ async def investigate_new_evidence(
             report_type=report_type,
             report_section_count=report_section_count,
             report_confidence=report_confidence,
+            memory_context_item_count=memory_context_item_count,
+            memory_similar_finding_count=memory_similar_finding_count,
         )
 
 
@@ -1398,6 +1591,24 @@ def _extract_mitre_mapping(state: CaseInvestigationState) -> tuple[int | None, i
     if not summary:
         return None, None
     return summary["technique_count"], summary["distinct_group_count"]
+
+
+def _extract_memory_context(state: CaseInvestigationState) -> tuple[int | None, int | None]:
+    """`MemoryAgent`'s counterpart to `_extract_mitre_mapping` — reads the
+    total retrieved item count (every category, including Knowledge Layer
+    documents) and the cross-case similar-finding count out of this run's
+    `MemoryContext` payload. Returns `(None, None)` when the agent never ran
+    or never produced a context (advisory retrieval skipped/unavailable),
+    never `(0, 0)` — mirroring `_extract_mitre_mapping`'s identical
+    "insufficient signal" vs. "queried, found nothing" distinction."""
+    memory_output = state.agent_outputs.get(MemoryAgent.name)
+    if memory_output is None:
+        return None, None
+    context = memory_output.output.get("context")
+    if not context:
+        return None, None
+    metrics = context.get("metrics") or {}
+    return metrics.get("total_items_returned"), len(context.get("similar_findings", []))
 
 
 async def _persist_incident_response_plan(

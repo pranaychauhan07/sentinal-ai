@@ -223,6 +223,24 @@ class CaseInvestigationState(BaseModel):
     #: reducer is needed.
     incident_response_plan_record: dict[str, Any] | None = None
 
+    #: This case's already-retrieved cross-case memory context — similar past
+    #: cases/findings/IOCs/MITRE techniques/reports plus relevant knowledge-
+    #: base documents — hydrated as a plain `dict[str, object]` by
+    #: `core/services/case_service.py::_hydrate_memory_context_record` (via
+    #: `core.memory.investigation_context.build_investigation_memory_context`
+    #: plus a Knowledge Layer search) for
+    #: `core.agents.memory_agent.MemoryAgent` to resolve into a typed
+    #: `MemoryContext` (ADR-0028). `None` if retrieval was never attempted or
+    #: the query signal was empty — memory retrieval is always advisory
+    #: (blueprint §7), never a hard dependency. Kept generic (``dict[str,
+    #: Any]``) for the same uniform reason every other ``*_record``/
+    #: ``*_records`` field is: `core/graph` has no dependency-rules.md import
+    #: edge onto `core/memory`'s typed contracts (only `core/agents` does).
+    #: Single writer (`case_service.py`, before the run), so — like
+    #: ``incident_response_plan_record`` — no concurrent-write reducer is
+    #: needed.
+    memory_context_record: dict[str, Any] | None = None
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

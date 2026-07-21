@@ -62,20 +62,38 @@ degrades to "no historical context," never blocks an investigation (ADR-0006).
   `manager.py` gained `build_long_term_memory`/`default_long_term_memory`
   (ADR-0027): the one place "real ChromaDB + real embedder" vs. "degraded
   Null/Hashing fallback" is decided.
+- `investigation_context.py` (ADR-0028) — `build_investigation_memory_context`,
+  the graph-integrated Memory Agent's "Memory Service": per-category
+  ranking, confidence-thresholding, top-K truncation, and cross-call
+  deduplication over `LongTermMemoryManager`'s retrieval, called by
+  `core/services/case_service.py` (never by `core/tools`, which
+  `docs/dependency-rules.md` rule 5 forbids from importing `core/memory`).
+- `interfaces.py`'s `SimilarResult` gained `recorded_at` (ADR-0028) —
+  `LongTermMemoryManager.record` now stamps a timestamp into every vector's
+  metadata; `None` for any vector recorded before this field existed.
 
-**Not yet built:** a graph-integrated Memory Agent (blueprint §7 — surfacing
-"similar past cases" automatically at investigation start, before the
-Coordinator runs); multi-tenant memory partitioning if/when multi-org
-support is added.
+**Graph-integrated Memory Agent: built (ADR-0028).**
+`core.agents.memory_agent.MemoryAgent` is a real, cross-cutting graph node
+(`core/graph/investigation_graph.py`) that runs on every investigation,
+surfacing "similar past cases" automatically — blueprint §7's exact
+requirement. It never imports or queries this package directly at execution
+time (`BaseAgent.execute()` is synchronous; this package's retrieval methods
+are `async def`): `core/services/case_service.py`'s
+`_hydrate_memory_context_record` calls `investigation_context.
+build_investigation_memory_context` (awaited, before the graph runs) and
+hydrates the result onto `CaseInvestigationState.memory_context_record` for
+the agent to resolve. See `docs/adr/0028-memory-agent.md` for the full
+sync/async reasoning.
 
 **Why it exists:** This is what makes the Copilot smarter the longer it's
-used, per the PDF's explicit Project 9 requirement — and what lets a future
-Memory Agent do its job. As of ADR-0027, this is genuinely true: case
-investigations write real findings/report summaries into long-term memory
-(`core/services/case_service.py`), and the AI Analyst Chat reads them back
-across cases (`core/services/conversation_service.py`).
+used, per the PDF's explicit Project 9 requirement. Case investigations
+write real findings/report summaries into long-term memory
+(`core/services/case_service.py`), the AI Analyst Chat reads them back
+across cases (`core/services/conversation_service.py`), and every new
+investigation's Memory Agent reads them back automatically (ADR-0028).
 
-**Future expansion:** A graph-integrated Memory Agent (blueprint §7);
-multi-tenant memory partitioning if/when multi-org support is added; a
-persisted embedding cache to avoid re-embedding identical finding text
-across repeated case runs.
+**Future expansion:** multi-tenant memory partitioning if/when multi-org
+support is added; a persisted embedding cache to avoid re-embedding
+identical finding text across repeated case runs; a dedicated
+malware-family/threat-actor knowledge category (no such model exists in this
+codebase yet — see ADR-0028's "Alternatives Considered").

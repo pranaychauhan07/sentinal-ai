@@ -198,8 +198,30 @@ confidence itself — all of that lives in `core/reporting/`. Persisted via
 `core.db.report_repository.ReportRepository` — blueprint §8 names `Report`
 as a real, one-per-case table. This closes M5 entirely.
 
-No other specialist agent (Memory, ...) exists yet — see
-`docs/agent-design.md` for how to add one on top of this framework.
+**Implemented (Milestone M6, `docs/adr/0028-memory-agent.md`):**
+`memory_agent.py` — the eleventh concrete specialist agent (`MemoryAgent`),
+declaring capability `memory_retrieval`. Blueprint §7's cross-case learning
+agent — "have we seen this IP/pattern before?" Deliberately never queries a
+vector store or the Knowledge Layer itself: `BaseAgent.execute()` is
+synchronous while `core.memory.long_term.LongTermMemoryManager` is async, so
+`core/services/case_service.py`'s `_hydrate_memory_context_record` performs
+the actual retrieval (`core.memory.investigation_context.
+build_investigation_memory_context` plus a Knowledge Layer search) *before*
+the graph runs, hydrating `CaseInvestigationState.memory_context_record` —
+exactly the same "resolve pre-hydrated data" shape `MitreMappingAgent`
+already established for the identical sync/async reason. Calls
+`core.tools.memory_tools.MemoryContextResolutionTool` to resolve those
+already-retrieved matches into a typed, labeled, case-level `MemoryContext`
+(similar cases/findings/IOCs/MITRE techniques/reports, plus relevant
+knowledge-base documents), appended to `CaseInvestigationState.findings` the
+same way every prior specialist agent's output is. Cross-cutting, not
+evidence-type-gated, mirroring `MitreMappingAgent`'s identical routing.
+Always advisory (blueprint §7): a missing/empty `memory_context_record`
+degrades to an empty `MemoryContext`, never a failure. This closes M6's last
+named intelligence component.
+
+No other specialist agent exists yet — see `docs/agent-design.md` for how to
+add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture
 (`context/01_blueprint.md` §4) — the "AI system" the whole project is built around.

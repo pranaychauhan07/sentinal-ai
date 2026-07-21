@@ -41,7 +41,11 @@ vulnerability_agent}`, `core.memory.{case_memory, repository}`, and
 `core.parsers.models` (types only) directly, to build a session-scoped
 `CaseMemory` and a fresh `AgentRegistry` before delegating to `core/graph` —
 see `docs/adr/0014-case-model-and-first-api-routes-shape.md` and
-`docs/dependency-rules.md` rule 4d; `vulnerability_service.py` calls
+`docs/dependency-rules.md` rule 4d (ADR-0027 extended this to
+`core.memory.{long_term, manager}`; ADR-0028 extends it again to
+`core.memory.investigation_context` and `core.knowledge.{registry,
+retrieval, models}` — the Memory Agent's read path,
+`_hydrate_memory_context_record`); `vulnerability_service.py` calls
 `core/vulnerabilities` and `core/parsers` directly for the same
 "deterministic, pre-investigation processing" reason as 4b — see
 `docs/adr/0017-vulnerability-assessment-framework.md` and

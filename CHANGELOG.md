@@ -11,6 +11,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **Memory Agent — graph-integrated cross-case retrieval, closing M6**
+  (`docs/adr/0028-memory-agent.md`) — the last named M6 intelligence
+  component: an eleventh concrete specialist agent
+  (`core/agents/memory_agent.py`, capability `memory_retrieval`) that runs
+  automatically on every case investigation, surfacing "similar past
+  cases/findings/IOCs/MITRE techniques/reports" and relevant knowledge-base
+  documents into the Investigation Trail — blueprint §7's exact "Memory
+  Agent" responsibility, previously only reachable via a service-level write
+  hook (ADR-0027).
+  - `core/memory/investigation_context.py` (new) — the Memory Service:
+    `build_investigation_memory_context` performs per-category ranking,
+    confidence-thresholding (`MemoryRetrievalConfig.min_similarity`),
+    per-category top-K truncation, and cross-call deduplication over
+    `LongTermMemoryManager`'s retrieval, always advisory (one category
+    failing never blocks the others).
+  - `core/tools/memory_tools.py` (new) — `MemoryContextResolutionTool` +
+    strongly-typed `MemoryContext`/`SimilarCase`/`SimilarFinding`/
+    `SimilarIOC`/`SimilarMitreTechnique`/`SimilarReport`/`RelatedKnowledge`/
+    `RetrievalMetrics` models: deterministic confidence-label bucketing,
+    per-item "reason for retrieval" text, and an oversized-context guard
+    (`MAX_TOTAL_ITEMS`). Stays dict/primitive-shaped on input — `core/tools`
+    has no `core/memory` import exception, so all retrieval/ranking happens
+    upstream in `core/memory/investigation_context.py` instead.
+  - `core.memory.interfaces.SimilarResult` gains `recorded_at: datetime |
+    None` — `LongTermMemoryManager.record` now stamps a timestamp into every
+    vector's metadata; `ChromaVectorStore`/`InMemoryVectorStore` parse it
+    back defensively (`None` for any vector recorded before this field
+    existed, or a malformed value).
+  - `core/services/case_service.py` — `_hydrate_memory_context_record` (new)
+    performs the actual retrieval (awaited, before the graph runs — the
+    same "resolve pre-hydrated data" shape `MitreMappingAgent` already
+    established, since `BaseAgent.execute()` is synchronous and
+    `LongTermMemoryManager` is async) plus a read-only Knowledge Layer
+    search, hydrating `CaseInvestigationState.memory_context_record`. New
+    `docs/dependency-rules.md` rule 4d exception:
+    `core.memory.investigation_context` and `core.knowledge.{registry,
+    retrieval, models}`. `memory_retrieval` is appended to every evidence
+    type's required capabilities (cross-cutting, like MITRE mapping/
+    incident response/report generation); `CaseInvestigationResult` gains
+    `memory_context_item_count`/`memory_similar_finding_count`.
+  - `core/graph/state.py`/`core/graph/investigation_graph.py` —
+    `CaseInvestigationState.memory_context_record` (new field, single-writer,
+    mirrors `incident_response_plan_record`'s shape); `MemoryAgent`
+    registered and wired as an eleventh graph node.
+  - New settings: `MEMORY_AGENT_TOP_K_PER_CATEGORY`,
+    `MEMORY_AGENT_MIN_SIMILARITY`, `MEMORY_AGENT_MAX_QUERY_CHARS`.
+  - Testing: 100+ new/extended tests (`test_memory_investigation_context.py`,
+    `test_tools_memory_tools.py`, `test_agents_memory_agent.py`, extended
+    `test_memory_{vector_store,chroma_vector_store,long_term}.py` for
+    `recorded_at`, extended `test_investigation_graph.py`, new
+    `tests/integration/test_case_service_memory_agent.py` — a real second
+    case surfacing the first case's findings through `MemoryAgent`'s
+    resolved output against a real temp-directory ChromaDB). Full suite
+    (1960 tests), `ruff check`/`format --check`, `mypy --strict` on every
+    new/changed file, and `scripts/check_dependency_rules.py` all pass.
+  - Explicitly not built, per ADR-0028: a dedicated
+    `similar_malware_families`/`known_threat_actors` structured field (no
+    such data model exists anywhere in this codebase — see ADR-0028's
+    "Alternatives Considered"); an `apps/web` "Similar Cases" UI panel.
+
 - **M6 production memory, embedding, chat-provider & knowledge
   infrastructure** (`docs/adr/0027-production-memory-embedding-chat-
   provider-infrastructure.md`) — replaces every placeholder M6 AI backend

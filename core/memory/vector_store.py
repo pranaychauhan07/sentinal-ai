@@ -19,10 +19,25 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from core.memory.interfaces import SimilarResult, VectorEntry
+
+
+def _parse_recorded_at(metadata: dict[str, Any]) -> datetime | None:
+    """Defensive ISO-8601 parse of a stored ``recorded_at`` metadata value
+    (ADR-0028) — a missing key, `None`, or a malformed string all degrade to
+    `None` rather than raising; a timestamp is enrichment, never something a
+    retrieval can fail over."""
+    raw = metadata.get("recorded_at")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
 
 
 @runtime_checkable
@@ -137,6 +152,7 @@ class InMemoryVectorStore:
                     score=max(0.0, min(1.0, score)),
                     excerpt=str(metadata.get("excerpt", "")),
                     category=str(metadata.get("category", "finding")),
+                    recorded_at=_parse_recorded_at(metadata),
                 )
             )
         return results

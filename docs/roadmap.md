@@ -483,11 +483,34 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       retrieval observability. Checked off: **a real ChromaDB backend**,
       **populated MITRE/OWASP knowledge** (plus security-playbook/
       detection-engineering, beyond the original two named sources), and
-      **a real LLM-backed `ChatModelProvider`**. Still not checked off (out
-      of this task's explicit scope): the `apps/web` Threat Timeline/AI
-      Analyst Chat UI pages, and a graph-integrated Memory Agent
-      (blueprint §7 — the write/read paths above are service-level, not a
-      new `core/graph` node).
+      **a real LLM-backed `ChatModelProvider`**.
+      **Graph-integrated Memory Agent completed** (`docs/adr/
+      0028-memory-agent.md`): `core.agents.memory_agent.MemoryAgent`, an
+      eleventh concrete specialist agent, cross-cutting on every evidence
+      upload — closing blueprint §9's "Memory Agent (read)" step
+      automatically, no analyst action required. Read-side retrieval
+      (`core/memory/investigation_context.py`'s `build_investigation_
+      memory_context` — ranking, confidence-thresholding, per-category
+      top-K, cross-call deduplication) plus a Knowledge Layer search happen
+      in `core/services/case_service.py`'s `_hydrate_memory_context_record`
+      before the graph runs (`BaseAgent.execute()` is synchronous;
+      `LongTermMemoryManager` is async — the same constraint
+      `MitreMappingAgent` already resolved by reading pre-hydrated data);
+      `core.tools.memory_tools.MemoryContextResolutionTool` resolves it into
+      a typed, labeled `MemoryContext` (`SimilarCase`/`SimilarFinding`/
+      `SimilarIOC`/`SimilarMitreTechnique`/`SimilarReport`/
+      `RelatedKnowledge`/`RetrievalMetrics`, per-item similarity score,
+      confidence label, source, `recorded_at` timestamp — new on
+      `SimilarResult` — and reason-for-retrieval string). **Every named M6
+      intelligence component is now built**: a real ChromaDB backend,
+      populated MITRE/OWASP/playbook/detection knowledge, a real LLM-backed
+      `ChatModelProvider`, and the graph-integrated Memory Agent. Not
+      checked off, explicitly out of this task's scope: the `apps/web`
+      Threat Timeline/MITRE heatmap/AI Analyst Chat UI pages (M6's own demo
+      criterion is the full Investigation Workspace UI, still unbuilt) and a
+      dedicated malware-family/threat-actor knowledge category (no such data
+      model exists in this codebase — see ADR-0028's "Alternatives
+      Considered").
       *Demo: full Investigation Workspace as described in `docs/user-guide.md`
       (backend only — no UI yet).*
 

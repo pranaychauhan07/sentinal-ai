@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -42,6 +43,21 @@ def _validate_embedding(embedding: Sequence[float]) -> None:
         raise InvalidEmbeddingError("Embedding vector contains a non-finite value (NaN/inf).")
 
 
+def _parse_recorded_at(metadata: dict[str, Any]) -> datetime | None:
+    """Defensive ISO-8601 parse of a stored ``recorded_at`` metadata value
+    (ADR-0028) — mirrors `core.memory.vector_store._parse_recorded_at`
+    exactly; kept as a separate copy rather than a shared import since
+    neither module is permitted to import the other (both are `VectorMemory`
+    implementations at the same layer, not a shared-utility relationship)."""
+    raw = metadata.get("recorded_at")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
 def _row_to_similar_result(
     *, entry_id: str, metadata: dict[str, Any], distance: float
 ) -> SimilarResult:
@@ -55,6 +71,7 @@ def _row_to_similar_result(
         score=score,
         excerpt=str(metadata.get("excerpt", "")),
         category=str(metadata.get("category", "finding")),
+        recorded_at=_parse_recorded_at(metadata),
     )
 
 

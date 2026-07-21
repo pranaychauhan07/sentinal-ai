@@ -16,6 +16,7 @@ implemented) will ever import a vector-store client directly.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -141,9 +142,16 @@ class SimilarResult(BaseModel):
     `category="finding"`, the report id for `category="report"`, etc.) —
     kept as the original field name for backward compatibility with every
     existing caller; `category` (added by ADR-0027) is what disambiguates
-    it. Blueprint §7's full `SimilarCaseReferences` output model still
-    belongs to a future graph-integrated Memory Agent, not this
-    interfaces-only module."""
+    it. Blueprint §7's `SimilarCaseReferences`-equivalent typed output model
+    is `core.agents.memory_agent.MemoryContext` (ADR-0028) — this remains the
+    raw, per-backend lookup shape it is built from.
+
+    `recorded_at` (ADR-0028) is the timestamp `LongTermMemoryManager.record`
+    stamped onto the vector's metadata at write time; `None` for any vector
+    written before this field existed (no backfill/migration performed) or
+    when the backend's stored metadata is missing/malformed — a missing
+    timestamp is a degraded-but-valid result, never a query failure.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -152,3 +160,4 @@ class SimilarResult(BaseModel):
     score: float
     excerpt: str
     category: str = "finding"
+    recorded_at: datetime | None = None

@@ -154,6 +154,14 @@ async def test_delete_case_degrades_silently_on_backend_failure() -> None:
     await manager.delete_case(uuid4())
 
 
+async def test_record_stamps_recorded_at_timestamp() -> None:
+    manager = _manager()
+    case_id, finding_id = uuid4(), uuid4()
+    await manager.record(case_id, finding_id, "brute force ssh login")
+    results = await manager.find_similar("brute force ssh login")
+    assert results[0].recorded_at is not None
+
+
 async def test_metrics_record_embedding_and_vector_store_calls() -> None:
     manager = _manager()
     await manager.record(uuid4(), uuid4(), "content")

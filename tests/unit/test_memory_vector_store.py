@@ -137,6 +137,42 @@ async def test_null_vector_store_extended_methods_are_no_ops() -> None:
     assert await store.query_embedding([1.0], case_id=uuid4(), metadata_filter={"x": "y"}) == []
 
 
+async def test_in_memory_vector_store_parses_recorded_at_from_metadata() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert_embedding(
+        id="a",
+        embedding=[1.0],
+        metadata={
+            "case_id": str(uuid4()),
+            "finding_id": str(uuid4()),
+            "recorded_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+    results = await store.query_embedding([1.0])
+    assert results[0].recorded_at is not None
+    assert results[0].recorded_at.year == 2026
+
+
+async def test_in_memory_vector_store_missing_recorded_at_defaults_to_none() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert_embedding(
+        id="a", embedding=[1.0], metadata={"case_id": str(uuid4()), "finding_id": str(uuid4())}
+    )
+    results = await store.query_embedding([1.0])
+    assert results[0].recorded_at is None
+
+
+async def test_in_memory_vector_store_malformed_recorded_at_degrades_to_none() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert_embedding(
+        id="a",
+        embedding=[1.0],
+        metadata={"case_id": str(uuid4()), "finding_id": str(uuid4()), "recorded_at": "not-a-date"},
+    )
+    results = await store.query_embedding([1.0])
+    assert results[0].recorded_at is None
+
+
 def test_hashing_text_embedder_is_deterministic() -> None:
     embedder = HashingTextEmbedder(dimensions=16)
     assert embedder.embed("brute force login attempt") == embedder.embed(
