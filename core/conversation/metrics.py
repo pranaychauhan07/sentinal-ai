@@ -19,6 +19,22 @@ class ConversationMetricsSnapshot(BaseModel):
     prompt_injection_flags: int = 0
     validation_failures: int = 0
     total_processing_ms: float = 0.0
+    #: ADR-0027 — LLM-provider call observability (a real provider can fail
+    #: independently of everything else in the pipeline) and
+    #: retrieval-quality counters (how much of what was retrieved was
+    #: actually noise this session's dedup step removed, or context the
+    #: token budget had to drop).
+    llm_calls: int = 0
+    llm_failures: int = 0
+    total_llm_ms: float = 0.0
+    duplicate_context_items_removed: int = 0
+    context_items_truncated: int = 0
+
+    @property
+    def average_llm_ms(self) -> float:
+        if self.llm_calls == 0:
+            return 0.0
+        return self.total_llm_ms / self.llm_calls
 
 
 class ConversationMetricsCollector:
@@ -31,6 +47,11 @@ class ConversationMetricsCollector:
         self._prompt_injection_flags = 0
         self._validation_failures = 0
         self._total_processing_ms = 0.0
+        self._llm_calls = 0
+        self._llm_failures = 0
+        self._total_llm_ms = 0.0
+        self._duplicate_context_items_removed = 0
+        self._context_items_truncated = 0
 
     def record_question_answered(self) -> None:
         self._questions_answered += 1
@@ -56,6 +77,19 @@ class ConversationMetricsCollector:
     def record_processing_time(self, duration_ms: float) -> None:
         self._total_processing_ms += duration_ms
 
+    def record_llm_call(self, duration_ms: float = 0.0) -> None:
+        self._llm_calls += 1
+        self._total_llm_ms += duration_ms
+
+    def record_llm_failure(self) -> None:
+        self._llm_failures += 1
+
+    def record_duplicate_context_removed(self, count: int) -> None:
+        self._duplicate_context_items_removed += count
+
+    def record_context_truncated(self, count: int) -> None:
+        self._context_items_truncated += count
+
     def snapshot(self) -> ConversationMetricsSnapshot:
         return ConversationMetricsSnapshot(
             questions_answered=self._questions_answered,
@@ -66,4 +100,9 @@ class ConversationMetricsCollector:
             prompt_injection_flags=self._prompt_injection_flags,
             validation_failures=self._validation_failures,
             total_processing_ms=self._total_processing_ms,
+            llm_calls=self._llm_calls,
+            llm_failures=self._llm_failures,
+            total_llm_ms=self._total_llm_ms,
+            duplicate_context_items_removed=self._duplicate_context_items_removed,
+            context_items_truncated=self._context_items_truncated,
         )

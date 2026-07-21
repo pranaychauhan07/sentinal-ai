@@ -29,3 +29,14 @@ class OversizedConversationInputError(ConversationError):
     OversizedSourceInputError`'s identical reasoning."""
 
     code = "OVERSIZED_CONVERSATION_INPUT"
+
+
+class ChatProviderError(ConversationError):
+    """A concrete `ChatModelProvider` (`core/conversation/llm_provider.py`,
+    ADR-0027) failed to reach or was rejected by its backing LLM provider
+    (missing credentials, network failure, rate limit). Always caught by
+    `ResponseOrchestrator.orchestrate`'s fallback boundary — never allowed to
+    crash the conversation pipeline (constitution §9, "External API
+    failures ... converted to a degraded result")."""
+
+    code = "CHAT_PROVIDER_ERROR"

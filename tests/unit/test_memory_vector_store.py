@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from core.memory.interfaces import VectorMemory
+from core.memory.interfaces import VectorEntry, VectorMemory
 from core.memory.vector_store import HashingTextEmbedder, InMemoryVectorStore, NullVectorStore
 
 pytestmark = pytest.mark.unit
@@ -56,6 +56,85 @@ async def test_in_memory_vector_store_respects_limit() -> None:
     results = await store.query_embedding([1.0, 1.0], limit=2)
     assert len(results) == 2
     assert store.size() == 5
+
+
+async def test_in_memory_vector_store_batch_upsert() -> None:
+    store = InMemoryVectorStore()
+    case_id, f1, f2 = uuid4(), uuid4(), uuid4()
+    await store.upsert_embeddings_batch(
+        [
+            VectorEntry(
+                id="a",
+                embedding=[1.0, 0.0],
+                metadata={"case_id": str(case_id), "finding_id": str(f1), "excerpt": "one"},
+            ),
+            VectorEntry(
+                id="b",
+                embedding=[0.0, 1.0],
+                metadata={"case_id": str(case_id), "finding_id": str(f2), "excerpt": "two"},
+            ),
+        ]
+    )
+    assert store.size() == 2
+
+
+async def test_in_memory_vector_store_case_scoped_query() -> None:
+    store = InMemoryVectorStore()
+    case_a, case_b = uuid4(), uuid4()
+    await store.upsert_embedding(
+        id="a", embedding=[1.0, 0.0], metadata={"case_id": str(case_a), "finding_id": str(uuid4())}
+    )
+    await store.upsert_embedding(
+        id="b", embedding=[1.0, 0.0], metadata={"case_id": str(case_b), "finding_id": str(uuid4())}
+    )
+    results = await store.query_embedding([1.0, 0.0], limit=5, case_id=case_a)
+    assert len(results) == 1
+    assert results[0].case_id == case_a
+
+
+async def test_in_memory_vector_store_metadata_filter_query() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert_embedding(
+        id="a",
+        embedding=[1.0, 0.0],
+        metadata={"case_id": str(uuid4()), "finding_id": str(uuid4()), "category": "ioc"},
+    )
+    await store.upsert_embedding(
+        id="b",
+        embedding=[1.0, 0.0],
+        metadata={"case_id": str(uuid4()), "finding_id": str(uuid4()), "category": "finding"},
+    )
+    results = await store.query_embedding([1.0, 0.0], limit=5, metadata_filter={"category": "ioc"})
+    assert len(results) == 1
+    assert results[0].category == "ioc"
+
+
+async def test_in_memory_vector_store_delete() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert_embedding(id="a", embedding=[1.0], metadata={})
+    await store.delete("a")
+    assert store.size() == 0
+
+
+async def test_in_memory_vector_store_delete_case() -> None:
+    store = InMemoryVectorStore()
+    case_a, case_b = uuid4(), uuid4()
+    await store.upsert_embedding(
+        id="a", embedding=[1.0], metadata={"case_id": str(case_a), "finding_id": str(uuid4())}
+    )
+    await store.upsert_embedding(
+        id="b", embedding=[1.0], metadata={"case_id": str(case_b), "finding_id": str(uuid4())}
+    )
+    await store.delete_case(case_a)
+    assert store.size() == 1
+
+
+async def test_null_vector_store_extended_methods_are_no_ops() -> None:
+    store = NullVectorStore()
+    await store.upsert_embeddings_batch([VectorEntry(id="a", embedding=[1.0], metadata={})])
+    await store.delete("a")
+    await store.delete_case(uuid4())
+    assert await store.query_embedding([1.0], case_id=uuid4(), metadata_filter={"x": "y"}) == []
 
 
 def test_hashing_text_embedder_is_deterministic() -> None:

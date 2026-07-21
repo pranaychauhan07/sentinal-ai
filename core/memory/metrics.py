@@ -28,6 +28,17 @@ class MemoryMetrics(BaseModel):
     evictions: int = 0
     retrieval_count: int = 0
     total_retrieval_ms: float = 0.0
+    #: ADR-0027 — embedding-provider and vector-store call observability,
+    #: separate from the generic `retrieval_count`/`total_retrieval_ms`
+    #: above (which time the whole `find_similar*` call, not just the
+    #: embedding step) so a slow provider vs. a slow vector store are
+    #: distinguishable in one metrics snapshot.
+    embedding_calls: int = 0
+    embedding_failures: int = 0
+    total_embedding_ms: float = 0.0
+    vector_store_calls: int = 0
+    vector_store_failures: int = 0
+    total_vector_store_ms: float = 0.0
 
     @property
     def average_retrieval_ms(self) -> float:
@@ -41,6 +52,18 @@ class MemoryMetrics(BaseModel):
         if total == 0:
             return 0.0
         return self.hits / total
+
+    @property
+    def average_embedding_ms(self) -> float:
+        if self.embedding_calls == 0:
+            return 0.0
+        return self.total_embedding_ms / self.embedding_calls
+
+    @property
+    def average_vector_store_ms(self) -> float:
+        if self.vector_store_calls == 0:
+            return 0.0
+        return self.total_vector_store_ms / self.vector_store_calls
 
 
 class MemoryMetricsCollector:
@@ -79,3 +102,36 @@ class MemoryMetricsCollector:
             elapsed_ms = (time.perf_counter() - started) * 1000
             self._metrics.retrieval_count += 1
             self._metrics.total_retrieval_ms += elapsed_ms
+
+    @contextmanager
+    def time_embedding_call(self) -> Iterator[None]:
+        """Wrap one `TextEmbedder.embed` call (ADR-0027). On an
+        `EmbeddingProviderError` raised inside the block, records a failure
+        and re-raises unchanged — this collector only observes, it never
+        changes control flow (constitution §1.7's degrade-at-the-call-site
+        boundary stays in `long_term.py`, not here)."""
+        started = time.perf_counter()
+        try:
+            yield
+        except Exception:
+            self._metrics.embedding_failures += 1
+            raise
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            self._metrics.embedding_calls += 1
+            self._metrics.total_embedding_ms += elapsed_ms
+
+    @contextmanager
+    def time_vector_store_call(self) -> Iterator[None]:
+        """Wrap one `VectorMemory` backend call (ADR-0027) — same shape as
+        `time_embedding_call`, for the storage side of a retrieval/write."""
+        started = time.perf_counter()
+        try:
+            yield
+        except Exception:
+            self._metrics.vector_store_failures += 1
+            raise
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            self._metrics.vector_store_calls += 1
+            self._metrics.total_vector_store_ms += elapsed_ms

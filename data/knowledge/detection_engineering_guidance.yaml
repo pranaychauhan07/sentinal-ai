@@ -1,0 +1,63 @@
+# Detection-engineering guidance reference content — vendored, offline,
+# hand-curated principles for core/knowledge/detection/ (ADR-0027, the
+# `DETECTION_RULE` knowledge source). General guidance on how good
+# detections are built and maintained; this is NOT
+# core/findings/mapping_rules.py (the deterministic MITRE mapping engine
+# that actually classifies this system's evidence) — the two are
+# structurally independent, per blueprint §10's own distinction between
+# "detection engineering" as a discipline and this project's specific
+# mapping rules.
+principles:
+  - id: "DE-01"
+    title: "Detections Are Testable, Versioned Artifacts"
+    guidance: >
+      Treat a detection rule like source code: store it in version control,
+      review changes, and test it against both known-malicious and
+      known-benign sample data before deploying — a rule that has never
+      been tested against benign data is a false-positive generator
+      waiting to happen.
+  - id: "DE-02"
+    title: "Prefer Behavior-Based Over Signature-Based Detection"
+    guidance: >
+      A signature (an exact byte string, a specific IP) is trivially
+      evaded by a minor attacker change. A behavioral detection (e.g.
+      "many failed logins from one source in a short window," "a process
+      spawning an unexpected child process") generalizes across variants of
+      the same underlying technique.
+  - id: "DE-03"
+    title: "Map Detections to a Common Taxonomy"
+    guidance: >
+      Tag each detection with the MITRE ATT&CK technique(s) it covers so
+      coverage gaps are visible at a glance (which tactics have zero
+      detections?) and so an alert immediately carries a shared vocabulary
+      a SOC analyst already understands.
+  - id: "DE-04"
+    title: "Tune for False-Positive Rate Before Wide Deployment"
+    guidance: >
+      Run a new detection in a logging-only ("silent") mode against
+      production data first, review what it would have fired on, and
+      adjust thresholds/exclusions before it starts generating tickets — an
+      untuned detection erodes analyst trust and causes real alerts to be
+      missed in the noise.
+  - id: "DE-05"
+    title: "Vendor-Neutral Rule Formats Aid Portability"
+    guidance: >
+      Formats like Sigma express detection logic independent of any single
+      SIEM's query language, so a rule written once can be translated to
+      whichever backend a given environment runs — reducing lock-in and
+      making community-shared detections directly usable.
+  - id: "DE-06"
+    title: "Distinguish 'No Evidence Found' From 'Insufficient Coverage'"
+    guidance: >
+      A detection that finds nothing because the underlying log source
+      isn't even being collected is a coverage gap, not a clean result —
+      conflating the two is a common and dangerous detection-engineering
+      mistake (a real SOC tool must never present "we didn't look" as "we
+      looked and found nothing").
+  - id: "DE-07"
+    title: "Document the Rationale, Not Just the Rule"
+    guidance: >
+      Record why a detection exists (what technique/behavior it targets,
+      what a true positive looks like, known benign triggers) alongside
+      the rule itself — a rule with no documented rationale is much harder
+      to tune, retire, or hand off to another analyst later.

@@ -21,13 +21,21 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EvidenceCategory(StrEnum):
     """Which case-data category a `RetrievedItem` came from — the single
-    axis `ToolSelectionEngine` routes on and `RetrievalLayer` groups by."""
+    axis `ToolSelectionEngine` routes on and `RetrievalLayer` groups by.
+
+    ADR-0027 adds `KNOWLEDGE` (read-only reference content from
+    `core/knowledge` — OWASP/best-practice/detection-engineering guidance)
+    and `SIMILAR_CASE` (cross-case matches from `core.memory.long_term`,
+    "have we seen this before?") alongside the five original, case-scoped
+    categories."""
 
     FINDING = "finding"
     IOC = "ioc"
     MITRE_MAPPING = "mitre_mapping"
     REPORT = "report"
     TIMELINE_EVENT = "timeline_event"
+    KNOWLEDGE = "knowledge"
+    SIMILAR_CASE = "similar_case"
 
 
 class ConversationRetrievalContext(BaseModel):
@@ -45,6 +53,15 @@ class ConversationRetrievalContext(BaseModel):
     mitre_mappings: tuple[dict[str, object], ...] = ()
     reports: tuple[dict[str, object], ...] = ()
     timeline_events: tuple[dict[str, object], ...] = ()
+    #: ADR-0027 — read-only Knowledge Layer search results (`title`/
+    #: `content`/`source_type`/`document_id`) and cross-case long-term-memory
+    #: matches (`excerpt`/`case_id`/`score`/`category`), both fetched by
+    #: `core/services/conversation_service.py` only when
+    #: `ToolSelectionEngine` selects the corresponding category — neither is
+    #: case-specific persisted data, so both default to empty with zero cost
+    #: on every question that doesn't need them.
+    knowledge_documents: tuple[dict[str, object], ...] = ()
+    similar_cases: tuple[dict[str, object], ...] = ()
     #: Count of malformed/skipped source records the service already
     #: dropped before building this context — feeds this package's
     #: confidence rollup, mirroring `core.incident_response.
@@ -90,14 +107,20 @@ class ToolSelection(BaseModel):
 
 
 class AssembledConversationContext(BaseModel):
-    """`ConversationContextBuilder.assemble`'s output — the ranked,
-    budget-truncated subset of `RetrievedItem`s actually sent to the prompt."""
+    """`ConversationContextBuilder.assemble`'s output — the deduplicated,
+    ranked, budget-truncated subset of `RetrievedItem`s actually sent to the
+    prompt."""
 
     model_config = ConfigDict(frozen=True)
 
     items: tuple[RetrievedItem, ...]
     total_candidates: int
     truncated: bool
+    #: ADR-0027 — how many candidates were dropped as near-duplicate text of
+    #: an already-selected, higher-or-equal-relevance item (see
+    #: `ConversationContextBuilder.deduplicate`), distinct from `truncated`
+    #: (dropped for budget, not duplication).
+    duplicates_removed: int = 0
 
 
 class ConversationHistoryTurn(BaseModel):

@@ -39,6 +39,14 @@ _CATEGORY_KEYWORDS: tuple[tuple[EvidenceCategory, tuple[str, ...]], ...] = (
         EvidenceCategory.FINDING,
         ("finding", "vulnerab", "severity", "risk score", "why was", "explain"),
     ),
+    (
+        EvidenceCategory.KNOWLEDGE,
+        ("best practice", "owasp", "guidance", "recommend", "how should", "harden"),
+    ),
+    (
+        EvidenceCategory.SIMILAR_CASE,
+        ("seen before", "similar case", "past incident", "history", "prior case"),
+    ),
 )
 
 _ALL_CATEGORIES: tuple[EvidenceCategory, ...] = tuple(

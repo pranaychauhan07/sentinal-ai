@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="llama3.1", alias="OLLAMA_MODEL")
 
+    # --- Embeddings (core/memory/embedding_providers.py, ADR-0027) ---
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small", alias="OPENAI_EMBEDDING_MODEL"
+    )
+    gemini_embedding_model: str = Field(
+        default="models/text-embedding-004", alias="GEMINI_EMBEDDING_MODEL"
+    )
+    ollama_embedding_model: str = Field(default="nomic-embed-text", alias="OLLAMA_EMBEDDING_MODEL")
+    embedding_request_timeout_seconds: float = Field(
+        default=15.0, alias="EMBEDDING_REQUEST_TIMEOUT_SECONDS"
+    )
+    llm_request_timeout_seconds: float = Field(default=30.0, alias="LLM_REQUEST_TIMEOUT_SECONDS")
+
     # --- Database ---
     database_url: str = Field(
         default="sqlite+aiosqlite:///./dev.db",
@@ -269,6 +282,24 @@ class Settings(BaseSettings):
         alias="MITRE_ATTACK_DATA_PATH",
     )
     mitre_attack_version: str = Field(default="15.1", alias="MITRE_ATTACK_VERSION")
+
+    # --- Knowledge Layer population (core/knowledge/{owasp,playbooks,
+    # detection}, ADR-0027) ---
+    owasp_top10_data_path: Path = Field(
+        default=Path("./data/knowledge/owasp_top10.yaml"), alias="OWASP_TOP10_DATA_PATH"
+    )
+    security_best_practices_data_path: Path = Field(
+        default=Path("./data/knowledge/security_best_practices.yaml"),
+        alias="SECURITY_BEST_PRACTICES_DATA_PATH",
+    )
+    incident_response_guidance_data_path: Path = Field(
+        default=Path("./data/knowledge/incident_response_guidance.yaml"),
+        alias="INCIDENT_RESPONSE_GUIDANCE_DATA_PATH",
+    )
+    detection_engineering_guidance_data_path: Path = Field(
+        default=Path("./data/knowledge/detection_engineering_guidance.yaml"),
+        alias="DETECTION_ENGINEERING_GUIDANCE_DATA_PATH",
+    )
 
     # --- Finding & MITRE mapping engine (core/findings, core/services/finding_service.py) ---
     finding_mapping_min_confidence: float = Field(

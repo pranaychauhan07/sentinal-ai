@@ -23,34 +23,59 @@ notes and long-term metadata, via `core.db.BaseRepository`), `lifecycle.py`
 (TTL expiration/cleanup), `context_builder.py`/`context_serializer.py`
 (assemble → filter → dedup → rank → truncate → render memory into an
 LLM-ready or loggable shape), `metrics.py` (retrieval timing, hit/miss,
-eviction counters), `registry.py`/`manager.py` (`MemoryRegistry` for named
-backend lookup, `MemoryManager` as the single facade other layers depend
-on).
+eviction counters, plus ADR-0027's embedding-call/vector-store-call
+timing), `registry.py`/`manager.py` (`MemoryRegistry` for named backend
+lookup, `MemoryManager` as the single facade other layers depend on),
+`embedding_providers.py`/`chroma_vector_store.py`/`exceptions.py`
+(ADR-0027's real production backend).
 
 **Responsibility:** Long-term memory is always advisory — a backend outage
 degrades to "no historical context," never blocks an investigation (ADR-0006).
 
 **Implemented:**
 - `interfaces.py` — `ShortTermMemory`/`CaseMemory`/`LongTermMemory`/
-  `VectorMemory` Protocols (unchanged from the Multi-Agent Framework
-  milestone).
+  `VectorMemory` Protocols. ADR-0027 extends `VectorMemory` (batch upsert,
+  delete, case-scoped/metadata-filtered query — the "production-ready"
+  bar) and `LongTermMemory` (category-tagged `record`, case-scoped and
+  cross-case-excluding retrieval).
 - `models.py`, `db_models.py`, `repository.py` — typed contracts + SQLite
   persistence.
 - `session_memory.py`, `case_memory.py`, `conversation_memory.py`,
   `vector_store.py`, `long_term.py` — concrete implementations of every
-  Protocol above.
+  Protocol above. `vector_store.py`'s `InMemoryVectorStore`/
+  `NullVectorStore` remain genuinely useful test/dev references, now
+  satisfying the extended Protocol too.
+- `chroma_vector_store.py` (ADR-0027) — `ChromaVectorStore`, the real,
+  persistent production `VectorMemory` backend (local `chromadb.
+  PersistentClient`, cosine similarity, collection
+  `case_findings_embeddings` per blueprint §8). The only module (per
+  docs/dependency-rules.md rule 6) that imports a vector-store client.
+- `embedding_providers.py` (ADR-0027) — `OpenAIEmbeddingProvider`/
+  `GeminiEmbeddingProvider`/`OllamaEmbeddingProvider` (real semantic
+  embeddings via already-vendored `langchain-*` clients) +
+  `build_text_embedder`, selecting among them (or `HashingTextEmbedder`,
+  when unconfigured/unreachable) per `Settings.llm_provider`.
+- `exceptions.py` (ADR-0027) — `InvalidEmbeddingError`/
+  `EmbeddingProviderError`/`VectorStoreError`.
 - `lifecycle.py`, `context_builder.py`, `context_serializer.py`,
   `metrics.py`, `registry.py`, `manager.py` — supporting infrastructure.
+  `manager.py` gained `build_long_term_memory`/`default_long_term_memory`
+  (ADR-0027): the one place "real ChromaDB + real embedder" vs. "degraded
+  Null/Hashing fallback" is decided.
 
-**Not yet built, by explicit scope (ADR-0005/0006/0010):** the real ChromaDB
-backend (`vector_store.py` currently ships `InMemoryVectorStore` — a
-genuinely working but non-production reference implementation of the same
-`VectorMemory` Protocol) and any populated knowledge/cybersecurity data.
+**Not yet built:** a graph-integrated Memory Agent (blueprint §7 — surfacing
+"similar past cases" automatically at investigation start, before the
+Coordinator runs); multi-tenant memory partitioning if/when multi-org
+support is added.
 
 **Why it exists:** This is what makes the Copilot smarter the longer it's
 used, per the PDF's explicit Project 9 requirement — and what lets a future
-Memory Agent do its job.
+Memory Agent do its job. As of ADR-0027, this is genuinely true: case
+investigations write real findings/report summaries into long-term memory
+(`core/services/case_service.py`), and the AI Analyst Chat reads them back
+across cases (`core/services/conversation_service.py`).
 
-**Future expansion:** Swap `InMemoryVectorStore` for a ChromaDB-backed
-implementation (M6, same `VectorMemory` Protocol — no caller changes);
-multi-tenant memory partitioning if/when multi-org support is added.
+**Future expansion:** A graph-integrated Memory Agent (blueprint §7);
+multi-tenant memory partitioning if/when multi-org support is added; a
+persisted embedding cache to avoid re-embedding identical finding text
+across repeated case runs.

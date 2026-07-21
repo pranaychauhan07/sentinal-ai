@@ -109,6 +109,26 @@ def _timeline_summary(record: dict[str, object]) -> str:
     return f"Timeline event ({event_type}): {narrative}"
 
 
+def _knowledge_text(record: dict[str, object]) -> str:
+    return f"{record.get('title', '')} {record.get('content', '')}"
+
+
+def _knowledge_summary(record: dict[str, object]) -> str:
+    title = str(record.get("title", "untitled reference"))
+    source_type = str(record.get("source_type", "knowledge"))
+    return f"Knowledge reference ({source_type}): '{title}'"
+
+
+def _similar_case_text(record: dict[str, object]) -> str:
+    return str(record.get("excerpt", ""))
+
+
+def _similar_case_summary(record: dict[str, object]) -> str:
+    excerpt = str(record.get("excerpt", ""))
+    category = str(record.get("category", "finding"))
+    return f"Similar past-case {category} match: {excerpt}"
+
+
 _TextExtractor = Callable[[dict[str, object]], str]
 
 #: One (id-key, text-extractor, summary-extractor) tuple per category — the
@@ -121,6 +141,8 @@ _CATEGORY_EXTRACTORS: dict[EvidenceCategory, tuple[str, _TextExtractor, _TextExt
     EvidenceCategory.MITRE_MAPPING: ("technique_id", _mitre_text, _mitre_summary),
     EvidenceCategory.REPORT: ("report_id", _report_text, _report_summary),
     EvidenceCategory.TIMELINE_EVENT: ("event_id", _timeline_text, _timeline_summary),
+    EvidenceCategory.KNOWLEDGE: ("document_id", _knowledge_text, _knowledge_summary),
+    EvidenceCategory.SIMILAR_CASE: ("case_id", _similar_case_text, _similar_case_summary),
 }
 
 
@@ -133,6 +155,8 @@ def _records_for_category(
         EvidenceCategory.MITRE_MAPPING: context.mitre_mappings,
         EvidenceCategory.REPORT: context.reports,
         EvidenceCategory.TIMELINE_EVENT: context.timeline_events,
+        EvidenceCategory.KNOWLEDGE: context.knowledge_documents,
+        EvidenceCategory.SIMILAR_CASE: context.similar_cases,
     }[category]
 
 

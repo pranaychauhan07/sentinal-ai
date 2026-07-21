@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from core.conversation.exceptions import ChatProviderError
+from core.conversation.metrics import ConversationMetricsCollector
 from core.conversation.models import (
     ChatCompletion,
     EvidenceCategory,
@@ -20,6 +22,11 @@ class _FakeProvider:
 
     def generate(self, prompt: PromptPayload) -> ChatCompletion:
         return self._completion
+
+
+class _FailingProvider:
+    def generate(self, prompt: PromptPayload) -> ChatCompletion:
+        raise ChatProviderError("provider unreachable")
 
 
 def _prompt() -> PromptPayload:
@@ -73,3 +80,29 @@ def test_orchestrate_forces_zero_confidence_when_evidence_available_but_uncited(
     assert result.validation.valid is False
     assert result.validation.has_citations is False
     assert result.confidence == 0.0
+
+
+@pytest.mark.unit
+def test_orchestrate_falls_back_to_template_provider_on_chat_provider_failure() -> None:
+    orchestrator = ResponseOrchestrator(llm_provider=_FailingProvider())
+    result = orchestrator.orchestrate(_prompt(), available_items=[_item("f1")])
+    assert result.provider_degraded is True
+    # Never crashes — a real answer (from the template fallback) is still
+    # returned, per constitution §9.
+    assert result.answer_text
+
+
+@pytest.mark.unit
+def test_orchestrate_provider_degraded_is_false_on_success() -> None:
+    provider = _FakeProvider(ChatCompletion(answer_text="answer", used_source_ids=("f1",)))
+    orchestrator = ResponseOrchestrator(llm_provider=provider)
+    result = orchestrator.orchestrate(_prompt(), available_items=[_item("f1")])
+    assert result.provider_degraded is False
+
+
+@pytest.mark.unit
+def test_orchestrate_records_llm_failure_metric_on_provider_failure() -> None:
+    metrics = ConversationMetricsCollector()
+    orchestrator = ResponseOrchestrator(llm_provider=_FailingProvider(), metrics=metrics)
+    orchestrator.orchestrate(_prompt(), available_items=[_item("f1")])
+    assert metrics.snapshot().llm_failures == 1

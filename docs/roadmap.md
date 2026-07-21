@@ -463,10 +463,33 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       real persisted case data with a deterministic, non-generative default
       `ChatModelProvider` (blueprint §5's provider interface, first defined
       here; no external OpenAI/Gemini/Ollama client yet, per explicit task
-      scope). Still not checked off: a real ChromaDB backend, populated
-      MITRE/OWASP knowledge, a real LLM-backed `ChatModelProvider`, and the
-      `apps/web` Threat Timeline/AI Analyst Chat UI pages.
-      *Demo: full Investigation Workspace as described in `docs/user-guide.md`.*
+      scope).
+      **Production infrastructure completed** (`docs/adr/0027-production-
+      memory-embedding-chat-provider-infrastructure.md`): a real,
+      persistent ChromaDB `VectorMemory` backend (`chroma_vector_store.py`,
+      extended Protocol — batch upsert, delete, case-scoped/metadata-
+      filtered query); real semantic embeddings and real chat completions
+      via OpenAI/Gemini/Ollama (`embedding_providers.py`, `llm_provider.py`'s
+      new provider classes), each with graceful, tested fallback to the
+      deterministic default when unconfigured or (Ollama) unreachable;
+      populated MITRE (pre-existing, untouched) + newly-populated OWASP
+      Top 10 / security & incident-response playbooks / detection-
+      engineering guidance knowledge sources (`core/knowledge/{owasp,
+      playbooks,detection}`), registered at API startup and surfaced to the
+      AI Analyst Chat via two new retrieval categories (`KNOWLEDGE`,
+      `SIMILAR_CASE`); a long-term-memory write path closing blueprint §9
+      step 11 (`case_service.py` records new findings/reports on
+      investigation completion); context deduplication and LLM/embedding/
+      retrieval observability. Checked off: **a real ChromaDB backend**,
+      **populated MITRE/OWASP knowledge** (plus security-playbook/
+      detection-engineering, beyond the original two named sources), and
+      **a real LLM-backed `ChatModelProvider`**. Still not checked off (out
+      of this task's explicit scope): the `apps/web` Threat Timeline/AI
+      Analyst Chat UI pages, and a graph-integrated Memory Agent
+      (blueprint §7 — the write/read paths above are service-level, not a
+      new `core/graph` node).
+      *Demo: full Investigation Workspace as described in `docs/user-guide.md`
+      (backend only — no UI yet).*
 
 - [ ] **M7 — Hardening, tests, docs, GitHub polish.** Full test coverage pass
       (unit + integration + golden), mypy/ruff clean, docs/diagrams/

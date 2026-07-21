@@ -20,6 +20,8 @@ from apps.api.routers import system
 from apps.api.routers.v1 import api_v1_router
 from core.config import Settings, get_settings
 from core.db import Database
+from core.knowledge.bootstrap import register_default_knowledge_sources
+from core.knowledge.registry import default_knowledge_registry
 from core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -46,6 +48,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = Database(settings)
     app.state.database = database
     app.state.settings = settings
+
+    # Populates the process-wide `default_knowledge_registry()` singleton
+    # (ADR-0027) once at startup — MITRE ATT&CK plus the three vendored
+    # reference sources (OWASP Top 10, security/incident-response
+    # playbooks, detection-engineering guidance). Never fatal: a missing/
+    # malformed data file degrades that one source, logged, not application
+    # startup (constitution §7).
+    register_default_knowledge_sources(default_knowledge_registry(), settings)
 
     logger.info(
         "application_startup",

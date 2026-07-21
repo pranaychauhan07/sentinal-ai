@@ -86,31 +86,38 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
 
 4d. **`core/services/case_service.py` may import `core.agents.{registry,
    soc_analyst_agent, phishing_agent, vulnerability_agent}`,
-   `core.memory.{case_memory, repository}`, and `core.parsers.models`
-   directly** — the fourth documented exception to "services only call
-   `core/graph`," worded identically to 4a/4b/4c. Every other `core/services`
-   call in this module (`evidence_service`, `threat_intel_service`,
-   `finding_service`, `vulnerability_service`, `core/graph/
-   investigation_graph.py`) goes through the normal sanctioned edges; this
-   specific exception exists for one narrow reason: constructing a
-   session-scoped `CaseMemory` and a *fresh* (never the process-wide cached
-   `default_agent_registry()`) `AgentRegistry` before delegating to
-   `core/graph`. Reusing the cached singleton here would permanently bake in
-   whichever caller's `case_memory` (or lack of one) happened to register
-   `SocAnalystAgent`/`PhishingAgent`/`VulnerabilityAssessmentAgent` first — a
-   real correctness hazard, not a style preference. The `core.parsers.models`
-   import is for type reuse only (`EvidenceType`, `NormalizedEvidence`,
-   `Severity`), the identical sideways leaf-model precedent
-   `core/db/models/case.py`/`evidence.py` already established. See
+   `core.memory.{case_memory, repository, long_term, manager}`, and
+   `core.parsers.models` directly** — the fourth documented exception to
+   "services only call `core/graph`," worded identically to 4a/4b/4c. Every
+   other `core/services` call in this module (`evidence_service`,
+   `threat_intel_service`, `finding_service`, `vulnerability_service`,
+   `core/graph/investigation_graph.py`) goes through the normal sanctioned
+   edges; this specific exception exists for two narrow reasons:
+   constructing a session-scoped `CaseMemory` and a *fresh* (never the
+   process-wide cached `default_agent_registry()`) `AgentRegistry` before
+   delegating to `core/graph` (reusing the cached singleton here would
+   permanently bake in whichever caller's `case_memory` (or lack of one)
+   happened to register `SocAnalystAgent`/`PhishingAgent`/
+   `VulnerabilityAssessmentAgent` first — a real correctness hazard, not a
+   style preference); and, added by ADR-0027, writing this run's new
+   findings/report into long-term memory via `core.memory.manager.
+   default_long_term_memory()` after `_persist_report` — blueprint §9 step
+   11 ("Memory Agent (write)"), closed here rather than by a new
+   `core/agents/memory_agent.py` (see ADR-0027's "Alternatives
+   Considered"). The `core.parsers.models` import is for type reuse only
+   (`EvidenceType`, `NormalizedEvidence`, `Severity`), the identical
+   sideways leaf-model precedent `core/db/models/case.py`/`evidence.py`
+   already established. See
    `docs/adr/0014-case-model-and-first-api-routes-shape.md`, extended by
-   `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md` and
-   `docs/adr/0017-vulnerability-assessment-framework.md`. This module also
-   reads `core.db.ioc_repository.IOCRepository` directly — not a new
-   exception, since `core/services` -> `core/db` is always sanctioned
-   (constitution §7) and every other repository this module needs
-   (`CaseRepository`, `CaseNoteRepository`, ...) is already imported the same
-   way. No other `core/services` module gets the agents/memory exception
-   without its own ADR.
+   `docs/adr/0016-phishing-agent-email-parser-prompt-guard.md`,
+   `docs/adr/0017-vulnerability-assessment-framework.md`, and
+   `docs/adr/0027-production-memory-embedding-chat-provider-infrastructure.md`.
+   This module also reads `core.db.{ioc_repository, finding_repository}`
+   directly — not a new exception, since `core/services` -> `core/db` is
+   always sanctioned (constitution §7) and every other repository this
+   module needs (`CaseRepository`, `CaseNoteRepository`, ...) is already
+   imported the same way. No other `core/services` module gets the
+   agents/memory exception without its own ADR.
 
 4e. **`core/services/vulnerability_service.py` may import
    `core/vulnerabilities`, `core/parsers`, and `core/memory` directly** — the
@@ -170,19 +177,28 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    other `core/services` module gets this exception without its own ADR.
 
 4j. **`core/services/conversation_service.py` may import `core/conversation`,
-   `core.memory.conversation_memory`, and `core.security.prompt_guard`
-   directly** — the tenth documented exception to "services only call
-   `core/graph`," worded identically to 4a-4i's established shape.
-   Case-scoped conversational Q&A (retrieval over already-persisted
-   Findings/IOCs/MITRE mappings/Reports/Timeline events, prompt-injection
-   screening, answer generation) is deterministic, pre-answer-generation
-   processing with no new agent/graph run involved — it never triggers a
-   new investigation, only reads what one already produced. Unlike 4a-4i,
-   this module also imports `core.memory.conversation_memory` (chat turn
-   storage) and `core.security.prompt_guard` (the question is untrusted
-   text, constitution §10) — both already-shipped modules from other
-   layers, not new leaf packages built for this exception. See
-   `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`.
+   `core.memory.{conversation_memory, long_term, manager}`,
+   `core.knowledge.{registry, retrieval, models}`, and
+   `core.security.prompt_guard` directly** — the tenth documented exception
+   to "services only call `core/graph`," worded identically to 4a-4i's
+   established shape. Case-scoped conversational Q&A (retrieval over
+   already-persisted Findings/IOCs/MITRE mappings/Reports/Timeline events,
+   prompt-injection screening, answer generation) is deterministic,
+   pre-answer-generation processing with no new agent/graph run involved —
+   it never triggers a new investigation, only reads what one already
+   produced. Unlike 4a-4i, this module also imports
+   `core.memory.conversation_memory` (chat turn storage) and
+   `core.security.prompt_guard` (the question is untrusted text,
+   constitution §10) — both already-shipped modules from other layers, not
+   new leaf packages built for this exception. ADR-0027 extends this
+   exception with `core.memory.{long_term, manager}` (cross-case "similar
+   past investigations" retrieval, always advisory) and
+   `core.knowledge.{registry, retrieval, models}` (read-only Knowledge Layer
+   search — OWASP/best-practice/detection-engineering guidance the chat can
+   cite) — both read-only lookups gated by `ToolSelectionEngine`'s existing
+   category selection, never a new business decision made in this module.
+   See `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`
+   and `docs/adr/0027-production-memory-embedding-chat-provider-infrastructure.md`.
    No other `core/services` module gets this exception without its own ADR.
 
 4k. **`core/services/report_export_service.py` may import `core/reporting`

@@ -44,16 +44,42 @@ engine-shape.md):**
   table); a wrong reimplementation would be worse than the documented gap.
   Consumed by `core/vulnerabilities/` (never duplicated there).
 
-**Not yet built, by explicit scope:** `OwaspTop10Source`, a threat-intel/
-playbook/detection-rule/investigation-template source, and any populated
-dataset for those domains. This is cybersecurity-domain content, deliberately
-deferred past this session.
+**Implemented (docs/adr/0027-production-memory-embedding-chat-provider-
+infrastructure.md):** three more `KnowledgeSourceType` slots filled,
+mirroring `core/knowledge/mitre/`'s exact shape (models → vendored YAML
+data file under `data/knowledge/` → loader → `KnowledgeSource`):
+- `owasp/` — `OwaspTop10Source` for `OWASP_TOP10`, from
+  `data/knowledge/owasp_top10.yaml` (OWASP Top 10:2021 categories,
+  descriptions, remediation guidance).
+- `playbooks/` — `SecurityPlaybookSource` for `SECURITY_PLAYBOOK`, from
+  `data/knowledge/security_best_practices.yaml` +
+  `data/knowledge/incident_response_guidance.yaml` (general hardening
+  best practices, and NIST SP 800-61 incident-response-lifecycle
+  guidance — both general reference content, distinct from
+  `core/incident_response`'s deterministic, case-specific plan engine).
+- `detection/` — `DetectionRuleSource` for `DETECTION_RULE`, from
+  `data/knowledge/detection_engineering_guidance.yaml` (general
+  detection-engineering principles, distinct from `core/findings/
+  mapping_rules.py`'s actual MITRE mapping engine — neither this package
+  nor its data touches that engine).
+- `bootstrap.py` — `register_default_knowledge_sources(registry, settings)`:
+  registers MITRE (via the existing, unmodified `mitre/` loader) plus these
+  three into one `KnowledgeSourceRegistry`, called once at `apps/api/
+  main.py` startup. A source that fails to load (missing/malformed vendored
+  file) is skipped, logged, and never blocks the others (constitution §7).
 
-**Why it exists:** Gives every agent a shared, versioned vocabulary (see
-`docs/mitre.md`, `docs/owasp.md`) instead of each agent inventing its own
-categorization.
+**Not yet built, by explicit scope:** a `THREAT_INTELLIGENCE`/
+`INVESTIGATION_TEMPLATE` source and any populated dataset for those two
+remaining `KnowledgeSourceType` values — out of ADR-0027's four named
+content areas (OWASP, security best practices, incident-response guidance,
+detection engineering).
+
+**Why it exists:** Gives every agent — and, since ADR-0027, the AI Analyst
+Chat via `core/conversation`'s `KNOWLEDGE` retrieval category — a shared,
+versioned vocabulary (see `docs/mitre.md`, `docs/owasp.md`) instead of each
+agent inventing its own categorization.
 
 **Future expansion:** STIX/TAXII feed ingestion would extend this layer with
 live threat-intel data, still read-only from the agents' perspective;
 embedding-based `KnowledgeRetriever` for real RAG once a concrete source
-exists to embed.
+exists to embed; `THREAT_INTELLIGENCE`/`INVESTIGATION_TEMPLATE` sources.

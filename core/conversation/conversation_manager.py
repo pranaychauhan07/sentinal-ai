@@ -58,11 +58,12 @@ class ConversationManager:
         self.retrieval = retrieval or RetrievalLayer()
         self.context_builder = context_builder or ConversationContextBuilder()
         self.prompt_builder = prompt_builder or PromptBuilder()
+        self.metrics = metrics or ConversationMetricsCollector()
         self.response_orchestrator = response_orchestrator or ResponseOrchestrator(
             llm_provider=llm_provider or TemplateChatModelProvider(),
             citation_engine=CitationEngine(),
+            metrics=self.metrics,
         )
-        self.metrics = metrics or ConversationMetricsCollector()
 
     def answer(
         self,
@@ -127,7 +128,13 @@ class ConversationManager:
             orchestrated = self.response_orchestrator.orchestrate(
                 prompt, available_items=list(assembled.items)
             )
+            self.metrics.record_llm_call()
             self.metrics.record_citations(len(orchestrated.citations))
+            self.metrics.record_duplicate_context_removed(assembled.duplicates_removed)
+            if assembled.truncated:
+                self.metrics.record_context_truncated(
+                    assembled.total_candidates - len(assembled.items)
+                )
             if not orchestrated.validation.valid:
                 self.metrics.record_validation_failure()
                 log_conversation_audit_event(
@@ -153,6 +160,7 @@ class ConversationManager:
             len(assembled.items) == 0
             or total_available < MIN_TOTAL_RECORDS_FOR_CONFIDENT_ANSWER
             or not orchestrated.validation.valid
+            or orchestrated.provider_degraded
         )
         confidence = 0.0 if degraded and len(assembled.items) == 0 else orchestrated.confidence
 

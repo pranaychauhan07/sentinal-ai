@@ -1,0 +1,81 @@
+# Security best-practice reference content — vendored, offline, hand-curated
+# guidance for core/knowledge/playbooks/ (ADR-0027), one half of the
+# `SECURITY_PLAYBOOK` knowledge source (the other half is
+# incident_response_guidance.yaml). General hardening/defense-in-depth
+# principles, not case-specific findings.
+practices:
+  - id: "BP-01"
+    title: "Least Privilege"
+    category: "identity_and_access"
+    guidance: >
+      Grant every user, service account, and process only the permissions
+      required for its function, and no more. Review and revoke unused
+      privileges on a regular schedule rather than accumulating them
+      indefinitely.
+  - id: "BP-02"
+    title: "Multi-Factor Authentication Everywhere Feasible"
+    category: "identity_and_access"
+    guidance: >
+      Require a second authentication factor for all remote access,
+      privileged accounts, and any system exposed to the internet.
+      Password-only authentication is not sufficient protection against
+      credential-stuffing or brute-force attacks.
+  - id: "BP-03"
+    title: "Network Segmentation"
+    category: "network"
+    guidance: >
+      Separate networks by trust level and function (e.g. management,
+      production, DMZ) so a compromise in one segment cannot freely reach
+      another. Apply the same principle inside cloud VPCs via subnets and
+      security groups.
+  - id: "BP-04"
+    title: "Timely Patch Management"
+    category: "vulnerability_management"
+    guidance: >
+      Maintain an inventory of software/OS versions in use, monitor for
+      newly disclosed vulnerabilities affecting them, and apply security
+      patches on a defined SLA proportional to severity (e.g. critical
+      remote-code-execution flaws patched fastest).
+  - id: "BP-05"
+    title: "Centralized, Tamper-Resistant Logging"
+    category: "detection_and_monitoring"
+    guidance: >
+      Forward logs from endpoints, network devices, and applications to a
+      centralized store an attacker who compromises a single host cannot
+      also erase. Retain logs long enough to support incident investigation
+      and any applicable compliance requirement.
+  - id: "BP-06"
+    title: "Regular, Tested Backups"
+    category: "resilience"
+    guidance: >
+      Maintain backups isolated from the production network (to survive a
+      ransomware event) and periodically test restoration — an untested
+      backup is not a verified recovery capability.
+  - id: "BP-07"
+    title: "Encrypt Data in Transit and at Rest"
+    category: "data_protection"
+    guidance: >
+      Use current, non-deprecated TLS versions/cipher suites for data in
+      transit; encrypt sensitive data at rest using strong, well-reviewed
+      algorithms with proper key management (never hardcoded keys).
+  - id: "BP-08"
+    title: "Harden Default Configurations"
+    category: "configuration_management"
+    guidance: >
+      Change default credentials before deployment, disable unused
+      services/ports/features, and apply a documented hardening baseline
+      (e.g. CIS Benchmarks) consistently across environments.
+  - id: "BP-09"
+    title: "Security Awareness Training"
+    category: "people"
+    guidance: >
+      Train staff to recognize phishing and social-engineering attempts on
+      a recurring cadence, not as a one-time exercise — human error remains
+      a leading initial-access vector.
+  - id: "BP-10"
+    title: "Vendor and Third-Party Risk Management"
+    category: "supply_chain"
+    guidance: >
+      Assess the security posture of vendors and third-party libraries
+      before integration, and monitor them afterward — a compromise
+      upstream can propagate directly into your environment.

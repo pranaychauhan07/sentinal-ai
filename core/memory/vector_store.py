@@ -1,34 +1,39 @@
 """Concrete implementations of `VectorMemory` (`core/memory/interfaces.py`).
 
-Per ADR-0010 and ADR-0005, ChromaDB remains the M6 production backend — not
-built here. This module gives `long_term.py` (and its tests) a genuinely
-working, in-process reference implementation of the same Protocol today, so
-the rest of the memory layer isn't blocked on M6, plus a documented no-op
-fallback demonstrating the "memory retrieval is always advisory" contract
-(ADR-0006) at the storage boundary itself.
+Per ADR-0027, the real production backend is now `core/memory/
+chroma_vector_store.py`. This module keeps `InMemoryVectorStore`/
+`NullVectorStore` as genuinely useful, dependency-free reference
+implementations of the same (now-extended) Protocol — fast for tests, usable
+for local dev without a Chroma install, and the documented no-op fallback
+demonstrating the "memory retrieval is always advisory" contract (ADR-0006) at
+the storage boundary itself. Neither is a stand-in that "will be replaced out
+of necessity"; both remain first-class, tested implementations.
 
-Per docs/dependency-rules.md rule 6, only this module (within `core/memory`)
-would ever import a real vector-store client — the in-memory implementation
-below has no such client, by design.
+Per docs/dependency-rules.md rule 6, only `chroma_vector_store.py` (within
+`core/memory`) imports a real vector-store client — the implementations below
+have no such client, by design.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
-from core.memory.interfaces import SimilarResult
+from core.memory.interfaces import SimilarResult, VectorEntry
 
 
 @runtime_checkable
 class TextEmbedder(Protocol):
-    """Contract for turning text into a fixed-dimension vector.
+    """Contract for turning text into a vector.
 
-    `long_term.py` depends on this, not on any specific embedding provider —
-    a future LLM-provider-backed embedder (OpenAI/Gemini/Ollama, per
-    `core/config/settings.py`'s `LLMProvider`) is a drop-in swap. Kept
+    `long_term.py` depends on this, not on any specific embedding provider.
+    `core/memory/embedding_providers.py` (ADR-0027) supplies the real
+    OpenAI/Gemini/Ollama-backed implementations, selected via
+    `core/config/settings.py`'s `LLMProvider`; `HashingTextEmbedder` below
+    remains the deterministic, dependency-free default/fallback. Kept
     narrow (one method) so it's trivially fakeable in tests.
     """
 
@@ -98,12 +103,28 @@ class InMemoryVectorStore:
         self._vectors[id] = list(embedding)
         self._metadata[id] = dict(metadata)
 
+    async def upsert_embeddings_batch(self, entries: Sequence[VectorEntry]) -> None:
+        for entry in entries:
+            await self.upsert_embedding(
+                id=entry.id, embedding=entry.embedding, metadata=entry.metadata
+            )
+
     async def query_embedding(
-        self, embedding: list[float], *, limit: int = 5
+        self,
+        embedding: list[float],
+        *,
+        limit: int = 5,
+        case_id: UUID | None = None,
+        metadata_filter: dict[str, str] | None = None,
     ) -> list[SimilarResult]:
+        candidate_ids = (
+            entry_id
+            for entry_id, metadata in self._metadata.items()
+            if self._matches_filter(metadata, case_id=case_id, metadata_filter=metadata_filter)
+        )
         scored = [
-            (entry_id, _cosine_similarity(embedding, vector))
-            for entry_id, vector in self._vectors.items()
+            (entry_id, _cosine_similarity(embedding, self._vectors[entry_id]))
+            for entry_id in candidate_ids
         ]
         scored.sort(key=lambda pair: pair[1], reverse=True)
         results: list[SimilarResult] = []
@@ -115,12 +136,41 @@ class InMemoryVectorStore:
                     finding_id=UUID(str(metadata.get("finding_id"))),
                     score=max(0.0, min(1.0, score)),
                     excerpt=str(metadata.get("excerpt", "")),
+                    category=str(metadata.get("category", "finding")),
                 )
             )
         return results
 
+    async def delete(self, id: str) -> None:
+        self._vectors.pop(id, None)
+        self._metadata.pop(id, None)
+
+    async def delete_case(self, case_id: UUID) -> None:
+        stale_ids = [
+            entry_id
+            for entry_id, metadata in self._metadata.items()
+            if str(metadata.get("case_id")) == str(case_id)
+        ]
+        for entry_id in stale_ids:
+            await self.delete(entry_id)
+
     def size(self) -> int:
         return len(self._vectors)
+
+    @staticmethod
+    def _matches_filter(
+        metadata: dict[str, Any],
+        *,
+        case_id: UUID | None,
+        metadata_filter: dict[str, str] | None,
+    ) -> bool:
+        if case_id is not None and str(metadata.get("case_id")) != str(case_id):
+            return False
+        if metadata_filter:
+            for key, value in metadata_filter.items():
+                if str(metadata.get(key)) != value:
+                    return False
+        return True
 
 
 class NullVectorStore:
@@ -134,7 +184,21 @@ class NullVectorStore:
     ) -> None:
         return None
 
+    async def upsert_embeddings_batch(self, entries: Sequence[VectorEntry]) -> None:
+        return None
+
     async def query_embedding(
-        self, embedding: list[float], *, limit: int = 5
+        self,
+        embedding: list[float],
+        *,
+        limit: int = 5,
+        case_id: UUID | None = None,
+        metadata_filter: dict[str, str] | None = None,
     ) -> list[SimilarResult]:
         return []
+
+    async def delete(self, id: str) -> None:
+        return None
+
+    async def delete_case(self, case_id: UUID) -> None:
+        return None

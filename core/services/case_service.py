@@ -168,6 +168,7 @@ from core.config import Settings
 from core.db.case_note_repository import CaseNoteRepository
 from core.db.case_repository import CaseRepository
 from core.db.case_tag_repository import CaseTagRepository
+from core.db.finding_repository import FindingRepository
 from core.db.incident_response_plan_repository import IncidentResponsePlanRepository
 from core.db.ioc_repository import IOCRepository
 from core.db.models.case import Case, CasePriority, CaseStatus
@@ -181,6 +182,8 @@ from core.graph.investigation_graph import build_investigation_graph
 from core.graph.state import CaseInvestigationState
 from core.logging import get_logger, logging_context
 from core.memory.case_memory import SQLiteCaseMemory
+from core.memory.long_term import LongTermMemoryManager
+from core.memory.manager import default_long_term_memory
 from core.memory.repository import MemoryRepository
 from core.parsers.models import EvidenceType, NormalizedEvidence, Severity
 from core.services.case_events import CaseEvent, CaseEventPublisher, CaseEventType
@@ -1236,6 +1239,14 @@ async def investigate_new_evidence(
             report_confidence,
         ) = await _persist_report(session, case_id=case_id, state=result_state)
 
+        await _record_long_term_memory(
+            session,
+            case_id=case_id,
+            created_finding_ids=tuple(generation.created_finding_ids),
+            report_id=report_id,
+            report_type=report_type,
+        )
+
         case = await get_case(session, case_id)
         if case is not None and case.status is CaseStatus.OPEN:
             await update_case_status(
@@ -1455,3 +1466,43 @@ async def _persist_report(
         f"'{report_type}' report generated with {section_count} section(s).",
     )
     return row.id, report_type, section_count, confidence
+
+
+async def _record_long_term_memory(
+    session: AsyncSession,
+    *,
+    case_id: uuid.UUID,
+    created_finding_ids: tuple[uuid.UUID, ...],
+    report_id: uuid.UUID | None,
+    report_type: str | None,
+    long_term_memory: LongTermMemoryManager | None = None,
+) -> None:
+    """Writes this run's new findings (and, if generated, the report) into
+    long-term memory (ADR-0027) — the write half of blueprint §9 step 11
+    ("Memory Agent (write) — embeds this case's findings into ChromaDB for
+    future retrieval"). `LongTermMemoryManager.record` is itself always
+    advisory (a backend failure is logged and swallowed there, per
+    ADR-0006) — this function adds no further error handling on top, it
+    simply decides *what* to record.
+    """
+    memory = long_term_memory or default_long_term_memory()
+    finding_repository = FindingRepository(session)
+    for finding_id in created_finding_ids:
+        finding = await finding_repository.get_by_id(finding_id)
+        if finding is None:
+            continue
+        try:
+            data = json.loads(finding.finding_data_json)
+        except (TypeError, ValueError):
+            continue
+        content = f"{data.get('title', '')}. {data.get('description', '')}".strip()
+        if content:
+            await memory.record(case_id, finding_id, content, category="finding")
+
+    if report_id is not None and report_type is not None:
+        await memory.record(
+            case_id,
+            report_id,
+            f"{report_type} report generated for this case.",
+            category="report",
+        )

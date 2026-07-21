@@ -19,9 +19,14 @@ Framework** — `core/graph` (`state.py`, `workflow_engine.py`, `router.py`,
 `core/memory/interfaces.py` — is implemented and tested (see ADR-0009),
 built ahead of the milestone schedule as pure infrastructure: zero domain
 reasoning, zero concrete specialist agent. `core/reporting` is implemented
-and tested (generation: ADR-0024; export/rendering: ADR-0026). `core/parsers`,
-`core/knowledge`, `core/security`, and `apps/web` are still folder-level
-scaffolding (a `README.md` each) — Milestone M1 onward.
+and tested (generation: ADR-0024; export/rendering: ADR-0026). `core/memory`
+and `core/knowledge` are now production-backed (ADR-0027): a real ChromaDB
+long-term-memory backend, real OpenAI/Gemini/Ollama embedding and chat
+providers (graceful fallback to deterministic defaults when unconfigured/
+unreachable), and populated MITRE/OWASP/security-playbook/detection-
+engineering knowledge sources feeding both the specialist agents and the AI
+Analyst Chat's `KNOWLEDGE`/`SIMILAR_CASE` retrieval categories. `apps/web`
+is still folder-level scaffolding (a `README.md` only) — a future milestone.
 
 ## Layered architecture
 
@@ -38,9 +43,13 @@ Tools (core/tools)            Deterministic functions agents call — never LLM 
         │
 Parsers (core/parsers)        Format-specific extractors → typed NormalizedEvidence
         │
-Knowledge (core/knowledge)    MITRE ATT&CK, OWASP Top-10, CVSS calculator (read-only)
+Knowledge (core/knowledge)    MITRE ATT&CK, OWASP Top-10, security/incident-
+                               response playbooks, detection-engineering
+                               guidance, CVSS calculator (all read-only)
         │
-Memory (core/memory)          short_term (case scratchpad) + long_term (ChromaDB)
+Memory (core/memory)          short_term (case scratchpad) + long_term
+                               (real ChromaDB backend, real semantic
+                               embeddings — ADR-0027)
         │
 Security (core/security)      prompt_guard, pii_redaction, approval_gate
         │

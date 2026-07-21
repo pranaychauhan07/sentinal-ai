@@ -10,7 +10,238 @@
 
 ## Completed Features
 
-**Most recent session: Detection Quality & Explainability Remediation**
+**Most recent session: M6 Production Memory, Embedding, Chat-Provider &
+Knowledge Infrastructure** (`docs/adr/0027-production-memory-embedding-
+chat-provider-infrastructure.md`) — closes three of `docs/roadmap.md`'s four
+remaining M6 items (a real ChromaDB backend, populated MITRE/OWASP
+knowledge, a real LLM-backed `ChatModelProvider`) by replacing every
+placeholder those two prior ADRs (ADR-0010, ADR-0025) deliberately deferred
+"to M6" — the fourth item, the `apps/web` UI, was explicitly out of this
+session's scope. Before writing code, every existing memory/knowledge/
+conversation module was audited against the blueprint/constitution/
+dependency-rules per the project's own "never redesign completed modules"
+rule; no architecture conflict was found — every placeholder had already
+been given a documented, reserved seam (a Protocol, an empty
+`KnowledgeSourceType` enum value, an interface-only provider class) to fill,
+not a redesign.
+
+**What this session actually built:**
+- **`core/memory/chroma_vector_store.py`** (new) — `ChromaVectorStore`, the
+  real, persistent `VectorMemory` production backend: local
+  `chromadb.PersistentClient` (no server, in-process), collection
+  `case_findings_embeddings` (blueprint §8's exact name), cosine similarity.
+  The `VectorMemory` Protocol (`core/memory/interfaces.py`) was extended
+  (additive, backward-compatible defaults) with `upsert_embeddings_batch`,
+  `delete`, `delete_case`, and optional `case_id`/`metadata_filter` kwargs
+  on `query_embedding` — the task's "production-ready" bar (batch
+  insertion, deletion, updates, case-scoped and cross-case retrieval,
+  metadata filtering) exceeded ADR-0010's original two-method sketch.
+  `InMemoryVectorStore`/`NullVectorStore` (`vector_store.py`) were updated
+  to satisfy the same extended Protocol — both remain genuinely useful
+  test/dev references, not deprecated. Per docs/dependency-rules.md rule 6,
+  this remains the only module importing `chromadb` directly. New
+  `core/memory/exceptions.py` (`InvalidEmbeddingError`, `EmbeddingProviderError`,
+  `VectorStoreError`) — all caught at the existing advisory boundaries in
+  `long_term.py`, never propagated to a caller (ADR-0006 unchanged).
+- **`core/memory/embedding_providers.py`** (new) — `OpenAIEmbeddingProvider`/
+  `GeminiEmbeddingProvider`/`OllamaEmbeddingProvider`, thin wrappers over
+  already-vendored `langchain_openai`/`langchain_google_genai`/
+  `langchain_ollama` clients (zero new dependencies for OpenAI/Gemini;
+  `langchain-ollama` added since `langchain-community`'s `ChatOllama`/
+  `OllamaEmbeddings` are sunset upstream), each satisfying the existing
+  `TextEmbedder` Protocol (`vector_store.py`, unchanged) and wrapping SDK
+  failures as `EmbeddingProviderError`. `build_text_embedder(settings)`
+  selects among them per `Settings.llm_provider`, falling back to the
+  deterministic `HashingTextEmbedder` when credentials are missing —
+  **and, for Ollama specifically, when no local server is actually
+  reachable** (a one-time, ~1s-bounded TCP-connect probe, `_is_ollama_reachable`,
+  since Ollama needs no API key so "provider selected" alone can't tell
+  "will work" from "nothing is running"; this was a real bug caught by this
+  session's own integration tests — see below).
+- **`core/conversation/llm_provider.py`** (extended) — `OpenAIChatModelProvider`/
+  `GeminiChatModelProvider`/`OllamaChatModelProvider` (same wrapping
+  pattern, `langchain_core.messages` for the prompt), `build_chat_model_
+  provider`/`default_chat_model_provider` (a process-wide `lru_cache`
+  singleton so the Ollama reachability probe is paid once per process, not
+  once per chat request). Every concrete provider is invoked only with the
+  fully-assembled, already-grounded `PromptPayload`; `PromptBuilder`'s
+  system instructions (`prompt_builder.py`) now explicitly ask the model to
+  reproduce each context line's `[category:source_id]` bracket tag when
+  citing it, and a new deterministic post-processing step
+  (`_cited_source_ids`) only accepts a citation whose bracket tag matches a
+  source id the prompt actually offered — a real LLM's citations get the
+  same "never fabricate" guarantee `CitationEngine` already gave the
+  template provider. New `ChatProviderError`
+  (`core/conversation/exceptions.py`). **`ResponseOrchestrator.orchestrate`**
+  (previously called `llm_provider.generate` with no failure handling — a
+  real bug this session closed) now catches `ChatProviderError` and retries
+  with a fresh `TemplateChatModelProvider` for that one request, marking
+  `OrchestratedResponse.provider_degraded` so `ConversationManager` folds it
+  into its existing `degraded` computation and metrics
+  (`record_llm_failure`).
+- **`core/knowledge/{owasp,playbooks,detection}/`** (new subpackages) —
+  three of `core.knowledge.models.KnowledgeSourceType`'s previously-empty
+  slots filled, each mirroring `core/knowledge/mitre/`'s exact shape
+  (models → vendored YAML under `data/knowledge/` → loader → concrete
+  `KnowledgeSource`): `OwaspTop10Source` (`OWASP_TOP10`, from
+  `data/knowledge/owasp_top10.yaml` — the real OWASP Top 10:2021 categories/
+  descriptions/remediation), `SecurityPlaybookSource` (`SECURITY_PLAYBOOK`,
+  combining `security_best_practices.yaml` + `incident_response_guidance.yaml`
+  — general hardening guidance and NIST SP 800-61 lifecycle guidance),
+  `DetectionRuleSource` (`DETECTION_RULE`, from
+  `detection_engineering_guidance.yaml` — general detection-engineering
+  principles). New shared `core/knowledge/exceptions.py`
+  (`KnowledgeDataError`) rather than three near-identical per-package
+  hierarchies (unlike `mitre/`'s own, warranted-by-complexity exception
+  set). New `core/knowledge/bootstrap.py`:
+  `register_default_knowledge_sources(registry, settings)` registers MITRE
+  (via the existing, **completely unmodified** `mitre/{bootstrap,source}`)
+  plus these three into one registry; called once from `apps/api/main.py`'s
+  startup lifespan. Every source's load failure is caught and logged
+  independently — one missing/malformed vendored file never blocks the
+  others. **`core/findings/mapping_rules.py` and `core/knowledge/mitre/*`
+  are completely untouched** — this new knowledge content is general,
+  read-only reference/teaching material the chat can cite, structurally
+  independent of the actual case-specific MITRE mapping engine, per this
+  task's explicit instruction.
+- **`core/memory/long_term.py`** (extended) — `LongTermMemoryManager.record`
+  gains a `category` tag (`finding`/`ioc`/`mitre_technique`/`report`/
+  `case_summary`, written into vector metadata); new `find_similar_in_case`
+  (case-scoped) and `find_similar_excluding_case` (cross-case, "similar
+  past investigations," optionally narrowed by `category`) — the concrete
+  answer to blueprint §7's "has this pattern appeared in a past case?" The
+  existing, unscoped `find_similar` is unchanged for existing callers. New
+  per-instance `MemoryMetricsCollector` wraps every embed/vector-store call
+  with dedicated timing (`time_embedding_call`/`time_vector_store_call`,
+  `core/memory/metrics.py`), distinct from `MemoryManager`'s coarser
+  whole-call `time_retrieval()`. `core/memory/manager.py` gained
+  `build_long_term_memory(settings)` (wires the real Chroma store + real
+  embedder, falling back to `NullVectorStore` if Chroma can't open) and
+  `default_long_term_memory()` (the process-wide cached singleton every
+  caller uses).
+- **`core/services/case_service.py`** (extended) — new
+  `_record_long_term_memory`, called after `_persist_report` on every
+  investigation: writes this run's newly created findings (title +
+  description, category `"finding"`) and the generated report summary
+  (category `"report"`) into long-term memory via
+  `default_long_term_memory()`. This is the write half of blueprint §9 step
+  11 ("Memory Agent (write)") — nothing wrote to long-term memory before
+  this session (ADR-0010 built the store; no caller existed). **Deliberately
+  not a new `core/agents/memory_agent.py` or `core/graph`/
+  `CaseInvestigationState` change** (see ADR-0027 "Alternatives
+  Considered") — kept as a service-level hook, identical in spirit to how
+  `ReportGeneratorAgent`'s report and `IncidentResponsePlan` already get
+  persistence hooks alongside their graph-node agents, to avoid new surface
+  area on the already-completed, tested `core/graph`/`core/agents` layers.
+  A graph-integrated Memory Agent (automatic "similar past cases" context
+  at investigation start) remains named future work, not silently dropped.
+- **`core/conversation`** (extended for two new retrieval categories) —
+  `EvidenceCategory` gained `KNOWLEDGE` and `SIMILAR_CASE`;
+  `ConversationRetrievalContext` gained `knowledge_documents`/
+  `similar_cases` fields; `RetrievalLayer`'s one-table-per-category
+  dispatch and `ToolSelectionEngine`'s keyword groups each got two more
+  entries. `core/services/conversation_service.py`'s
+  `_hydrate_retrieval_context` now runs `ToolSelectionEngine.select`
+  *before* building the context (a cheap, deterministic, side-effect-free
+  call also re-run inside `ConversationManager` — not a duplicated business
+  decision) so it only pays for a Knowledge Layer search or a cross-case
+  embedding call when the question's keywords actually warrant it, never on
+  every question. `ConversationContextBuilder` gained a `deduplicate` step
+  (drop items whose normalized text exactly matches an already-ranked
+  item's) run before ranking/truncation, since a second/third retrieval
+  source can now plausibly surface overlapping text — a real gap the
+  original five-single-source design never had to handle. New
+  `AssembledConversationContext.duplicates_removed` field.
+  `ConversationMetricsCollector` gained `llm_calls`/`llm_failures`/
+  `total_llm_ms`/`duplicate_context_items_removed`/`context_items_truncated`.
+- **Settings/`.env.example`** — new embedding-model/timeout fields
+  (`OPENAI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_MODEL`,
+  `OLLAMA_EMBEDDING_MODEL`, `EMBEDDING_REQUEST_TIMEOUT_SECONDS`,
+  `LLM_REQUEST_TIMEOUT_SECONDS`) and knowledge-data-path fields
+  (`OWASP_TOP10_DATA_PATH`, `SECURITY_BEST_PRACTICES_DATA_PATH`,
+  `INCIDENT_RESPONSE_GUIDANCE_DATA_PATH`,
+  `DETECTION_ENGINEERING_GUIDANCE_DATA_PATH`).
+- **`docs/dependency-rules.md`** — rule 4d (`case_service.py`) extended to
+  `core.memory.{case_memory, repository, long_term, manager}`; rule 4j
+  (`conversation_service.py`) extended to also permit
+  `core.memory.{long_term, manager}` and `core.knowledge.{registry,
+  retrieval, models}` — both additive to already-granted package families,
+  not a new kind of exception, both cited to ADR-0027.
+- **A real, session-discovered test-isolation bug, fixed in
+  `tests/conftest.py`.** `default_long_term_memory()`/`default_chat_model_
+  provider()` are process-wide `lru_cache` singletons that call
+  `get_settings()` internally; the existing `test_settings` fixture cleared
+  `get_settings`'s cache but not these two, and didn't set
+  `CHROMA_PERSIST_DIR` to a temp directory — so the first test in a run to
+  touch long-term memory would construct a real `ChromaVectorStore` at the
+  repository's actual `./.chroma` (writing real files into the project
+  directory, gitignored but never intended) and every later test, even
+  under a different `test_settings` instance, would keep reusing that first,
+  now-stale instance. Fixed by having `test_settings` set
+  `CHROMA_PERSIST_DIR` to `tmp_path` and clear both singleton caches
+  before/after each test.
+- **Testing** — 130+ new/extended tests: `test_memory_chroma_vector_store.py`
+  (new, 12 tests against a real, temp-directory ChromaDB — no mocking
+  needed, Chroma runs fully in-process: batch insert, case-scoped/
+  metadata-filtered query, delete/delete_case, invalid-embedding rejection,
+  persistence-across-reopen), `test_memory_embedding_providers.py` (new, SDK
+  calls mocked at the client boundary per constitution §11, factory
+  fallback behavior including the Ollama-unreachable path),
+  `test_knowledge_owasp_source.py`/`test_knowledge_playbook_source.py`/
+  `test_knowledge_detection_source.py`/`test_knowledge_bootstrap.py` (new,
+  including loads against the real vendored data files and a
+  one-source-fails-others-still-register test), extended
+  `test_memory_vector_store.py`/`test_memory_long_term.py` (new Protocol
+  methods, category tagging, cross-case exclusion, embedding/vector-store
+  metrics), extended `test_conversation_llm_provider.py` (new provider
+  classes, citation-bracket-tag extraction including a
+  never-fabricates-an-unknown-citation test, factory fallback including
+  Ollama-unreachable), extended `test_conversation_response_orchestrator.py`
+  (provider-failure degrade path), extended
+  `test_conversation_retrieval.py`/`test_conversation_tool_selection.py`
+  (new categories), extended `test_conversation_context_builder.py` (dedup
+  — this also caught and fixed a pre-existing test that had accidentally
+  relied on two different-source-id items sharing literal placeholder text
+  "x", which the new dedup step correctly collapses), new
+  `tests/integration/test_case_service_long_term_memory.py` (a real case
+  investigation writes into a temp-directory ChromaDB; a second case's
+  cross-case query finds it; case-deletion removes it). Full pytest suite
+  (1930 tests, up from 1786 — some net growth also reflects `mypy --strict`/
+  `ruff` fixes bundled into this pass), `ruff check`/`format --check`,
+  `scripts/check_dependency_rules.py` all pass. New/changed files are
+  individually `mypy --strict` clean except for two, both already-documented
+  categories: (a) `core/memory/chroma_vector_store.py`,
+  `embedding_providers.py`, `manager.py`, `core/conversation/llm_provider.py`,
+  `response_orchestrator.py`, `conversation_manager.py` transitively pull in
+  `chromadb`/`langchain-*`, which pull in `numpy`, triggering the
+  pre-existing, unrelated `numpy/__init__.pyi:737` PEP-695-stub/Python-3.11
+  incompatibility already documented under Known Issues (confirmed via a
+  `--python-version 3.12` probe that these six files have **zero** other
+  type errors — the numpy crash is purely an environment/stub-version
+  artifact, not a defect in this session's code); (b) two `# type: ignore
+  [arg-type]` comments in `chroma_vector_store.py` (chromadb's stubs declare
+  `embeddings`/`query_embeddings` against an overly strict numpy-array-first
+  union that a plain `list[list[float]]` doesn't structurally satisfy under
+  strict invariance — chromadb's own runtime accepts plain lists, verified
+  by this session's own passing tests), each documented inline, mirroring
+  the project's existing accepted-`type: ignore` precedent
+  (`core/reporting/pdf_renderer.py`'s `_NumberedCanvas`).
+
+**Explicitly NOT built this session:** the `apps/web` AI Analyst Chat/
+Threat Timeline UI pages (explicitly out of this task's scope); a
+graph-integrated Memory Agent / any `core/graph`/`core/agents`/
+`CaseInvestigationState` change (see above); `THREAT_INTELLIGENCE`/
+`INVESTIGATION_TEMPLATE` knowledge sources (two of the six
+`KnowledgeSourceType` values remain unpopulated — out of this task's four
+named content areas); streaming chat responses; a persisted
+embedding/export cache; any redesign of `core/findings/mapping_rules.py`,
+`core/knowledge/mitre/*`, `core/graph/*`, `core/agents/*`, or any prior
+agent/framework — this session is purely additive over documented, reserved
+seams.
+
+---
+
+**Prior session: Detection Quality & Explainability Remediation**
 (no new ADR — this is a bug-fix/tightening pass across `core/threat_intel`,
 `core/findings`, `core/incident_response`, and `core/reporting`, not a new
 architectural decision; every existing module boundary, leaf-package
@@ -2275,20 +2506,25 @@ v4.0 is vector-validation-only; multi-CVE scan findings fold to their first
 CVE; no asset-criticality inventory exists.)*
 
 - **Still open — `mypy core --strict` (whole-repo) cannot run to
-  completion.** Unchanged from last session:
+  completion.** Unchanged in root cause from prior sessions:
   `numpy/__init__.pyi:737: error: Type statement is only supported in
   Python 3.12 and greater [syntax]`, a pre-existing environment
   incompatibility (numpy's inline stubs use PEP 695 syntax, pulled in
   transitively via `pandas` — used by CSV parsers — while
   `pyproject.toml`'s `python_version = "3.11"` rejects that syntax), not
-  caused by any session's changes. This session additionally verified:
-  every file in `core/reporting` (and every other file touched this
-  session) passes `mypy --strict` cleanly when checked directly (bypassing
-  the numpy-pulling files, e.g. `investigation_graph.py`/`case_service.py`,
-  which transitively import pandas-based parsers). Resolving the numpy/
-  mypy/Python-version mismatch itself (pin an older numpy, or bump the
-  mypy `python_version`) remains environment maintenance outside any single
-  feature session's scope.
+  caused by any session's changes. The M6 production-infrastructure session
+  (ADR-0027) added a second transitive path to the same failure:
+  `chromadb`/`langchain-openai`/`langchain-google-genai`/`langchain-ollama`
+  (all now genuinely imported in `core/`, not just listed in
+  `requirements.txt`) also pull in numpy, so
+  `core/memory/{chroma_vector_store,embedding_providers,manager}.py` and
+  `core/conversation/{llm_provider,response_orchestrator,
+  conversation_manager}.py` hit the identical crash. Verified via a
+  `--python-version 3.12` probe (bypassing the crash, not the project's real
+  configured version) that all six files have zero other type errors.
+  Resolving the numpy/mypy/Python-version mismatch itself (pin an older
+  numpy, or bump the mypy `python_version`) remains environment maintenance
+  outside any single feature session's scope.
 - **`Report`'s original "still has no consumer" gap is closed** —
   `ReportGeneratorAgent`/`ReportRepository` are now that consumer
   (ADR-0024); the placeholder is no longer schema-only.

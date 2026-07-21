@@ -10,6 +10,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 
 ## [Unreleased]
 
+### Added
+- **M6 production memory, embedding, chat-provider & knowledge
+  infrastructure** (`docs/adr/0027-production-memory-embedding-chat-
+  provider-infrastructure.md`) — replaces every placeholder M6 AI backend
+  named in ADR-0010/ADR-0025 with a real implementation, behind the same
+  Protocols (no caller rewrite):
+  - `core/memory/chroma_vector_store.py` — a real, persistent ChromaDB
+    `VectorMemory` backend (local `chromadb.PersistentClient`, cosine
+    similarity, collection `case_findings_embeddings`). `VectorMemory`/
+    `LongTermMemory` Protocols extended with batch upsert, delete, and
+    case-scoped/metadata-filtered query.
+  - `core/memory/embedding_providers.py` — real `OpenAIEmbeddingProvider`/
+    `GeminiEmbeddingProvider`/`OllamaEmbeddingProvider` (via already-vendored
+    `langchain-*` clients) + `build_text_embedder`, with graceful fallback
+    to the deterministic `HashingTextEmbedder` when unconfigured or (Ollama)
+    unreachable.
+  - `core/conversation/llm_provider.py` — real `OpenAIChatModelProvider`/
+    `GeminiChatModelProvider`/`OllamaChatModelProvider` + `build_chat_model_
+    provider`/`default_chat_model_provider`, with the identical graceful-
+    fallback contract to `TemplateChatModelProvider`; `ResponseOrchestrator`
+    now catches a `ChatProviderError` and retries with the template
+    provider for that one request rather than crashing the pipeline.
+  - `core/knowledge/{owasp,playbooks,detection}/` — three new populated
+    knowledge sources (OWASP Top 10:2021, security best practices + NIST SP
+    800-61 incident-response guidance, detection-engineering principles),
+    vendored offline under `data/knowledge/`, registered via
+    `core/knowledge/bootstrap.py` at API startup alongside the existing,
+    unmodified MITRE ATT&CK source.
+  - `core/conversation` retrieval gains `KNOWLEDGE`/`SIMILAR_CASE`
+    categories (Knowledge Layer search; cross-case long-term-memory
+    matches), and `ConversationContextBuilder` gains a text-deduplication
+    step before ranking.
+  - `core/services/case_service.py` — a long-term-memory write path after
+    each investigation (new findings/report summaries recorded, tagged by
+    category), closing blueprint §9 step 11.
+  - New embedding/vector-store/LLM/retrieval observability counters across
+    `core/memory/metrics.py` and `core/conversation/metrics.py`.
+  - `langchain-ollama` added as a dependency (`langchain-community`'s
+    Ollama chat/embedding classes are sunset upstream); no other new
+    dependencies (`chromadb`, `langchain-openai`, `langchain-google-genai`
+    were already vendored).
+  - 130+ new/extended tests (unit + integration), including a real,
+    temp-directory ChromaDB test suite (no mocking needed — Chroma runs
+    fully in-process).
+
 ### Fixed
 - **Detection Quality & Explainability Remediation** — a bug-fix/tightening
   pass across `core/threat_intel`, `core/findings`, `core/incident_response`,

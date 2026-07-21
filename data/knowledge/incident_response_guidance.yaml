@@ -1,0 +1,55 @@
+# Incident response guidance reference content — vendored, offline,
+# hand-curated summary of NIST SP 800-61 Rev. 2's incident-response
+# lifecycle, for core/knowledge/playbooks/ (ADR-0027) — the second half of
+# the `SECURITY_PLAYBOOK` knowledge source. This is general, read-only
+# reference guidance the AI Analyst Chat can cite; it is NOT
+# core/incident_response's deterministic response-plan engine (which
+# generates a case-specific `IncidentResponsePlan`) — the two are
+# structurally independent, per blueprint §10's NIST SP 800-61 lifecycle
+# description.
+phases:
+  - id: "IR-PREP"
+    phase: "Preparation"
+    guidance: >
+      Establish incident-response capability before an incident occurs:
+      a documented response plan, defined roles/on-call rotation, tooling
+      (forensics, communication, ticketing), and regular tabletop exercises
+      to validate the plan actually works under pressure.
+  - id: "IR-DETECT"
+    phase: "Detection and Analysis"
+    guidance: >
+      Recognize precursors and indicators of an incident from logs, alerts,
+      and user reports; triage to determine scope, affected systems, and
+      likely attack vector; assign a severity/priority so response effort is
+      proportional to impact.
+  - id: "IR-CONTAIN"
+    phase: "Containment"
+    guidance: >
+      Limit the damage before it spreads: isolate affected hosts from the
+      network, disable compromised accounts, and preserve evidence
+      (memory/disk images, relevant logs) before remediation actions
+      overwrite it. Choose a containment strategy (short-term vs.
+      long-term) appropriate to business impact and evidence-preservation
+      needs.
+  - id: "IR-ERADICATE"
+    phase: "Eradication"
+    guidance: >
+      Remove the attacker's foothold entirely: delete malware, disable
+      abused accounts or persistence mechanisms, and close the
+      vulnerability that enabled initial access — containment alone is not
+      sufficient if the root cause remains exploitable.
+  - id: "IR-RECOVER"
+    phase: "Recovery"
+    guidance: >
+      Restore affected systems to normal operation from known-clean backups
+      or rebuilt images, validate they are free of compromise before
+      reconnecting to production, and monitor closely afterward for signs
+      of reinfection.
+  - id: "IR-POSTINCIDENT"
+    phase: "Post-Incident Activity"
+    guidance: >
+      Conduct a lessons-learned review: what happened, how effective was
+      the response, what would be done differently, and what process/
+      control gaps the incident exposed. Feed findings back into
+      Preparation (updated playbooks, new detections) — this phase is what
+      keeps the lifecycle a loop rather than a one-time exercise.

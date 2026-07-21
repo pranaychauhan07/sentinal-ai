@@ -30,6 +30,23 @@ def _context(**overrides: object) -> ConversationRetrievalContext:
                 "narrative": "Brute force detected",
             },
         ),
+        "knowledge_documents": (
+            {
+                "document_id": "A03:2021",
+                "title": "Injection",
+                "content": "SQL injection remediation guidance.",
+                "source_type": "owasp_top10",
+            },
+        ),
+        "similar_cases": (
+            {
+                "case_id": "c2",
+                "finding_id": "f2",
+                "excerpt": "brute force ssh from a different case",
+                "score": 0.8,
+                "category": "finding",
+            },
+        ),
     }
     defaults.update(overrides)
     return ConversationRetrievalContext(**defaults)  # type: ignore[arg-type]
@@ -90,6 +107,32 @@ def test_retrieve_across_multiple_categories() -> None:
     categories_seen = {item.category for item in items}
     assert EvidenceCategory.FINDING in categories_seen
     assert EvidenceCategory.MITRE_MAPPING in categories_seen
+
+
+@pytest.mark.unit
+def test_retrieve_scores_matching_knowledge_document() -> None:
+    layer = RetrievalLayer()
+    items = layer.retrieve(
+        _context(),
+        question="injection remediation guidance",
+        categories=(EvidenceCategory.KNOWLEDGE,),
+    )
+    assert len(items) == 1
+    assert items[0].source_id == "A03:2021"
+    assert items[0].category is EvidenceCategory.KNOWLEDGE
+
+
+@pytest.mark.unit
+def test_retrieve_scores_matching_similar_case() -> None:
+    layer = RetrievalLayer()
+    items = layer.retrieve(
+        _context(),
+        question="brute force ssh different case",
+        categories=(EvidenceCategory.SIMILAR_CASE,),
+    )
+    assert len(items) == 1
+    assert items[0].source_id == "c2"
+    assert items[0].category is EvidenceCategory.SIMILAR_CASE
 
 
 @pytest.mark.unit
