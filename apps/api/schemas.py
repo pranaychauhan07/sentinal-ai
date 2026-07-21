@@ -178,6 +178,14 @@ class EvidenceUploadResponse(ApiSchema):
     #: docs/adr/0023-incident-response-agent.md).
     incident_response_recommendation_count: int | None = None
     incident_severity: str | None = None
+    #: Populated once at least one Finding, MITRE mapping, or IOC exists for
+    #: the case — cross-cutting, so populated regardless of which
+    #: specialist(s) this upload also routed to (additive, per constitution
+    #: §13's versioning rule; docs/adr/0024-report-generator-agent.md).
+    report_id: uuid.UUID | None = None
+    report_type: str | None = None
+    report_section_count: int | None = None
+    report_confidence: float | None = None
 
 
 # --- IOC --------------------------------------------------------------------

@@ -17,6 +17,7 @@ from core.config import Settings
 from core.db import Base, Database
 from core.db.models.case import CasePriority, CaseStatus
 from core.db.models.timeline_event import TimelineEventType
+from core.db.report_repository import ReportRepository
 from core.exceptions import BusinessRuleError
 from core.knowledge.mitre.bootstrap import load_mitre_dataset
 from core.services import case_service
@@ -83,6 +84,15 @@ async def test_full_pipeline_from_case_creation_to_soc_analysis(
     assert result.incident_response_recommendation_count is not None
     assert result.incident_response_recommendation_count > 0
     assert result.incident_severity is not None
+    # ADR-0024: ReportGeneratorAgent is cross-cutting like MitreMappingAgent/
+    # IncidentResponseAgent and reads this case's just-persisted Finding rows
+    # plus the current upload's specialist records, so a Technical
+    # Investigation Report should be generated and persisted.
+    assert result.report_id is not None
+    assert result.report_type == "technical_investigation"
+    assert result.report_section_count is not None
+    assert result.report_section_count > 0
+    assert result.report_confidence is not None
 
     async with database.session_factory() as session:
         updated_case = await case_service.get_case(session, case.id)
@@ -98,6 +108,7 @@ async def test_full_pipeline_from_case_creation_to_soc_analysis(
         assert TimelineEventType.AGENT_ANALYSIS in event_types
         assert TimelineEventType.CASE_STATUS_CHANGED in event_types
         assert TimelineEventType.INCIDENT_RESPONSE_PLAN_GENERATED in event_types
+        assert TimelineEventType.REPORT_GENERATED in event_types
 
 
 async def test_phishing_email_upload_routes_to_phishing_agent_not_soc(
@@ -206,6 +217,49 @@ async def test_nessus_scan_upload_routes_to_vulnerability_agent_not_soc(
         assert TimelineEventType.EVIDENCE_INGESTED in event_types
         assert TimelineEventType.VULNERABILITY_ASSESSED in event_types
         assert TimelineEventType.AGENT_ANALYSIS in event_types
+
+
+async def test_second_upload_replaces_report_not_appends(
+    database: Database, test_settings: Settings
+) -> None:
+    """docs/adr/0024 Decision 4: `Report` is a "1 nullable per case"
+    cardinality, upserted (never a second row) on every regeneration,
+    mirroring `IncidentResponsePlanRow`'s identical cardinality."""
+    content = _SSH_AUTH_LOG.read_bytes()
+    async with database.session_factory() as session:
+        case = await case_service.create_case(session, title="Repeat upload", analyst_id="a")
+        await session.commit()
+
+    async with database.session_factory() as session:
+        first = await case_service.investigate_new_evidence(
+            session,
+            case_id=case.id,
+            filename="ssh_auth.log",
+            content=content,
+            settings=test_settings,
+        )
+        await session.commit()
+
+    async with database.session_factory() as session:
+        second = await case_service.investigate_new_evidence(
+            session,
+            case_id=case.id,
+            filename="ssh_auth.log",
+            content=content,
+            settings=test_settings,
+        )
+        await session.commit()
+
+    assert first.report_id is not None
+    assert second.report_id is not None
+    assert first.report_id == second.report_id
+
+    async with database.session_factory() as session:
+        repository = ReportRepository(session)
+        row = await repository.find_by_case(case.id)
+        assert row is not None
+        all_rows = await repository.list(limit=10)
+        assert len([r for r in all_rows if r.case_id == case.id]) == 1
 
 
 async def test_second_upload_does_not_revert_case_status(

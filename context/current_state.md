@@ -10,10 +10,231 @@
 
 ## Completed Features
 
-This session implemented blueprint §7's **Incident Response Agent**
-(`docs/adr/0023-incident-response-agent.md`), **partially closing M5** — the
-Incident Response half of M5 is done; the Report Generator Agent half
-remains open. This is the **ninth** concrete specialist agent (after
+This session implemented blueprint §7's **Report Generator Agent**
+(`docs/adr/0024-report-generator-agent.md`), **closing M5 entirely** — the
+Incident Response half (prior session) plus this session's Report Generator
+half together complete the milestone. This is the **tenth** concrete
+specialist agent (after `SocAnalystAgent` M1, `PhishingAgent` M2,
+`VulnerabilityAssessmentAgent`/`ThreatHunterAgent`/`LinuxSecurityAgent`/
+`WebSecurityAgent`/`OwaspSecurityAgent` M4, `MitreMappingAgent` M2,
+`IncidentResponseAgent` M5).
+
+**Before writing any code**, this session surfaced a real architecture
+question and put it to the user rather than deciding unilaterally
+(constitution §14.10): a downstream, cross-cutting "assemble everything into
+a report" agent could either (a) run on-demand via a new
+`core/services/report_service.py` + `/api/v1/cases/{case_id}/reports` route,
+reading Case/Evidence/Finding/Vulnerability/LinuxSecurityFindingRow/
+IncidentResponsePlanRow directly from repositories, whole-case-wide — the
+option that maps most cleanly onto the task brief's own
+"Case -> Load Persisted Data -> ..." pipeline — or (b) a graph node wired
+exactly like `MitreMappingAgent`/`IncidentResponseAgent`, cross-cutting,
+regenerating on every evidence upload, reading only pre-hydrated
+`CaseInvestigationState` fields (the same superstep-isolation constraint
+ADR-0023 already worked around). Presented via `AskUserQuestion` with (a)
+recommended; the user explicitly chose (b), to keep this agent's
+integration identical to the nine that came before it. `docs/adr/
+0024-report-generator-agent.md` documents this decision and its accepted
+trade-offs (the report is always one run behind for the Incident Response
+Plan section, and current-upload-only for four subsystems whose findings
+are never persisted — the identical, already-disclosed limitation ADR-0023
+accepted for `IncidentResponsePlan`, not a new problem this session
+introduced).
+
+**What this session actually built:**
+- **`core/reporting/`** (existing leaf package, previously README-only —
+  blueprint §6 already named this location; this session filled it in for
+  the first time) —
+  - `models.py`: `ReportType` (the task's eight named report types —
+    Executive Summary, Technical Investigation, Incident Response, IOC
+    Summary, MITRE ATT&CK, Timeline, Threat Intelligence, Evidence — plus
+    the two original placeholder values `module`/`executive` preserved
+    byte-for-byte), `ReportFormat` (PDF/HTML/Markdown/JSON — the task's
+    named output formats, structurally supported by every `GeneratedReport`
+    equally, no exporter built yet), `ReportSectionType` (the task's twelve
+    named sections), `ReportSection`, `ReportStatistics`,
+    `ReportValidationResult`, `GeneratedReport` (with a `.section(type)`
+    lookup helper).
+  - `exceptions.py`: narrow hierarchy (`ReportGenerationError`,
+    `UnknownReportTypeError`, `OversizedReportInputError`).
+  - `inputs.py`: `ReportGenerationContext` — the one normalized shape every
+    upstream subsystem's already-computed signal is reduced to before this
+    package ever sees it, mirroring
+    `core.incident_response.inputs.IncidentInputFinding`'s role.
+  - `section_registry.py`: `REPORT_TYPE_SECTIONS` — the static table of
+    which sections each of the eight report types includes (exhaustive over
+    the enum, enforced by a unit test), plus `default_title_for` (a
+    deterministic, non-LLM-generated title per type). The Technical
+    Investigation Report is the most comprehensive: all twelve sections.
+  - `section_builders.py`: one pure function per `ReportSectionType` —
+    aggregates already-computed data only (finding severities/risk scores,
+    resolved MITRE mappings, IOC types, vulnerability/Linux/OWASP records,
+    the persisted Incident Response Plan's recommendations) into each
+    section's `content` dict, each with an explicit, per-section `is_empty`
+    determination (never a generic "any truthy value" heuristic, which
+    mis-flagged a real bug caught by this session's own tests — see Key
+    Decisions). Every builder is skip-on-malformed via `isinstance` checks,
+    belt-and-suspenders defense given `ReportGenerationContext`'s own
+    Pydantic validation already rejects non-dict entries at construction.
+  - `completeness_validator.py`: `validate_completeness` — the task's named
+    "Validate Completeness" stage; flags missing required sections,
+    duplicate section types, and an all-empty report.
+  - `statistics_calculator.py`: `calculate_statistics` — the task's named
+    "Calculate Statistics" stage; every count derived from the context/
+    sections already assembled.
+  - `confidence_calculator.py`: `calculate_report_confidence` — a report-level
+    confidence rollup (non-empty-section fraction × clean-input fraction ×
+    a completeness penalty), mirroring
+    `core.incident_response.confidence_calculator.calculate_plan_confidence`'s
+    discount-by-malformed-fraction shape.
+  - `report_engine.py`: `ReportGenerationEngine` — the task's named pipeline
+    orchestrator: generate sections -> assemble -> validate completeness ->
+    calculate statistics -> build `GeneratedReport`, with an
+    oversized-input guard (`OversizedReportInputError`) and an
+    `UnknownReportTypeError` guard, never crashing on an empty/degraded
+    input (returns a `degraded=True` report instead). Deterministic
+    throughout — no LLM reasoning anywhere in this package (task
+    requirement), verified by an explicit reproducibility test
+    (`test_reporting_report_engine.py::test_generation_is_deterministic_given_the_same_input`).
+  - `metrics.py`/`audit.py`: `ReportGenerationMetricsCollector` + structured
+    audit-event emission + timing — mirroring `core/incident_response`'s
+    established leaf-package shape exactly.
+- **`core/tools/report_tools.py`** (new, blueprint's exact named file) —
+  `ReportGenerationTool`. Mirrors `ir_tools.py`'s shape exactly: its `run()`
+  is a thin wrapper around
+  `core.reporting.report_engine.ReportGenerationEngine`, never a duplicate
+  reimplementation. Typed, not dict-shaped input: a new, narrowly-scoped
+  dependency-rules.md exception (**rule 5c**) permits this one
+  `core/tools/*.py` file — and no other — to import `core/reporting`
+  directly, mirroring rule 5b's identical `core/incident_response`
+  exception for `ir_tools.py`.
+- **`core/agents/report_generator_agent.py`** (new) — `ReportGeneratorAgent`,
+  the tenth concrete specialist agent, capability `report_generation`.
+  Deliberately thin: normalizes `incident_response_finding_records`/
+  `mitre_mapping_records` (case-wide), `extracted_indicators`/`evidence`/
+  `thoughts` (this run), the current upload's already-hydrated
+  `vulnerability_records`/`linux_security_records`/`linux_advisory_records`/
+  `owasp_web_records`/`owasp_security_records`, and the case's most recently
+  *persisted* `incident_response_plan_record` (new field, see below) into a
+  `ReportGenerationContext` (skip-on-malformed via `_dict_records`, never
+  crashing) and calls `ReportGenerationTool`, always requesting
+  `ReportType.TECHNICAL_INVESTIGATION` (the most comprehensive type).
+  Returns a `DEGRADED`, `report=None` "insufficient evidence" result — never
+  a fabricated report — when no findings/mappings/IOCs are available yet,
+  exactly matching `IncidentResponseAgent`'s "unmapped rather than a forced
+  guess" precedent. **Needs no new dependency-rules.md exception of its
+  own for calling its tool** — it uses the normal `BaseAgent.use_tool`
+  mechanism; it does import `core.reporting.inputs.ReportGenerationContext`/
+  `core.reporting.models.{GeneratedReport, ReportType}` directly to
+  construct its tool's typed input, mirroring
+  `IncidentResponseAgent`'s identical, already-shipped precedent of
+  importing `core.incident_response.inputs.IncidentInputFinding`/
+  `core.incident_response.models.{IncidentResponsePlan, IncidentSeverity}`
+  directly for the same reason (documented in dependency-rules.md rule 5c).
+- **One new `CaseInvestigationState` field** — `incident_response_plan_record:
+  dict[str, object] | None` (`core/graph/state.py`), hydrated by
+  `core/services/case_service.py`'s new
+  `_hydrate_incident_response_plan_record` (reads
+  `IncidentResponsePlanRepository.find_by_case`, `json.loads`'s
+  `plan_data_json`, never imports `core.incident_response.models` into
+  `case_service.py`) before the graph runs. Single-writer field (like
+  `execution_plan`), deliberately **one run behind** this run's own
+  `IncidentResponseAgent` output (docs/adr/0024, Decision 2) — a disclosed,
+  accepted limitation mirroring ADR-0023's own precedent, not hidden.
+- **Real DB persistence — extends the placeholder `Report` table for the
+  first time.** Blueprint §8 literally names `Case ├─ ... └─ 1 Report
+  (nullable)`; `core/db/models/report.py`'s `Report`/`ReportType` (created
+  two sessions ago, explicitly documented as "no report is ever generated
+  yet... until the Report Generator Agent, M5") is this session's intended
+  completion point, not a redesign. `ReportType` moved to become the
+  canonical definition in `core.reporting.models.ReportType` (the leaf
+  package that owns the domain concept), imported by `core/db/models/
+  report.py` for column typing — the same "DB imports a sibling leaf's
+  model" precedent `core/db/models/finding.py`/`incident_response_plan.py`
+  already set. `Report` gained four new, non-nullable columns (`title`,
+  `report_data_json`, `overall_confidence`, `degraded`) populated at insert
+  time; `ix_reports_case_id` became a unique index (blueprint's literal "1
+  nullable" cardinality). Three new, purely additive Alembic migrations
+  (`c4d8e1a6f7b3` extends `report_type_enum` with six new values;
+  `d5e9f2b7a8c4` adds the four new columns + the unique index;
+  `e6f0a3c8b9d5` extends `timeline_event_type_enum` with the new
+  `TimelineEventType.REPORT_GENERATED`). `core/db/report_repository.py`'s
+  `ReportRepository` gained `find_by_case`/`upsert_for_case` (replaces the
+  existing row, never appends a second one for the same case, matching
+  `IncidentResponsePlanRepository`'s identical cardinality); takes the
+  report as a plain `dict[str, object]`, so `core/services/case_service.py`
+  never needs its own new import edge onto `core/reporting` — that Pydantic
+  model stays imported only inside `core/db`.
+- **Cross-cutting routing, not evidence-type-gated** — mirroring
+  `MitreMappingAgent`/`IncidentResponseAgent`'s identical routing exactly:
+  `report_generation` is appended to *every* evidence type's
+  required-capability list in `core/services/case_service.py`'s
+  `_required_capabilities_for`.
+- **`core/services/case_service.py`** (modified) — new
+  `_hydrate_incident_response_plan_record` (see above); new `_persist_report`
+  reads the agent's plain-dict report output and calls the repository,
+  records `TimelineEventType.REPORT_GENERATED`, and returns `(report_id,
+  report_type, section_count, confidence)` for `(None, None, None, None)` on
+  the documented "no report yet" outcome (never zeros — the same
+  "insufficient evidence" vs. "no findings" distinction
+  `_persist_incident_response_plan` already established). `_run_specialist_agents`
+  registers the tenth agent; `CaseInvestigationResult` gained
+  `report_id`/`report_type`/`report_section_count`/`report_confidence`.
+  `EvidenceUploadResponse` (`apps/api/schemas.py`/`routers/evidence.py`)
+  passes them through.
+- **`core/graph/{state,investigation_graph}.py`** (modified) —
+  `CaseInvestigationState` gained `incident_response_plan_record` (see
+  above). `ReportGeneratorAgent` registered/wired as the graph's tenth node
+  with the same two-line pattern every prior specialist established.
+- **Testing** — 49 new tests: nine `core/reporting` unit-test modules
+  (models, section_registry, section_builders — every builder including a
+  malformed-entry defense test using `model_construct` to bypass
+  `ReportGenerationContext`'s own strict validation, completeness_validator,
+  statistics_calculator, confidence_calculator, report_engine — including a
+  determinism test and an oversized-input-guard test, metrics),
+  `test_tools_report_tools.py`, `test_agents_report_generator_agent.py`
+  (empty-state degraded outcome, synthesis from persisted-finding records,
+  synthesis from MITRE mappings only, malformed-record skip-don't-crash,
+  the persisted Incident Response Plan feeding the Incident Response
+  Actions section), and `test_db_report_repository.py` (upsert-creates,
+  upsert-replaces-not-appends, find-by-case). Plus two extended assertions
+  in the existing end-to-end `test_case_service_pipeline.py` SSH-auth-log
+  test (asserting `report_id`/`report_type`/`report_section_count`/
+  `report_confidence` and the new timeline event type), a new
+  `test_second_upload_replaces_report_not_appends` test proving the "1 per
+  case" cardinality end-to-end, and the `test_investigation_graph.py`
+  node-set assertion extended to the tenth agent. Full pytest suite (1653
+  tests, up from 1604), `ruff check`/`format --check`, and
+  `scripts/check_dependency_rules.py` all pass. New/changed files are
+  individually `mypy --strict` clean (the pre-existing, unrelated numpy/
+  pandas whole-repo `mypy` failure — see Known Issues — is unchanged, not
+  caused by this session).
+
+**Explicitly NOT built this session, per the task's own instruction**
+("implement only the backend models and generation pipeline... do not build
+exporters yet"): `core/reporting/templates/*.html.j2` (Jinja2 templates),
+`core/reporting/charts.py` (Plotly figure builders), `core/reporting/
+pdf_builder.py` (Jinja2 → ReportLab); an on-demand
+`/api/v1/cases/{case_id}/reports` API route to request one of the other
+seven report types directly (today only the Technical Investigation Report
+auto-regenerates on every evidence upload, cross-cutting); golden-file
+snapshot tests (`tests/golden/`, still empty — no concrete renderer exists
+yet to snapshot); any closing of the pre-existing "Vulnerability/Linux/
+OWASP/Web findings aren't persisted to the `findings` table" gap (unchanged
+scope boundary, ADR-0023's Decision 1, inherited as-is by this session's
+Findings/Risk Assessment sections); any redesign of
+`core/graph/workflow_engine.py`, `core/graph/routing.py`,
+`core/agents/planning_agent.py`, `core/agents/coordinator.py`, or any prior
+specialist agent/framework.
+
+---
+
+### M5's Incident Response Agent (prior session, unchanged)
+
+Prior session implemented blueprint §7's **Incident Response Agent**
+(`docs/adr/0023-incident-response-agent.md`), half-closing M5 at the time —
+this session's Report Generator Agent (above) completed the other half,
+**closing M5 entirely**. This is the **ninth** concrete specialist agent (after
 `SocAnalystAgent` M1, `PhishingAgent` M2, `VulnerabilityAssessmentAgent`/
 `ThreatHunterAgent`/`LinuxSecurityAgent`/`WebSecurityAgent`/
 `OwaspSecurityAgent` M4, `MitreMappingAgent` M2).
@@ -587,10 +808,10 @@ needed dependency); any redesign of `SocAnalystAgent`, `PhishingAgent`,
 
 ```
 apps/
-  api/            schemas.py (MODIFIED: +2 IR response fields, +2 MITRE
-                   fields/+2 SAST fields earlier) + routers/{system,cases,
-                   evidence(MODIFIED: passes through IR + MITRE + SAST
-                   fields),iocs,findings,v1}.py                          [implemented]
+  api/            schemas.py (MODIFIED: +4 report response fields, +2 IR
+                   fields/+2 MITRE fields/+2 SAST fields earlier) +
+                   routers/{system,cases,evidence(MODIFIED: passes through
+                   report + IR + MITRE + SAST fields),iocs,findings,v1}.py [implemented]
   web/             Streamlit frontend                                     [README only]
 core/
   config/         settings.py (unchanged this session)                   [implemented]
@@ -598,32 +819,38 @@ core/
   agents/         soc_analyst_agent.py, phishing_agent.py,
                    vulnerability_agent.py, threat_hunter_agent.py,
                    linux_security_agent.py, web_security_agent.py,
-                   owasp_security_agent.py, mitre_mapping_agent.py
-                   (unchanged) + incident_response_agent.py (NEW — ninth
-                   concrete specialist agent — half-closes M5)           [implemented — 9 concrete specialist agents]
+                   owasp_security_agent.py, mitre_mapping_agent.py,
+                   incident_response_agent.py (unchanged) +
+                   report_generator_agent.py (NEW — tenth concrete
+                   specialist agent — closes M5 entirely)                [implemented — 10 concrete specialist agents]
   tools/          scoring.py, phishing_tools.py, vuln_tools.py,
                    linux_security_tools.py, linux_tools.py,
-                   web_security_tools.py, owasp_tools.py, mitre_tools.py
-                   (unchanged) + ir_tools.py (NEW —
-                   IncidentResponsePlanGenerationTool, blueprint's exact
-                   named file)                                           [implemented — 9 concrete tools]
+                   web_security_tools.py, owasp_tools.py, mitre_tools.py,
+                   ir_tools.py (unchanged) + report_tools.py (NEW —
+                   ReportGenerationTool, blueprint's exact named file)    [implemented — 10 concrete tools]
   memory/         (unchanged)                                             [implemented — framework only]
   knowledge/      mitre/, cvss_calculator.py (unchanged)                  [implemented]
-  graph/          investigation_graph.py (MODIFIED: +IncidentResponseAgent
+  graph/          investigation_graph.py (MODIFIED: +ReportGeneratorAgent
                    wiring) + state.py (MODIFIED:
-                   +incident_response_finding_records field) +
+                   +incident_response_plan_record field) +
                    routing.py/workflow_engine.py/events.py/retry.py/
                    failure_recovery.py/metrics.py (unchanged)             [implemented]
-  db/             MODIFIED: +incident_response_plan.py
-                   (IncidentResponsePlanRow) +
-                   incident_response_plan_repository.py (NEW) + two new
-                   Alembic migrations                                    [implemented — 12 real domain tables + 5 reference tables]
+  db/             MODIFIED: +report.py (title/report_data_json/
+                   overall_confidence/degraded columns; ReportType now
+                   canonically defined in core.reporting.models) +
+                   report_repository.py (find_by_case/upsert_for_case,
+                   NEW) + timeline_event.py (+REPORT_GENERATED) + three new
+                   Alembic migrations; incident_response_plan.py/
+                   incident_response_plan_repository.py (unchanged)      [implemented — 12 real domain tables + 5 reference tables]
   parsers/        (unchanged this session)                               [implemented — 17 concrete parsers]
-  incident_response/ (NEW — this session's leaf package: models.py,
-                   exceptions.py, inputs.py, severity_classifier.py,
-                   playbook_rules.py, risk_prioritizer.py,
-                   action_ordering.py, confidence_calculator.py,
-                   response_plan_engine.py, metrics.py, audit.py)        [implemented]
+  incident_response/ (unchanged this session)                            [implemented]
+  reporting/      (NEW — this session's leaf package: models.py,
+                   exceptions.py, inputs.py, section_registry.py,
+                   section_builders.py, completeness_validator.py,
+                   statistics_calculator.py, confidence_calculator.py,
+                   report_engine.py, metrics.py, audit.py; templates/
+                   README.md/charts.py/pdf_builder.py deliberately not
+                   built yet)                                            [implemented — pipeline only, no exporters]
   owasp_security/ (unchanged)                                             [implemented]
   owasp_web/      (unchanged)                                             [implemented]
   linux_advisor/  (unchanged — ADR-0019's separate framework)             [implemented]
@@ -634,56 +861,59 @@ core/
                    this package)                                         [implemented]
   security/       prompt_guard.py (unchanged); pii_redaction.py,
                    approval_gate.py still not started                     [implemented — 1 of 3 modules]
-  reporting/      (empty — README only)                                   [not started]
-  services/       case_service.py (MODIFIED: +incident_response_synthesis
-                   capability routing (every evidence type),
-                   +_hydrate_incident_response_records,
-                   +_persist_incident_response_plan) + finding_service.py
-                   (unchanged) + evidence_service.py, threat_intel_service.py,
-                   vulnerability_service.py, linux_security_service.py,
-                   linux_advisor_service.py, web_security_service.py,
-                   owasp_security_service.py (unchanged); report_service.py [implemented]
+  services/       case_service.py (MODIFIED: +report_generation capability
+                   routing (every evidence type),
+                   +_hydrate_incident_response_plan_record, +_persist_report)
+                   + finding_service.py (unchanged) + evidence_service.py,
+                   threat_intel_service.py, vulnerability_service.py,
+                   linux_security_service.py, linux_advisor_service.py,
+                   web_security_service.py, owasp_security_service.py
+                   (unchanged); report_service.py still doesn't exist —
+                   report generation is agent-mediated, not a service
+                   entry point, per this session's ADR-0024 decision       [implemented]
 data/             (unchanged this session)
 scripts/          (unchanged)
 tests/
-  unit/           213 test modules (+11 this session:
-                   test_incident_response_{models,severity_classifier,
-                   playbook_rules,risk_prioritizer,action_ordering,
-                   confidence_calculator,response_plan_engine}.py,
-                   test_tools_ir_tools.py,
-                   test_agents_incident_response_agent.py,
-                   test_db_incident_response_plan_repository.py)
+  unit/           223 test modules (+10 this session:
+                   test_reporting_{models,section_registry,
+                   section_builders,completeness_validator,
+                   statistics_calculator,confidence_calculator,
+                   report_engine,metrics}.py, test_tools_report_tools.py,
+                   test_agents_report_generator_agent.py,
+                   test_db_report_repository.py)
   integration:    16 test modules (+0 new files this session; +2 extended:
-                   test_case_service_pipeline.py [incident_response_
-                   recommendation_count assertion + new timeline event
-                   type on the SSH-auth-log test],
-                   test_investigation_graph.py [node-set assertion
-                   extended to the ninth agent])
-  golden/         (empty — no report generation exists yet)
-docs/             18 markdown docs + docs/adr/ (24 ADR files incl.
-                   template, +0023) + docs/dependency-rules.md (MODIFIED:
-                   +rule 5b, `core/tools/ir_tools.py`'s
-                   `core/incident_response` exception) + docs/diagrams/
+                   test_case_service_pipeline.py [report_id/report_type/
+                   report_section_count/report_confidence assertions + new
+                   timeline event type on the SSH-auth-log test, plus a
+                   new test_second_upload_replaces_report_not_appends
+                   test], test_investigation_graph.py [node-set assertion
+                   extended to the tenth agent])
+  golden/         (empty — no concrete report renderer/exporter exists yet)
+docs/             18 markdown docs + docs/adr/ (25 ADR files incl.
+                   template, +0024) + docs/dependency-rules.md (MODIFIED:
+                   +rule 5c, `core/tools/report_tools.py`'s
+                   `core/reporting` exception) + docs/diagrams/
                    (unchanged)
 context/
   01_blueprint.md, 03_engineering_constitution.md, current_state.md (this file)
 ```
 
-1604 tests passing as of this session (1546 prior -> 1604 now: 58 new [some
-prior counts undercounted files vs. individual tests — see git log for the
-exact per-commit delta]).
+1653 tests passing as of this session (1604 prior -> 1653 now: 49 new).
 Modified this session: `core/graph/{state,investigation_graph}.py`,
-`core/services/case_service.py`, `core/db/models/__init__.py`,
-`core/db/models/timeline_event.py`, `apps/api/{schemas,routers/evidence}.py`,
+`core/services/case_service.py`, `core/db/models/report.py`,
+`core/db/report_repository.py`, `core/db/models/timeline_event.py`,
+`apps/api/{schemas,routers/evidence}.py`,
 `docs/{roadmap,dependency-rules}.md`, `core/{agents,tools}/README.md`,
+`core/reporting/README.md`,
 `tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
-`CHANGELOG.md`, and this file. New: `docs/adr/0023-incident-response-agent.md`,
-`core/incident_response/*.py` (11 files + README), `core/tools/ir_tools.py`,
-`core/agents/incident_response_agent.py`,
-`core/db/models/incident_response_plan.py`,
-`core/db/incident_response_plan_repository.py`, two new Alembic migrations
-(`f3a9c1d7e2b5`, `b7e4d2f8a1c9`), 11 new test files — all currently
-uncommitted until this session's commit (see "Current Git Status" below).
+`CHANGELOG.md`, and this file. New: `docs/adr/0024-report-generator-agent.md`,
+`core/reporting/{models,exceptions,inputs,section_registry,
+section_builders,completeness_validator,statistics_calculator,
+confidence_calculator,report_engine,metrics,audit}.py`,
+`core/tools/report_tools.py`, `core/agents/report_generator_agent.py`,
+three new Alembic migrations (`c4d8e1a6f7b3`, `d5e9f2b7a8c4`,
+`e6f0a3c8b9d5`), 10 new test files — all currently uncommitted until this
+session's commit (see "Current Git Status" below).
 
 **Naming note carried forward:** `context/02_repository.md` still does not
 exist. The actual files remain `context/01_blueprint.md` and
@@ -694,10 +924,56 @@ exist. The actual files remain `context/01_blueprint.md` and
 ## Architecture Status
 
 Fully aligned with `context/01_blueprint.md`, extended (not reversed) by
-ADR-0001 through ADR-0023. **M2 and M4 are both fully closed; M5 is half
-closed** (Incident Response Agent done, Report Generator Agent open). This
+ADR-0001 through ADR-0024. **M2, M4, and M5 are all now fully closed.** This
 session's deliberate decisions, documented in
-`docs/adr/0023-incident-response-agent.md`:
+`docs/adr/0024-report-generator-agent.md`:
+
+1. **A real architecture choice was put to the user, not decided
+   unilaterally** — an on-demand service+API-route shape (reading
+   Case/Evidence/Finding/Vulnerability/LinuxSecurityFindingRow/
+   IncidentResponsePlanRow directly from repositories) versus a graph-node
+   shape matching `MitreMappingAgent`/`IncidentResponseAgent` exactly. The
+   user chose the graph-node shape via `AskUserQuestion`, accepting its
+   scope trade-offs (one-run-behind Incident Response Plan data,
+   current-upload-only Vulnerability/Linux/OWASP/Web data) as the cost of
+   integration consistency with the nine prior agents.
+2. **The same execution-semantics constraint ADR-0023 already resolved
+   applies identically here** — `ReportGeneratorAgent` reads only
+   pre-hydrated `*_records` state fields (`incident_response_finding_records`,
+   `mitre_mapping_records`, the current upload's five specialist records),
+   plus one new case-wide field (`incident_response_plan_record`, hydrated
+   from the case's most recently *persisted* `IncidentResponsePlan`) —
+   never sibling `agent_outputs` from the same run.
+3. **`core/reporting/` is a leaf package (blueprint §6's already-named,
+   previously README-only location); only `core/tools/report_tools.py`
+   (not the agent) gets a new dependency-rules.md exception (rule 5c) to
+   import it directly** — mirroring rule 5b's `ir_tools.py`/
+   `core/incident_response` exception exactly.
+4. **Real DB persistence extends the placeholder `Report` table for the
+   first time** (four new columns, six new `ReportType` values, one row per
+   case, upserted) — blueprint §8 literally names this table, so
+   persistence was not this session's discretionary choice to skip, the
+   identical reasoning ADR-0023 already applied to `IncidentResponsePlan`.
+5. **Cross-cutting capability routing** — `report_generation` is appended
+   to every evidence type's required-capability list, mirroring
+   `mitre_technique_mapping`/`incident_response_synthesis`'s identical
+   precedent.
+6. **Only the Technical Investigation Report auto-generates per upload** —
+   the engine/tool fully support all eight task-named report types on
+   request, but generating all eight on every single upload would be
+   wasteful busywork with no consumer yet for seven of them; an on-demand
+   API route to request a specific type is deferred, not built.
+7. **An honest, disclosed scope limitation, not a hidden one** — this
+   agent's Findings/Risk Assessment sections inherit ADR-0023's identical,
+   already-disclosed limitation (Vulnerability/Linux/OWASP/Web signal is
+   only available for the single evidence upload currently being
+   processed); its Incident Response Actions section is always one run
+   behind the case's true current plan. Neither is a new problem this
+   session introduced.
+
+---
+
+### M5's Incident Response Agent architecture decisions (prior session, unchanged)
 
 1. **A real execution-semantics conflict was surfaced and resolved before
    writing any code** — the naive "read a sibling agent's `agent_outputs`
@@ -838,7 +1114,62 @@ with a dated addendum explaining why. No approved architectural decision
 *(Carried forward from prior sessions — still true, unchanged: see prior
 sessions' "Key Decisions" sections in git history.)*
 
-**New this session (Incident Response Agent, ADR-0023):**
+**New this session (Report Generator Agent, ADR-0024):**
+
+- **A real architecture question was put to the user via `AskUserQuestion`
+  before any code was written, not decided unilaterally** — recommended the
+  on-demand service+API-route shape (it maps far more cleanly onto the task
+  brief's own "Case -> Load Persisted Data -> ..." pipeline and onto the
+  subsystems whose findings genuinely are persisted case-wide) but the user
+  explicitly chose the graph-node shape matching `MitreMappingAgent`/
+  `IncidentResponseAgent` exactly, for integration consistency with the nine
+  prior agents. Documented as an explicit user choice in ADR-0024, not a
+  unilateral engineering call either way.
+- **A generic "any truthy content value means non-empty" heuristic for
+  `ReportSection.is_empty` was wrong and caught by this session's own unit
+  tests before being shipped** — a section whose only populated field is a
+  non-empty default string (e.g. `"case_id": "c1"`, `"highest_severity":
+  "info"`) was flagging as non-empty even with zero real findings/evidence/
+  IOCs behind it. Fixed by making every `section_builders.py` function pass
+  its own explicit, count-based `is_empty` determination (e.g. `finding_count
+  == 0`) rather than relying on a generic content-dict heuristic — the same
+  class of "caught by testing, not by design review" bug ADR-0021 recorded
+  for its own log-injection sanitizer.
+- **`ReportGenerationContext`'s own strict Pydantic typing (`tuple[dict[str,
+  object], ...]`) means section builders can never actually receive a
+  non-dict entry in normal operation** — malformed entries are filtered one
+  layer up, by the agent's `_dict_records` helper, before the context is
+  ever constructed. The section builders' own `isinstance` guards are
+  genuine belt-and-suspenders defense (constitution §1.7), not the primary
+  enforcement point; testing this defense directly required
+  `ReportGenerationContext.model_construct(...)` to deliberately bypass
+  validation, a real and correct testing technique for exercising code that
+  is structurally unreachable through normal construction.
+- **The Technical Investigation Report (the type auto-generated on every
+  upload) includes the Incident Response Actions section** — initially
+  scoped only to the dedicated `INCIDENT_RESPONSE` report type, but since
+  this is meant to be the single comprehensive, always-current report a case
+  gets, omitting Incident Response Actions from it would silently under-serve
+  the "assemble everything into one structured report" brief. Added to
+  `_TECHNICAL_INVESTIGATION_SECTIONS` alongside every other section type.
+- **`core/services/case_service.py` needed zero new import edges onto
+  `core/reporting`** — `ReportRepository.upsert_for_case` takes the report as
+  a plain `dict[str, object]` (not the typed Pydantic model), the identical
+  pattern `IncidentResponsePlanRepository.upsert_for_case` already
+  established; the Pydantic model stays imported only inside `core/db`.
+- **`ReportType`'s canonical home moved from `core/db/models/report.py` to
+  `core.reporting.models`** — the enum was originally defined directly on
+  the DB model (a schema-only placeholder with no owning leaf package yet);
+  now that `core/reporting` exists as a real leaf package, the enum belongs
+  to the domain layer that owns the concept, and `core/db` imports it for
+  column typing — the same precedent `core/db/models/finding.py`
+  (`FindingSeverity`) and `incident_response_plan.py` (`IncidentSeverity`)
+  already set. The two original values (`module`, `executive`) were
+  preserved byte-for-byte; six new values were added additively.
+
+---
+
+**New in the prior session (Incident Response Agent, ADR-0023):**
 
 - **A real execution-semantics conflict was surfaced before writing any
   code, not discovered mid-implementation** — read
@@ -972,10 +1303,85 @@ sessions' "Key Decisions" sections in git history.)*
 
 ## Public Interfaces
 
-*(M0–M4/ADR-0015–0022 interfaces — unchanged from prior sessions except as
+*(M0–M4/ADR-0015–0023 interfaces — unchanged from prior sessions except as
 noted below.)*
 
-**New/changed this session (Incident Response Agent, ADR-0023):**
+**New/changed this session (Report Generator Agent, ADR-0024):**
+
+`core.reporting.models.{ReportType, ReportFormat, ALL_REPORT_FORMATS,
+ReportSectionType, ReportSection, ReportStatistics, ReportValidationResult,
+GeneratedReport}` (new).
+
+`core.reporting.exceptions.{ReportGenerationError, UnknownReportTypeError,
+OversizedReportInputError}` (new).
+
+`core.reporting.inputs.ReportGenerationContext` (new).
+
+`core.reporting.section_registry.{REPORT_TYPE_SECTIONS, default_title_for}`
+(new).
+
+`core.reporting.section_builders.{build_executive_summary,
+build_case_overview, build_investigation_timeline, build_evidence_summary,
+build_ioc_summary, build_threat_intelligence_summary, build_mitre_mapping,
+build_findings, build_incident_response_actions, build_risk_assessment,
+build_recommendations, build_appendix, SECTION_BUILDERS}` (new).
+
+`core.reporting.completeness_validator.validate_completeness` (new).
+
+`core.reporting.statistics_calculator.calculate_statistics` (new).
+
+`core.reporting.confidence_calculator.calculate_report_confidence` (new).
+
+`core.reporting.report_engine.{ReportGenerationEngine,
+DEFAULT_MAX_RECORDS_PER_REPORT}` (new).
+
+`core.reporting.metrics.{ReportGenerationMetricsCollector,
+ReportGenerationMetricsSnapshot}` (new).
+
+`core.reporting.audit.{AuditAction, log_report_generation_audit_event,
+timed_execution}` (new).
+
+`core.tools.report_tools.{ReportGenerationTool, ReportGenerationInput,
+ReportGenerationOutput, DEFAULT_MAX_RECORDS_PER_REPORT}` (new).
+
+`core.agents.report_generator_agent.{ReportGeneratorAgent,
+default_report_generator_agent_tool_registry, ReportGeneratorAgentResult}`
+(new).
+
+`core.db.models.report.{Report, ReportType}` (`ReportType` now re-exported
+from `core.reporting.models`, gained six new values: `technical_investigation`,
+`incident_response`, `ioc_summary`, `mitre_attack`, `timeline`,
+`threat_intelligence`, `evidence`). `Report` gained `title`,
+`report_data_json`, `overall_confidence`, `degraded` columns;
+`ix_reports_case_id` is now unique.
+
+`core.db.report_repository.ReportRepository` gained `find_by_case`/
+`upsert_for_case`.
+
+`core.db.models.timeline_event.TimelineEventType.REPORT_GENERATED` (new).
+
+`core.graph.state.CaseInvestigationState.incident_response_plan_record` (new
+field). `core.graph.investigation_graph.build_investigation_graph` now also
+registers/wires `ReportGeneratorAgent` (node name `report_generator_agent`).
+
+`core.services.case_service`: new `_hydrate_incident_response_plan_record`,
+`_persist_report`; `_required_capabilities_for` now appends
+`report_generation` to every evidence type; `_run_specialist_agents`
+registers a tenth agent. `CaseInvestigationResult` gained
+`report_id`/`report_type`/`report_section_count`/`report_confidence`.
+
+`apps.api.schemas.EvidenceUploadResponse` gained
+`report_id`/`report_type`/`report_section_count`/`report_confidence` (all
+optional, default `None`).
+
+No `core/reporting/{templates,charts.py,pdf_builder.py}` exporters,
+`/api/v1/cases/{case_id}/reports` route, LLM reasoning, or
+`core.security.{pii_redaction,approval_gate}` implementation exist as public
+interfaces yet.
+
+---
+
+**New/changed in the prior session (Incident Response Agent, ADR-0023):**
 
 `core.incident_response.models.{IncidentSeverity, severity_rank,
 highest_severity, ResponsePriority, priority_rank, ResponseCategory,
@@ -1153,12 +1559,15 @@ implementation exist as public interfaces yet.
    (Vulnerability Assessment, Threat Hunting, Linux Security Advisor, the
    out-of-blueprint Web Security Agent, and the AST-based OWASP Security
    Agent) are built.
-4. **M5 — half closed this session.** The Incident Response Agent half is
-   done (`core/incident_response/`, `core/tools/ir_tools.py`,
-   `core/agents/incident_response_agent.py`, real DB persistence — ADR-0023).
-   **Still open:** the Report Generator Agent, Jinja2/ReportLab templates
-   per module + case-level executive report, Plotly chart generation, and
-   the `/api/v1/reports` route.
+4. **M5 — closed this session.** The Incident Response Agent half was done
+   first (`core/incident_response/`, `core/tools/ir_tools.py`,
+   `core/agents/incident_response_agent.py`, real DB persistence — ADR-0023);
+   the Report Generator Agent half closes it (`core/reporting/`,
+   `core/tools/report_tools.py`, `core/agents/report_generator_agent.py`,
+   real DB persistence extending `Report` — ADR-0024). **Deliberately not
+   built, per this session's task instruction:** the Jinja2/ReportLab/
+   Plotly exporters (`core/reporting/{templates,charts.py,pdf_builder.py}`);
+   an on-demand `/api/v1/cases/{case_id}/reports` route.
 5. **M6 — remaining piece.** Swap `InMemoryVectorStore` for real ChromaDB,
    populate remaining knowledge data (playbooks), the real cross-evidence
    Threat Timeline UI feature, MITRE heatmap/AI Analyst Chat UI.
@@ -1175,10 +1584,13 @@ implementation exist as public interfaces yet.
    `LinuxSecurityFinding`/`LinuxSecurityAdvice`/`WebSecurityAdvice`/
    `SastAdvice` (all in-memory only) with the persisted `Finding` table
    into one shared representation (this is now also what would strengthen
-   `IncidentResponseAgent`'s cross-upload continuity for those four
-   subsystems — see ADR-0023 Decision 1); an asset-criticality inventory;
-   an "analyst requests it" on-demand incident-response-plan regeneration
-   API route (today the plan only regenerates on the next evidence upload).
+   `IncidentResponseAgent`'s and `ReportGeneratorAgent`'s cross-upload
+   continuity for those four subsystems — see ADR-0023 Decision 1, ADR-0024
+   Decision 7); an asset-criticality inventory; an "analyst requests it"
+   on-demand incident-response-plan/report regeneration API route (today
+   both only regenerate on the next evidence upload); the Jinja2/ReportLab/
+   Plotly exporters and golden-file report-snapshot tests (`tests/golden/`,
+   still empty).
 
 ---
 
@@ -1193,12 +1605,12 @@ brute-force; `HashingTextEmbedder` is not semantic;
 `windows_event_parser.py` handles only CSV/XML export, not binary `.evtx`;
 `SocAnalystAgent`'s/`PhishingAgent`'s/`VulnerabilityAssessmentAgent`'s/
 `ThreatHunterAgent`'s finding output is still not persisted to the
-`findings` table; `Report` still has no consumer; on PostgreSQL,
-downgrading the `CaseStatus`/`timeline_event_type` enum-extension
-migrations is a no-op; `Case.labels` has no read endpoint; no case-level
-authorization/ownership check; the duplicate-case guard is intentionally
-narrow; CVSS v4.0 is vector-validation-only; multi-CVE scan findings fold to
-their first CVE; no asset-criticality inventory exists.)*
+`findings` table; on PostgreSQL, downgrading the `CaseStatus`/
+`timeline_event_type`/`report_type_enum` enum-extension migrations is a
+no-op; `Case.labels` has no read endpoint; no case-level authorization/
+ownership check; the duplicate-case guard is intentionally narrow; CVSS
+v4.0 is vector-validation-only; multi-CVE scan findings fold to their first
+CVE; no asset-criticality inventory exists.)*
 
 - **Still open — `mypy core --strict` (whole-repo) cannot run to
   completion.** Unchanged from last session:
@@ -1208,23 +1620,52 @@ their first CVE; no asset-criticality inventory exists.)*
   transitively via `pandas` — used by CSV parsers — while
   `pyproject.toml`'s `python_version = "3.11"` rejects that syntax), not
   caused by any session's changes. This session additionally verified:
-  every file in `core/incident_response` (and every other file touched
-  this session) passes `mypy --strict` cleanly when checked directly
-  (bypassing the numpy-pulling files, e.g. `investigation_graph.py`/
-  `case_service.py`, which transitively import pandas-based parsers).
-  Resolving the numpy/mypy/Python-version mismatch itself (pin an older
-  numpy, or bump the mypy `python_version`) remains environment
-  maintenance outside any single feature session's scope.
-- **`IncidentResponseAgent`'s cross-upload continuity is uneven across
-  subsystems, by a pre-existing, disclosed gap (not introduced this
-  session)** — `VulnerabilityFinding`/`LinuxSecurityFinding`/SAST/
+  every file in `core/reporting` (and every other file touched this
+  session) passes `mypy --strict` cleanly when checked directly (bypassing
+  the numpy-pulling files, e.g. `investigation_graph.py`/`case_service.py`,
+  which transitively import pandas-based parsers). Resolving the numpy/
+  mypy/Python-version mismatch itself (pin an older numpy, or bump the
+  mypy `python_version`) remains environment maintenance outside any single
+  feature session's scope.
+- **`Report`'s original "still has no consumer" gap is closed** —
+  `ReportGeneratorAgent`/`ReportRepository` are now that consumer
+  (ADR-0024); the placeholder is no longer schema-only.
+- **`ReportGeneratorAgent`'s cross-upload continuity is uneven across
+  subsystems, by a pre-existing, disclosed gap this session inherited, not
+  introduced** — `VulnerabilityFinding`/`LinuxSecurityFinding`/SAST/
   `WebSecurityAdvice` findings are still not persisted to the `findings`
-  table (see the next bullet), so this agent's case-wide
-  `incident_response_finding_records` hydration only ever reflects SOC/
-  Threat-Hunting/Phishing/MITRE-derived signal; Vulnerability/Linux/OWASP/
-  Web signal is only available for the single evidence upload currently
-  being processed (its pre-hydrated `*_records` field). Documented in
-  ADR-0023 Decision 1, not hidden.
+  table, so this agent's Findings/Risk Assessment sections only ever
+  reflect case-wide SOC/Threat-Hunting/Phishing/MITRE-derived signal plus
+  Vulnerability/Linux/OWASP/Web signal for the single evidence upload
+  currently being processed. Documented in ADR-0023 Decision 1/ADR-0024
+  Decision 7, not hidden.
+- **`ReportGeneratorAgent`'s Incident Response Actions section is always
+  one investigation run behind the case's true current `IncidentResponsePlan`**
+  — `incident_response_plan_record` is hydrated *before* the graph runs,
+  while this run's own `IncidentResponseAgent` output is persisted only
+  *after* the graph completes (ADR-0024 Decision 2). Not a bug — an
+  accepted, documented consequence of the graph-node execution model the
+  user explicitly chose.
+- **`ReportRepository.upsert_for_case` replaces the entire row on every
+  regeneration** — a case with a long investigation history only ever has
+  its *latest* Technical Investigation Report queryable; no historical
+  report versions are retained (matches blueprint §8's literal "1
+  nullable" cardinality, not a bug — the identical precedent
+  `IncidentResponsePlanRepository.upsert_for_case` already established).
+- **No exporter exists for any of the four `ReportFormat` values yet**
+  (PDF/HTML/Markdown/JSON) — `file_path` on the `reports` table stays
+  `NULL` in every case; `GeneratedReport` is structurally ready for a
+  future `core/reporting/{templates,charts.py,pdf_builder.py}` session to
+  consume without any redesign, per this session's explicit task
+  instruction to build only the pipeline, not the exporters.
+- **No "analyst requests it" on-demand report-regeneration API route
+  exists yet, for any of the seven non-auto-generated report types** — the
+  Technical Investigation Report currently only regenerates as a side
+  effect of the next evidence upload (cross-cutting routing); Executive
+  Summary/Incident Response/IOC Summary/MITRE ATT&CK/Timeline/Threat
+  Intelligence/Evidence reports are fully supported by
+  `ReportGenerationEngine`/`ReportGenerationTool` but have no caller that
+  requests them yet.
 - **`SastAdvice`/`WebSecurityAdvice`/`LinuxSecurityAdvice` (M4 sessions'
   output types) are never persisted anywhere** — by design (ADR-0019/
   0020/0021, matching precedent), not a gap to close later on their own
@@ -1276,9 +1717,11 @@ their first CVE; no asset-criticality inventory exists.)*
 ## Dependencies
 
 Runtime (`requirements.txt`): **no new dependencies this session** —
-`core/incident_response/`, `core/tools/ir_tools.py`, and
-`core/agents/incident_response_agent.py` are pure Python plus Pydantic; the
-two new Alembic migrations use only SQLAlchemy already in use.
+`core/reporting/`, `core/tools/report_tools.py`, and
+`core/agents/report_generator_agent.py` are pure Python plus Pydantic; the
+three new Alembic migrations use only SQLAlchemy already in use. `jinja2`/
+`reportlab`/`plotly`/`pandas` were already present in `requirements.txt`
+(unused by this session — reserved for a future exporter session).
 
 Dev (`requirements-dev.txt`): unchanged.
 
@@ -1287,40 +1730,37 @@ Dev (`requirements-dev.txt`): unchanged.
 ## Current Git Status
 
 A git repository exists (`main` branch: `main`; working branch: `master`).
-All prior-session work through the MITRE Mapping Agent (ADR-0022) commit is
-committed.
+All prior-session work through the Incident Response Agent (ADR-0023)
+commit is committed.
 
-This session's Incident Response Agent work added/modified (all to be
+This session's Report Generator Agent work added/modified (all to be
 committed in this session's single commit — see the commit hash in this
 session's final report):
 
-- New: `docs/adr/0023-incident-response-agent.md`,
-  `core/incident_response/{__init__,README,models,exceptions,inputs,
-  severity_classifier,playbook_rules,risk_prioritizer,action_ordering,
-  confidence_calculator,response_plan_engine,metrics,audit}.{py,md}`,
-  `core/tools/ir_tools.py`, `core/agents/incident_response_agent.py`,
-  `core/db/models/incident_response_plan.py`,
-  `core/db/incident_response_plan_repository.py`,
-  `core/db/migrations/versions/{f3a9c1d7e2b5_create_incident_response_plans_table,
-  b7e4d2f8a1c9_extend_timeline_event_type_for_ir}.py`,
-  `tests/unit/{test_incident_response_models,
-  test_incident_response_severity_classifier,
-  test_incident_response_playbook_rules,
-  test_incident_response_risk_prioritizer,
-  test_incident_response_action_ordering,
-  test_incident_response_confidence_calculator,
-  test_incident_response_response_plan_engine,
-  test_tools_ir_tools,test_agents_incident_response_agent,
-  test_db_incident_response_plan_repository}.py`.
+- New: `docs/adr/0024-report-generator-agent.md`,
+  `core/reporting/{models,exceptions,inputs,section_registry,
+  section_builders,completeness_validator,statistics_calculator,
+  confidence_calculator,report_engine,metrics,audit}.py`,
+  `core/tools/report_tools.py`, `core/agents/report_generator_agent.py`,
+  `core/db/migrations/versions/{c4d8e1a6f7b3_extend_report_type_for_report_generator,
+  d5e9f2b7a8c4_add_report_generation_columns,
+  e6f0a3c8b9d5_extend_timeline_event_type_for_report}.py`,
+  `tests/unit/{test_reporting_models,test_reporting_section_registry,
+  test_reporting_section_builders,test_reporting_completeness_validator,
+  test_reporting_statistics_calculator,test_reporting_confidence_calculator,
+  test_reporting_report_engine,test_reporting_metrics,
+  test_tools_report_tools,test_agents_report_generator_agent,
+  test_db_report_repository}.py`.
 - Modified: `core/graph/{state,investigation_graph}.py`,
-  `core/services/case_service.py`, `core/db/models/__init__.py`,
-  `core/db/models/timeline_event.py`,
+  `core/services/case_service.py`, `core/db/models/report.py`,
+  `core/db/report_repository.py`, `core/db/models/timeline_event.py`,
   `apps/api/{schemas,routers/evidence}.py`,
-  `docs/{roadmap,dependency-rules}.md`, `core/{agents,tools}/README.md`,
+  `docs/{roadmap,dependency-rules}.md`,
+  `core/{agents,tools,reporting}/README.md`,
   `tests/integration/{test_case_service_pipeline,test_investigation_graph}.py`,
   `CHANGELOG.md`, this file.
 
-Full suite (1604 tests), `ruff check`/`format --check`, and
+Full suite (1653 tests), `ruff check`/`format --check`, and
 `scripts/check_dependency_rules.py` all pass. `mypy core --strict`
 (whole-repo) fails on the same pre-existing, unrelated numpy/environment
 issue as prior sessions (see Known Issues); every file this session
@@ -1330,33 +1770,44 @@ touched is individually `mypy --strict` clean.
 
 ## Next Recommended Prompt
 
-> M2, M3, and M4 are fully closed; M5 is now half closed — the Incident
-> Response Agent (`core/incident_response/`, `core/tools/ir_tools.py`,
-> `core/agents/incident_response_agent.py`, ADR-0023) is built, tested, and
-> persisted. Begin the second M5 half next: the **Report Generator Agent**
-> — Jinja2/ReportLab templates per module + a case-level executive report,
-> Plotly chart generation, and the `/api/v1/reports` route. It now has nine
-> specialist agents' worth of findings (including a real, persisted
-> `IncidentResponsePlan`) to render into a report — this is the natural,
-> intended consumer of everything built so far. Preserve every existing
-> file and architectural decision described in this document — including
-> all nine specialist agents (the newest, `IncidentResponseAgent`, reuses
-> pre-hydrated `*_records` state fields and the case's persisted `Finding`
-> rows entirely; it does not read sibling `agent_outputs` — see ADR-0023
-> before assuming a "cross-agent synthesis" task needs that shape), the
-> Case lifecycle subsystem, the Finding & MITRE Engine, the Vulnerability
-> Assessment Framework, the Linux Security Threat Hunting Framework, the
-> Linux Security Advisor Framework, the OWASP Web Security Agent Framework,
-> the OWASP Security Agent (AST SAST) Framework, and the Incident Response
-> Framework — only extend them. Worth considering while building the Report
-> Generator: whether it should read `IncidentResponsePlanRepository`
-> directly (a `core/services` -> `core/db` edge, always sanctioned) or
-> through a new `core/services/incident_response_service.py`-shaped read
-> function — decide and document via ADR before writing code, per the
-> project's own "stop and explain before writing code" rule. Also worth
-> addressing eventually (not urgent, environment-only): the pre-existing
-> `mypy core --strict` failure caused by a numpy/pandas stub incompatibility
-> with the pinned `python_version = "3.11"` (see this file's Known Issues)
-> — either pin an older `numpy` compatible with the target Python version,
-> or bump the `pyproject.toml` mypy `python_version` if the project's
-> actual runtime floor has moved past 3.11.
+> M2, M3, M4, and M5 are all now fully closed — the Report Generator Agent
+> (`core/reporting/`, `core/tools/report_tools.py`,
+> `core/agents/report_generator_agent.py`, ADR-0024) is built, tested, and
+> persisted, alongside the already-closed Incident Response Agent half
+> (ADR-0023). The natural next milestone is **M6**: swap
+> `InMemoryVectorStore` for real ChromaDB (`core/memory/long_term.py`),
+> build the real cross-evidence Threat Timeline UI, the MITRE ATT&CK matrix
+> heatmap, and the case-scoped AI Analyst Chat (blueprint §13) — or,
+> alternatively, close the two explicitly-deferred report-generation gaps
+> first: (a) the Jinja2/ReportLab/Plotly exporters
+> (`core/reporting/{templates,charts.py,pdf_builder.py}`) that would let
+> `GeneratedReport` actually become a downloadable PDF/HTML/Markdown/JSON
+> file (blueprint §7's literal "PDF file + in-app report preview" output),
+> and (b) an on-demand `/api/v1/cases/{case_id}/reports` route to request
+> any of the other seven report types directly (Executive Summary, Incident
+> Response, IOC Summary, MITRE ATT&CK, Timeline, Threat Intelligence,
+> Evidence — all already fully supported by `ReportGenerationEngine`/
+> `ReportGenerationTool`, just never auto-triggered or exposed). Preserve
+> every existing file and architectural decision described in this
+> document — including all ten specialist agents (the newest,
+> `ReportGeneratorAgent`, reuses pre-hydrated `*_records` state fields and
+> the case's persisted `Finding` rows/most-recently-persisted
+> `IncidentResponsePlan` entirely; it does not read sibling `agent_outputs`
+> — see ADR-0024 before assuming a "downstream synthesis" task needs that
+> shape), the Case lifecycle subsystem, the Finding & MITRE Engine, the
+> Vulnerability Assessment Framework, the Linux Security Threat Hunting
+> Framework, the Linux Security Advisor Framework, the OWASP Web Security
+> Agent Framework, the OWASP Security Agent (AST SAST) Framework, the
+> Incident Response Framework, and the Report Generation Framework — only
+> extend them. If building the exporters, decide up front (via ADR, per the
+> project's own "stop and explain before writing code" rule) whether
+> `pdf_builder.py` renders from the persisted `Report.report_data_json` blob
+> or re-runs `ReportGenerationEngine` fresh at export time — they are not
+> guaranteed identical if the case has been re-investigated since the
+> report was last persisted. Also worth addressing eventually (not urgent,
+> environment-only): the pre-existing `mypy core --strict` failure caused
+> by a numpy/pandas stub incompatibility with the pinned
+> `python_version = "3.11"` (see this file's Known Issues) — either pin an
+> older `numpy` compatible with the target Python version, or bump the
+> `pyproject.toml` mypy `python_version` if the project's actual runtime
+> floor has moved past 3.11.

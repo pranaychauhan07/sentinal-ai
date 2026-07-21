@@ -71,6 +71,10 @@ async def upload_evidence(
         mitre_distinct_group_count=result.mitre_distinct_group_count,
         incident_response_recommendation_count=result.incident_response_recommendation_count,
         incident_severity=result.incident_severity,
+        report_id=result.report_id,
+        report_type=result.report_type,
+        report_section_count=result.report_section_count,
+        report_confidence=result.report_confidence,
     )
 
 

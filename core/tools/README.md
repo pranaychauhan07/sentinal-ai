@@ -107,6 +107,17 @@ and `core/tools/ir_tools.py` is granted the same kind of exception
 `core/incident_response` directly (docs/dependency-rules.md rule 5b). Backs
 `core.agents.incident_response_agent.IncidentResponseAgent`.
 
+**Implemented (Milestone M5, `docs/adr/0024-report-generator-agent.md`):**
+`report_tools.py` (`ReportGenerationTool`) — blueprint's exact named file. A
+thin `BaseTool` wrapper around
+`core.reporting.report_engine.ReportGenerationEngine`, mirroring
+`ir_tools.py`'s shape exactly: its input stays typed (not dict-shaped) and
+`core/tools/report_tools.py` is granted the same kind of exception
+`ir_tools.py` has for `core/incident_response` — here, to import
+`core/reporting` directly (docs/dependency-rules.md rule 5c). Backs
+`core.agents.report_generator_agent.ReportGeneratorAgent`. This closes M5
+entirely.
+
 No other concrete tool (`log_tools.py`) exists yet.
 
 **Why it exists:** Keeps agents honest — an agent's job is to decide *which*

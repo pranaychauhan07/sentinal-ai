@@ -177,7 +177,28 @@ Persisted (unlike every prior M4 "advisory" framework) via
 `core.db.incident_response_plan_repository.IncidentResponsePlanRepository` —
 blueprint §8 names `IncidentResponsePlan` as a real, one-per-case table.
 
-No other specialist agent (Report Generator, Memory, ...) exists yet — see
+**Implemented (Milestone M5, `docs/adr/0024-report-generator-agent.md`):**
+`report_generator_agent.py` — the tenth concrete specialist agent
+(`ReportGeneratorAgent`), declaring capability `report_generation`.
+Blueprint §7's Report Generator Agent — "assembles all case findings into
+module-specific and case-level executive ... reports... deterministic."
+Wired exactly like `MitreMappingAgent`/`IncidentResponseAgent`: cross-cutting,
+regenerating a comprehensive Technical Investigation Report on every
+evidence upload. Reads `incident_response_finding_records`/
+`mitre_mapping_records` (case-wide), `extracted_indicators`/`evidence`/
+`thoughts` (this run), the current upload's already-hydrated
+`vulnerability_records`/`linux_security_records`/`linux_advisory_records`/
+`owasp_web_records`/`owasp_security_records`, and the case's most recently
+*persisted* `IncidentResponsePlan` (`incident_response_plan_record`, one run
+behind — see ADR-0024 Decision 2), normalizes them into
+`core.reporting.inputs.ReportGenerationContext`, and calls
+`core.tools.report_tools.ReportGenerationTool` to produce a deterministic
+`GeneratedReport`. Never computes a severity, risk score, MITRE mapping, or
+confidence itself — all of that lives in `core/reporting/`. Persisted via
+`core.db.report_repository.ReportRepository` — blueprint §8 names `Report`
+as a real, one-per-case table. This closes M5 entirely.
+
+No other specialist agent (Memory, ...) exists yet — see
 `docs/agent-design.md` for how to add one on top of this framework.
 
 **Why it exists:** This is the Agent Layer from the architecture

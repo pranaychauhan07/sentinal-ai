@@ -102,6 +102,22 @@ imported only inside `core/db`, per that repository's own docstring), so no
 new dependency-rules.md exception was needed for `case_service.py` itself;
 the one new exception this ADR introduces (`docs/dependency-rules.md` rule
 5b) is scoped to `core/tools/ir_tools.py`, not this module.
+
+ADR-0024 (Report Generator Agent) extends this module additively: importing
+`core.agents.report_generator_agent` directly is the same sibling-service/
+agent-registration composition every prior specialist agent already
+established. `_hydrate_incident_response_plan_record` reads this case's most
+recently *persisted* `IncidentResponsePlanRow.plan_data_json` directly
+(`json.loads`, never a typed `core.incident_response.models.
+IncidentResponsePlan` import here — that import edge stays scoped to
+`core/db`). `_persist_report` calls
+`core.db.report_repository.ReportRepository.upsert_for_case` with the report
+as a plain dict — this module still has no import edge onto
+`core/reporting` at all (that Pydantic model stays imported only inside
+`core/db`, per that repository's own docstring), so no new
+dependency-rules.md exception was needed for `case_service.py` itself; the
+one new exception this ADR introduces (`docs/dependency-rules.md` rule 5c)
+is scoped to `core/tools/report_tools.py`, not this module.
 """
 
 from __future__ import annotations
@@ -131,6 +147,10 @@ from core.agents.owasp_security_agent import (
 )
 from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.registry import AgentRegistry
+from core.agents.report_generator_agent import (
+    ReportGeneratorAgent,
+    default_report_generator_agent_tool_registry,
+)
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
 from core.agents.threat_hunter_agent import (
     ThreatHunterAgent,
@@ -154,6 +174,7 @@ from core.db.models.case import Case, CasePriority, CaseStatus
 from core.db.models.case_note import CaseNote
 from core.db.models.case_tag import CaseTag
 from core.db.models.timeline_event import TimelineEvent, TimelineEventType
+from core.db.report_repository import ReportRepository
 from core.db.timeline_event_repository import TimelineEventRepository
 from core.exceptions import BusinessRuleError
 from core.graph.investigation_graph import build_investigation_graph
@@ -197,6 +218,7 @@ _OWASP_WEB_SECURITY_CAPABILITY = WebSecurityAgent.capabilities[0].name
 _OWASP_SOURCE_CODE_REVIEW_CAPABILITY = OwaspSecurityAgent.capabilities[0].name
 _MITRE_MAPPING_CAPABILITY = MitreMappingAgent.capabilities[0].name
 _INCIDENT_RESPONSE_CAPABILITY = IncidentResponseAgent.capabilities[0].name
+_REPORT_GENERATION_CAPABILITY = ReportGeneratorAgent.capabilities[0].name
 
 #: Which capabilities a newly-ingested artifact's `EvidenceType` requires —
 #: the per-upload routing decision that lets the Coordinator fan out to the
@@ -285,6 +307,7 @@ def _required_capabilities_for(evidence_type: EvidenceType) -> list[str]:
     capabilities = list(_EVIDENCE_TYPE_CAPABILITIES.get(evidence_type, (_SOC_ANALYST_CAPABILITY,)))
     capabilities.append(_MITRE_MAPPING_CAPABILITY)
     capabilities.append(_INCIDENT_RESPONSE_CAPABILITY)
+    capabilities.append(_REPORT_GENERATION_CAPABILITY)
     return capabilities
 
 
@@ -317,6 +340,10 @@ class CaseInvestigationResult(BaseModel):
     mitre_distinct_group_count: int | None = None
     incident_response_recommendation_count: int | None = None
     incident_severity: str | None = None
+    report_id: uuid.UUID | None = None
+    report_type: str | None = None
+    report_section_count: int | None = None
+    report_confidence: float | None = None
 
 
 async def create_case(
@@ -739,6 +766,36 @@ async def _hydrate_incident_response_records(
     return records
 
 
+async def _hydrate_incident_response_plan_record(
+    session: AsyncSession, *, case_id: uuid.UUID
+) -> dict[str, object] | None:
+    """Reduces this case's most recently *persisted*
+    `IncidentResponsePlanRow.plan_data_json` to a plain dict for
+    `CaseInvestigationState.incident_response_plan_record` — never
+    re-derives a severity/risk score/recommendation (constitution §1.9).
+    Reads `json.loads(row.plan_data_json)` directly rather than importing
+    `core.incident_response.models.IncidentResponsePlan` (this module has no
+    import edge onto `core/incident_response`; that edge belongs to
+    `core/db` specifically). Returns `None` if no plan has ever been
+    persisted for this case yet — deliberately one run behind this run's own
+    `IncidentResponseAgent` output (docs/adr/0024-report-generator-agent.md,
+    Decision 2): this hydration happens *before* `engine.run(state)`, while
+    this run's own plan is persisted only *after* the graph completes."""
+    repository = IncidentResponsePlanRepository(session)
+    row = await repository.find_by_case(case_id)
+    if row is None:
+        return None
+    try:
+        data = json.loads(row.plan_data_json)
+    except (TypeError, ValueError):
+        _logger.warning(
+            "report_generation_hydration_skipped_malformed_incident_response_plan",
+            case_id=str(case_id),
+        )
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def _run_specialist_agents(
     session: AsyncSession,
     *,
@@ -753,14 +810,16 @@ async def _run_specialist_agents(
     owasp_security_records: list[dict[str, object]] | None = None,
     mitre_mapping_records: list[dict[str, object]] | None = None,
     incident_response_finding_records: list[dict[str, object]] | None = None,
+    incident_response_plan_record: dict[str, object] | None = None,
 ) -> CaseInvestigationState:
     """Rule 4d (module docstring): the one place `core/services` constructs
     a session-scoped `CaseMemory` and a fresh `AgentRegistry` before
-    delegating to `core/graph`. Registers all nine concrete specialist
+    delegating to `core/graph`. Registers all ten concrete specialist
     agents built to date (`SocAnalystAgent`, `PhishingAgent`,
     `VulnerabilityAssessmentAgent`, `ThreatHunterAgent`,
     `LinuxSecurityAgent`, `WebSecurityAgent`, `OwaspSecurityAgent`,
-    `MitreMappingAgent`, `IncidentResponseAgent`); which one(s) the
+    `MitreMappingAgent`, `IncidentResponseAgent`, `ReportGeneratorAgent`);
+    which one(s) the
     Coordinator actually fans out to is decided by `required_capabilities`,
     computed per-artifact from its `EvidenceType`
     (`_required_capabilities_for`) — this is what lets a log upload, an
@@ -810,6 +869,9 @@ async def _run_specialist_agents(
     registry.register(
         IncidentResponseAgent(tool_registry=default_incident_response_agent_tool_registry())
     )
+    registry.register(
+        ReportGeneratorAgent(tool_registry=default_report_generator_agent_tool_registry())
+    )
     engine = build_investigation_graph(agent_registry=registry, settings=settings)
 
     required_capabilities = _required_capabilities_for(evidence_items[0].evidence_type)
@@ -825,6 +887,7 @@ async def _run_specialist_agents(
         owasp_security_records=list(owasp_security_records or []),
         mitre_mapping_records=list(mitre_mapping_records or []),
         incident_response_finding_records=list(incident_response_finding_records or []),
+        incident_response_plan_record=incident_response_plan_record,
         metadata={"required_capabilities": required_capabilities},
     )
     return engine.run(state)
@@ -1094,6 +1157,9 @@ async def investigate_new_evidence(
         incident_response_finding_records = await _hydrate_incident_response_records(
             session, case_id=case_id, settings=settings
         )
+        incident_response_plan_record = await _hydrate_incident_response_plan_record(
+            session, case_id=case_id
+        )
 
         result_state = await _run_specialist_agents(
             session,
@@ -1108,6 +1174,7 @@ async def investigate_new_evidence(
             owasp_security_records=owasp_security_records,
             mitre_mapping_records=mitre_mapping_records,
             incident_response_finding_records=incident_response_finding_records,
+            incident_response_plan_record=incident_response_plan_record,
         )
         soc_risk_score, soc_risk_label = _extract_soc_risk(result_state)
         phishing_risk_score, phishing_risk_label = _extract_phishing_risk(result_state)
@@ -1133,6 +1200,7 @@ async def investigate_new_evidence(
             OwaspSecurityAgent.name,
             MitreMappingAgent.name,
             IncidentResponseAgent.name,
+            ReportGeneratorAgent.name,
         ):
             agent_output = result_state.agent_outputs.get(agent_name)
             if agent_output is not None:
@@ -1144,6 +1212,12 @@ async def investigate_new_evidence(
             incident_response_recommendation_count,
             incident_severity,
         ) = await _persist_incident_response_plan(session, case_id=case_id, state=result_state)
+        (
+            report_id,
+            report_type,
+            report_section_count,
+            report_confidence,
+        ) = await _persist_report(session, case_id=case_id, state=result_state)
 
         case = await get_case(session, case_id)
         if case is not None and case.status is CaseStatus.OPEN:
@@ -1177,6 +1251,10 @@ async def investigate_new_evidence(
             mitre_distinct_group_count=mitre_distinct_group_count,
             incident_response_recommendation_count=incident_response_recommendation_count,
             incident_severity=incident_severity,
+            report_id=report_id,
+            report_type=report_type,
+            report_section_count=report_section_count,
+            report_confidence=report_confidence,
         )
 
 
@@ -1326,3 +1404,37 @@ async def _persist_incident_response_plan(
         f"incident severity '{incident_severity}'.",
     )
     return recommendation_count, incident_severity
+
+
+async def _persist_report(
+    session: AsyncSession, *, case_id: uuid.UUID, state: CaseInvestigationState
+) -> tuple[uuid.UUID | None, str | None, int | None, float | None]:
+    """Persists this run's `GeneratedReport` (if `ReportGeneratorAgent`
+    produced one) via `ReportRepository.upsert_for_case` — passing the
+    report through as the plain dict `AgentExecutionResult.output` already
+    carries, never importing `core.reporting.models.GeneratedReport` here
+    (see `ReportRepository`'s docstring for why that stays a `core/db`-only
+    import). Returns `(None, None, None, None)` for the documented
+    "insufficient evidence" DEGRADED-with-no-report outcome — never persists
+    a placeholder, mirroring `_persist_incident_response_plan`'s identical
+    "insufficient evidence" distinction."""
+    output = state.agent_outputs.get(ReportGeneratorAgent.name)
+    if output is None:
+        return None, None, None, None
+    report_data = output.output.get("report")
+    if not report_data:
+        return None, None, None, None
+
+    repository = ReportRepository(session)
+    row = await repository.upsert_for_case(case_id, report_data)
+
+    section_count = len(report_data.get("sections", []))
+    report_type = report_data.get("report_type")
+    confidence = report_data.get("confidence")
+    await _record_timeline(
+        session,
+        case_id,
+        TimelineEventType.REPORT_GENERATED,
+        f"'{report_type}' report generated with {section_count} section(s).",
+    )
+    return row.id, report_type, section_count, confidence

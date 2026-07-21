@@ -11,10 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **Report Generator Agent** (`docs/adr/0024-report-generator-agent.md`) —
+  blueprint §7's Report Generator, the tenth concrete specialist agent
+  (**closes M5 entirely** — the Incident Response Agent half was already
+  done). New leaf package `core/reporting/` (deterministic report-assembly
+  pipeline: `section_builders.py` — one pure function per task-named
+  section (Executive Summary, Case Overview, Investigation Timeline,
+  Evidence Summary, IOC Summary, Threat Intelligence Summary, MITRE
+  Mapping, Findings, Incident Response Actions, Risk Assessment,
+  Recommendations, Appendix); `section_registry.py` — which sections each
+  of the eight task-named report types includes (Executive Summary,
+  Technical Investigation, Incident Response, IOC Summary, MITRE ATT&CK,
+  Timeline, Threat Intelligence, Evidence); `completeness_validator.py`,
+  `statistics_calculator.py`, `confidence_calculator.py`,
+  `report_engine.py` (`ReportGenerationEngine` — generate sections ->
+  assemble -> validate -> calculate statistics -> build `GeneratedReport`),
+  `metrics.py`/`audit.py`) with typed models (`GeneratedReport`,
+  `ReportSection`, `ReportStatistics`, `ReportValidationResult`,
+  `ReportType`, `ReportFormat`, `ReportSectionType`). `core/tools/
+  report_tools.py` (blueprint's exact named file, `ReportGenerationTool`)
+  wraps `core.reporting.report_engine.ReportGenerationEngine`, mirroring
+  `ir_tools.py`'s shape — a new documented dependency-rules.md exception
+  (rule 5c) lets this one tool file import `core/reporting` directly.
+  `core/agents/report_generator_agent.py` (`ReportGeneratorAgent`,
+  capability `report_generation`) never computes a severity, risk score,
+  MITRE mapping, or confidence itself — it normalizes this case's
+  already-persisted `Finding`/MITRE-mapping records, this upload's
+  already-hydrated specialist records, and the case's most recently
+  *persisted* `IncidentResponsePlan` (new `CaseInvestigationState.
+  incident_response_plan_record`, hydrated by
+  `case_service._hydrate_incident_response_plan_record`) into a
+  `ReportGenerationContext` and calls its one tool. Cross-cutting, not
+  evidence-type-gated, mirroring `MitreMappingAgent`/`IncidentResponseAgent`'s
+  routing — auto-regenerates a Technical Investigation Report on every
+  evidence upload. **Real DB persistence** — the placeholder `reports`
+  table (blueprint §8's literal `Case -> 1 Report (nullable)`) is extended
+  additively with `title`/`report_data_json`/`overall_confidence`/`degraded`
+  columns and six new `report_type_enum` values, upserted via
+  `ReportRepository.upsert_for_case` (one row per case, replaced not
+  appended, mirroring `IncidentResponsePlanRepository`). Deliberately
+  **not** built this session, per explicit task instruction ("implement
+  only the backend models and generation pipeline... do not build exporters
+  yet"): `core/reporting/{templates,charts.py,pdf_builder.py}` (Jinja2/
+  Plotly/ReportLab) and an on-demand `/api/v1/cases/{case_id}/reports`
+  route to request one of the other seven report types directly.
 - **Incident Response Agent** (`docs/adr/0023-incident-response-agent.md`)
   — blueprint §7's downstream, cross-agent synthesizer, the ninth concrete
-  specialist agent (**M5, half-closed** — the Report Generator Agent half
-  remains open). New leaf package `core/incident_response/` (deterministic,
+  specialist agent. New leaf package `core/incident_response/` (deterministic,
   NIST SP 800-61-aligned response-plan synthesis: `IncidentSeverityClassifier`,
   a MITRE-tactic/keyword/severity-fallback playbook rule engine,
   `RiskPrioritizer`, `order_recommendations` dedup+ordering,

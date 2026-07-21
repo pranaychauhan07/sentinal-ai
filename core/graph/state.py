@@ -208,6 +208,21 @@ class CaseInvestigationState(BaseModel):
         default_factory=list
     )
 
+    #: This case's most recently *persisted* `IncidentResponsePlan` (a plain
+    #: `dict[str, object]`, `json.loads`'d from `IncidentResponsePlanRow.
+    #: plan_data_json` by `core/services/case_service.py::
+    #: _hydrate_incident_response_plan_record`), for
+    #: `core.agents.report_generator_agent.ReportGeneratorAgent`'s Incident
+    #: Response Actions section. `None` if no plan has ever been persisted
+    #: for this case yet. Deliberately one run behind this run's own
+    #: `IncidentResponseAgent` output (docs/adr/0024-report-generator-agent.md,
+    #: Decision 2) — hydration happens before `engine.run(state)`, while
+    #: `IncidentResponsePlanRepository.upsert_for_case` for *this* run's plan
+    #: happens after the graph completes. Single writer (`case_service.py`,
+    #: before the run), so — like ``execution_plan`` — no concurrent-write
+    #: reducer is needed.
+    incident_response_plan_record: dict[str, Any] | None = None
+
     #: Full ReAct reasoning trail for this run, in chronological order.
     thoughts: Annotated[list[AgentThought], operator.add] = Field(default_factory=list)
 

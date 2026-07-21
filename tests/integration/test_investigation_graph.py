@@ -67,12 +67,14 @@ def test_default_graph_has_coordinator_and_all_specialists_as_nodes() -> None:
     (M4), `ThreatHunterAgent` (M4, docs/adr/0018), `LinuxSecurityAgent`
     (M4, docs/adr/0019), `WebSecurityAgent` (M4, docs/adr/0020),
     `OwaspSecurityAgent` (M4, docs/adr/0021 — closes M4),
-    `MitreMappingAgent` (M2, docs/adr/0022 — closes M2), and
-    `IncidentResponseAgent` (M5, docs/adr/0023) are all
+    `MitreMappingAgent` (M2, docs/adr/0022 — closes M2),
+    `IncidentResponseAgent` (M5, docs/adr/0023), and
+    `ReportGeneratorAgent` (M5, docs/adr/0024 — closes M5) are all
     auto-registered and wired as nodes by `build_investigation_graph` — see
     `core/agents/{soc_analyst_agent, phishing_agent,vulnerability_agent,
     threat_hunter_agent,linux_security_agent,web_security_agent,
-    owasp_security_agent,mitre_mapping_agent,incident_response_agent}.py`."""
+    owasp_security_agent,mitre_mapping_agent,incident_response_agent,
+    report_generator_agent}.py`."""
     engine = build_investigation_graph(agent_registry=AgentRegistry())
     assert set(engine.node_names) == {
         "coordinator",
@@ -85,6 +87,7 @@ def test_default_graph_has_coordinator_and_all_specialists_as_nodes() -> None:
         "owasp_security_agent",
         "mitre_mapping_agent",
         "incident_response_agent",
+        "report_generator_agent",
     }
 
 

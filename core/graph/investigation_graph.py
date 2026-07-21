@@ -2,9 +2,9 @@
 
 Wires the Coordinator (which internally delegates to the Planning Agent by
 direct call, not a graph edge — see `core/agents/coordinator.py`'s docstring
-for why) plus nine concrete specialist agents (Milestone M1/M2/M4/M5 plus
-`docs/adr/0020`/`docs/adr/0021`/`docs/adr/0022`/`docs/adr/0023` — M4 is
-fully closed, M2 is fully closed too): `SocAnalystAgent` (`log_analysis`),
+for why) plus ten concrete specialist agents (Milestone M1/M2/M4/M5 plus
+`docs/adr/0020`/`docs/adr/0021`/`docs/adr/0022`/`docs/adr/0023`/`docs/adr/0024`
+— M2/M4 are fully closed, M5 is now fully closed too): `SocAnalystAgent` (`log_analysis`),
 `PhishingAgent`
 (`email_triage`), `VulnerabilityAssessmentAgent`
 (`vulnerability_assessment`), `ThreatHunterAgent`
@@ -18,21 +18,22 @@ docs/adr/0020-owasp-web-security-agent.md), `OwaspSecurityAgent`
 docs/adr/0021-owasp-security-agent-ast-sast.md), `MitreMappingAgent`
 (`mitre_technique_mapping`, docs/adr/0022-mitre-mapping-agent.md), and
 `IncidentResponseAgent` (`incident_response_synthesis`,
-docs/adr/0023-incident-response-agent.md). The
+docs/adr/0023-incident-response-agent.md), and `ReportGeneratorAgent`
+(`report_generation`, docs/adr/0024-report-generator-agent.md). The
 Planning Agent's capability-matching decides which of them a given case's
 declared `required_capabilities` route to; the conditional edge out of the
 Coordinator resolves to whichever specialist(s) that plan names, or `END` if
 none. A single evidence type (`SYSLOG`) can require both `log_analysis` and
 `cross_log_threat_hunting` in the same run, and — like `mitre_technique_mapping`
-— `incident_response_synthesis` is appended to *every* evidence type's
-required capabilities by `core/services/case_service.py`
-(`_required_capabilities_for`), since both are cross-cutting, not
-evidence-type-specific (ADR-0022, ADR-0023) — the Planning Agent already
-fans out to every matched capability independently, so none of this needed
-a framework change (ADR-0018 point 6).
+— `incident_response_synthesis`/`report_generation` are appended to *every*
+evidence type's required capabilities by `core/services/case_service.py`
+(`_required_capabilities_for`), since all three are cross-cutting, not
+evidence-type-specific (ADR-0022, ADR-0023, ADR-0024) — the Planning Agent
+already fans out to every matched capability independently, so none of this
+needed a framework change (ADR-0018 point 6).
 
 Adding another specialist agent later means exactly the same three steps
-these nine followed: implement it (`core/agents/`), register it in the
+these ten followed: implement it (`core/agents/`), register it in the
 `AgentRegistry` passed to `build_investigation_graph`, and add two lines
 here — `engine.add_agent_node(name)` and `engine.add_edge(name, END)`.
 `WorkflowEngine` and `router.py` need zero changes for that to work, which is
@@ -64,6 +65,10 @@ from core.agents.owasp_security_agent import (
 from core.agents.phishing_agent import PhishingAgent, default_phishing_agent_tool_registry
 from core.agents.planning_agent import PlanningAgent
 from core.agents.registry import AgentRegistry, default_agent_registry
+from core.agents.report_generator_agent import (
+    ReportGeneratorAgent,
+    default_report_generator_agent_tool_registry,
+)
 from core.agents.soc_analyst_agent import SocAnalystAgent, default_soc_analyst_tool_registry
 from core.agents.threat_hunter_agent import (
     ThreatHunterAgent,
@@ -242,6 +247,17 @@ def _ensure_incident_response_agent_registered(registry: AgentRegistry) -> None:
     )
 
 
+def _ensure_report_generator_agent_registered(registry: AgentRegistry) -> None:
+    """Mirrors `_ensure_incident_response_agent_registered`'s idempotency
+    contract — `ReportGeneratorAgent` has no memory or settings dependency
+    (its tool needs no injected reference-data lookup)."""
+    if registry.has(ReportGeneratorAgent.name):
+        return
+    registry.register(
+        ReportGeneratorAgent(tool_registry=default_report_generator_agent_tool_registry())
+    )
+
+
 def build_investigation_graph(
     *,
     agent_registry: AgentRegistry | None = None,
@@ -277,6 +293,7 @@ def build_investigation_graph(
     _ensure_owasp_security_agent_registered(registry, case_memory=case_memory)
     _ensure_mitre_mapping_agent_registered(registry, settings=resolved_settings)
     _ensure_incident_response_agent_registered(registry)
+    _ensure_report_generator_agent_registered(registry)
 
     engine = WorkflowEngine(
         agent_registry=registry,
@@ -305,6 +322,8 @@ def build_investigation_graph(
     engine.add_edge(MitreMappingAgent.name, END)
     engine.add_agent_node(IncidentResponseAgent.name)
     engine.add_edge(IncidentResponseAgent.name, END)
+    engine.add_agent_node(ReportGeneratorAgent.name)
+    engine.add_edge(ReportGeneratorAgent.name, END)
     return engine
 
 

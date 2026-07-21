@@ -22,6 +22,7 @@ core/agents                    (specialist agents)
                                 ↘ (no edge onto core/owasp_web — rule 4h is services-only)
                                 ↘ (no edge onto core/owasp_security — rule 4i is services-only)
                                 ↘ (no edge onto core/incident_response — it is core/tools-only, rule 5b)
+                                ↘ (no edge onto core/reporting — it is core/tools-only, rule 5c)
 core/tools , core/parsers , core/threat_intel , core/findings , core/vulnerabilities ,
 core/linux_security , core/linux_advisor , core/owasp_web , core/owasp_security ,
 core/incident_response
@@ -234,6 +235,24 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    every other tool in this package stays dict-shaped, matching `docs/adr/
    0017`-`0021`'s established "no cross-leaf import" precedent. See
    `docs/adr/0023-incident-response-agent.md`.
+
+5c. **`core/tools/report_tools.py` may import `core/reporting` directly** —
+   a third instance of the same shape rule 5b already establishes for
+   `ir_tools.py`, granted here to one specific file rather than the whole
+   `core/tools` package: its `run()` is a thin wrapper around
+   `core.reporting.report_engine.ReportGenerationEngine`, never a duplicate
+   reimplementation. `core/agents/report_generator_agent.py` also imports
+   `core.reporting.inputs.ReportGenerationContext`/`core.reporting.models.
+   {GeneratedReport, ReportType}` directly, to construct the typed
+   `ReportGenerationInput` it hands to its tool — this mirrors
+   `core/agents/incident_response_agent.py`'s identical, already-shipped
+   precedent of importing `core.incident_response.inputs.IncidentInputFinding`/
+   `core.incident_response.models.{IncidentResponsePlan, IncidentSeverity}`
+   directly for the same reason (constructing typed tool-call arguments),
+   not a new kind of exception. No other `core/tools/*.py` file gets this
+   exception; every other tool in this package stays dict-shaped, matching
+   `docs/adr/0017`-`0021`'s established "no cross-leaf import" precedent.
+   See `docs/adr/0024-report-generator-agent.md`.
 
 6. **`core/memory` is the only layer allowed to import a vector-store client
    (ChromaDB).** No other layer talks to ChromaDB directly.

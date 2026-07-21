@@ -396,21 +396,40 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       closed** — every blueprint-named specialist agent for this milestone
       exists.
 
-- [ ] **M5 — Incident Response synthesis + Reporting.** Incident Response
+- [x] **M5 — Incident Response synthesis + Reporting.** Incident Response
       Agent (case-wide synthesis), Report Generator Agent with Jinja2/
       ReportLab templates per module + executive report, Plotly charts.
       *Demo: full case → "Generate Executive Report" → real branded PDF with charts.*
-      **Partially closed** (`docs/adr/0023-incident-response-agent.md`): the
-      Incident Response Agent half is done — `core/incident_response/`
-      (deterministic NIST SP 800-61-aligned response-playbook synthesis:
-      severity classification, MITRE-tactic/keyword/severity-fallback rule
-      matching, prioritization, execution ordering, confidence rollups),
-      `core/tools/ir_tools.py` (blueprint's named tool file), the ninth
-      concrete specialist agent (`IncidentResponseAgent`, cross-cutting like
-      `MitreMappingAgent`), and real DB persistence
-      (`incident_response_plans` table, blueprint §8's literal
-      `Case -> 1 IncidentResponsePlan (nullable)`). The Report Generator
-      Agent half remains open.
+      **Now fully closed.** The Incident Response Agent half
+      (`docs/adr/0023-incident-response-agent.md`) was done first —
+      `core/incident_response/` (deterministic NIST SP 800-61-aligned
+      response-playbook synthesis: severity classification, MITRE-tactic/
+      keyword/severity-fallback rule matching, prioritization, execution
+      ordering, confidence rollups), `core/tools/ir_tools.py` (blueprint's
+      named tool file), the ninth concrete specialist agent
+      (`IncidentResponseAgent`, cross-cutting like `MitreMappingAgent`), and
+      real DB persistence (`incident_response_plans` table, blueprint §8's
+      literal `Case -> 1 IncidentResponsePlan (nullable)`). The Report
+      Generator Agent half (`docs/adr/0024-report-generator-agent.md`) closes
+      it: `core/reporting/` (deterministic report-assembly pipeline —
+      section builders for all twelve task-named sections, completeness
+      validation, statistics/confidence rollups — for all eight task-named
+      report types: Executive Summary, Technical Investigation, Incident
+      Response, IOC Summary, MITRE ATT&CK, Timeline, Threat Intelligence,
+      Evidence), `core/tools/report_tools.py` (blueprint's named tool file),
+      the tenth concrete specialist agent (`ReportGeneratorAgent`,
+      cross-cutting like `MitreMappingAgent`/`IncidentResponseAgent`,
+      auto-generating a Technical Investigation Report on every upload), and
+      real DB persistence (extending the placeholder `reports` table,
+      blueprint §8's literal `Case -> 1 Report (nullable)`). Per this
+      session's explicit task instruction, the Jinja2/ReportLab/Plotly
+      *exporters* (`templates/`, `charts.py`, `pdf_builder.py`) are
+      deliberately **not** built yet — only the backend models and
+      generation pipeline (`GeneratedReport` is already format-agnostic,
+      structured to support PDF/HTML/Markdown/JSON equally once a concrete
+      exporter exists). No `/api/v1/cases/{case_id}/reports` route yet
+      either — deferred, not scheduled (see `context/current_state.md`'s
+      Remaining Work section).
 
 - [ ] **M6 — Memory + Threat Timeline + UX polish.** ChromaDB long-term
       memory, Threat Timeline cross-evidence view, MITRE ATT&CK heatmap,
