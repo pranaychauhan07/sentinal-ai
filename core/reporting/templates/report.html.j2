@@ -12,38 +12,94 @@
     --text: {{ theme.text_color }};
     --accent: {{ theme.accent_color }};
     --font: {{ theme.font_family }};
+    --card-bg: color-mix(in srgb, var(--text) 4%, transparent);
+    --border: color-mix(in srgb, var(--text) 14%, transparent);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: var(--font); background: var(--background); color: var(--text);
-    display: flex; min-height: 100vh;
+    display: flex; min-height: 100vh; line-height: 1.6; font-size: 15px;
   }
   nav#sidebar {
-    width: 260px; flex-shrink: 0; padding: 1.5rem 1rem; border-right: 1px solid var(--secondary);
+    width: 260px; flex-shrink: 0; padding: 1.5rem 1rem; border-right: 1px solid var(--border);
     position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow-y: auto;
   }
-  nav#sidebar a { display: block; color: var(--text); text-decoration: none; padding: 0.35rem 0; }
-  nav#sidebar a:hover { color: var(--primary); }
-  main { flex: 1; padding: 2rem 3rem; max-width: 960px; }
-  header.report-header { border-bottom: 2px solid var(--primary); margin-bottom: 1.5rem; padding-bottom: 1rem; }
+  nav#sidebar a {
+    display: block; color: var(--text); text-decoration: none; padding: 0.45rem 0.6rem;
+    border-radius: 6px; font-size: 0.9rem; word-break: break-word;
+  }
+  nav#sidebar a:hover { background: var(--card-bg); color: var(--primary); }
+  main { flex: 1; padding: 2rem 3rem 4rem 3rem; max-width: 900px; min-width: 0; }
+  header.report-header { border-bottom: 2px solid var(--primary); margin-bottom: 2rem; padding-bottom: 1.25rem; }
   header.report-header img.logo { max-height: 60px; margin-bottom: 0.5rem; }
-  h1 { color: var(--primary); margin: 0 0 0.25rem 0; }
-  h2 { color: var(--primary); border-bottom: 1px solid var(--secondary); padding-bottom: 0.25rem; }
-  details.section { margin-bottom: 1.5rem; }
-  details.section summary { cursor: pointer; font-size: 1.15rem; font-weight: 600; color: var(--primary); padding: 0.5rem 0; }
-  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; color: #fff; }
+  header.report-header .report-meta {
+    color: color-mix(in srgb, var(--text) 65%, transparent); font-size: 0.9rem; margin-top: 0.4rem;
+  }
+  h1 { color: var(--primary); margin: 0 0 0.25rem 0; font-size: 1.6rem; }
+  h2 { color: var(--primary); font-size: 1.1rem; margin: 0; }
+  h3 { color: var(--text); font-size: 1rem; margin: 0 0 0.6rem 0; }
+  details.section {
+    margin-bottom: 1.25rem; background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0 1.1rem;
+  }
+  details.section summary {
+    cursor: pointer; font-size: 1.05rem; font-weight: 600; color: var(--primary);
+    padding: 0.9rem 0; list-style: none;
+  }
+  details.section summary::-webkit-details-marker { display: none; }
+  details.section summary::before { content: "▸ "; display: inline-block; transition: transform 0.15s ease; }
+  details.section[open] summary::before { transform: rotate(90deg); }
+  details.section > *:not(summary) { padding-bottom: 1.1rem; }
+  .badge {
+    display: inline-block; padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.78rem;
+    font-weight: 600; color: #fff; white-space: nowrap;
+  }
   .badge.degraded { background: var(--accent); }
   .badge.ok { background: #2ea043; }
-  table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
-  th, td { border: 1px solid var(--secondary); padding: 0.4rem 0.6rem; text-align: left; }
-  th { background: color-mix(in srgb, var(--primary) 15%, transparent); }
-  .chart-container { margin: 1rem 0; }
-  footer.report-footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--secondary); font-size: 0.85rem; color: var(--secondary); }
+  .badge.sev-critical { background: #ff6b6b; }
+  .badge.sev-high { background: #ff9f5b; }
+  .badge.sev-medium { background: #f5c451; color: #1a1a1a; }
+  .badge.sev-low { background: #7dd3fc; color: #1a1a1a; }
+  .badge.sev-info { background: color-mix(in srgb, var(--text) 35%, transparent); }
+  .table-scroll { overflow-x: auto; margin: 0.6rem 0; }
+  table { border-collapse: collapse; width: 100%; min-width: 480px; }
+  th, td {
+    border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: left;
+    vertical-align: top; word-break: break-word; max-width: 32ch;
+  }
+  th {
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+    font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--text) 2.5%, transparent); }
+  dl { margin: 0.4rem 0 1rem 0; }
+  dt {
+    font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em;
+    color: color-mix(in srgb, var(--text) 60%, transparent); margin-top: 0.7rem;
+  }
+  dd { margin: 0.15rem 0 0 0; word-break: break-word; }
+  dl dl { margin: 0.2rem 0 0.2rem 1rem; padding-left: 0.8rem; border-left: 2px solid var(--border); }
+  ul { margin: 0.3rem 0; padding-left: 1.4rem; }
+  li { margin-bottom: 0.25rem; word-break: break-word; }
+  .mono { font-family: 'Courier New', monospace; font-size: 0.85rem; }
+  .chart-container {
+    margin: 1rem 0; background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem; overflow-x: auto;
+  }
+  footer.report-footer {
+    margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border);
+    font-size: 0.85rem; color: color-mix(in srgb, var(--text) 55%, transparent);
+  }
   @media print {
     nav#sidebar { display: none; }
+    body { display: block; background: #fff; color: #000; }
     main { max-width: 100%; padding: 0.5rem; }
-    details.section { break-inside: avoid; }
-    body { background: #fff; color: #000; }
+    details.section {
+      break-inside: avoid; background: #fff; border-color: #ccc;
+    }
+    details.section > *:not(summary) { display: block !important; }
+    summary::before { content: "" !important; }
+    a[href^="#"] { color: inherit; text-decoration: none; }
   }
 </style>
 {% if plotlyjs %}<script>{{ plotlyjs | safe }}</script>{% endif %}
@@ -63,37 +119,54 @@
     {% if theme.logo_data_uri %}<img class="logo" src="{{ theme.logo_data_uri }}" alt="Organization logo">{% endif %}
     {% if theme.organization_name %}<div>{{ theme.organization_name }}</div>{% endif %}
     <h1>{{ report.title }}</h1>
-    <div>Case: {{ report.case_id }} &middot; Type: {{ report.report_type.value }} &middot; Generated: {{ report.generated_at }}</div>
-    <div>
+    <div class="report-meta">Case: <span class="mono">{{ report.case_id }}</span> &middot; Type: {{ report.report_type.value.replace('_', ' ').title() }} &middot; Generated: {{ report.generated_at }}</div>
+    <div class="report-meta">
       Confidence: {{ "%.0f"|format(report.confidence * 100) }}%
       {% if report.degraded %}<span class="badge degraded">Degraded</span>{% else %}<span class="badge ok">Complete</span>{% endif %}
     </div>
-    {% if theme.header_text %}<div>{{ theme.header_text }}</div>{% endif %}
+    {% if theme.header_text %}<div class="report-meta">{{ theme.header_text }}</div>{% endif %}
   </header>
+
+  {% set severity_words = ["critical", "high", "medium", "low", "info"] %}
+
+  {% macro pretty_key(key) %}{{ key | string | replace('_', ' ') | title }}{% endmacro %}
+
+  {% macro render_scalar(value) %}
+    {% set text = value | string %}
+    {% if text.lower() in severity_words %}
+      <span class="badge sev-{{ text.lower() }}">{{ text.upper() }}</span>
+    {% elif text.startswith("http://") or text.startswith("https://") %}
+      <span class="mono">{{ text }}</span>
+    {% else %}
+      {{ value }}
+    {% endif %}
+  {% endmacro %}
 
   {% macro render_value(value) %}
     {% if value is mapping %}
       <dl>
       {% for k, v in value.items() %}
-        <dt><strong>{{ k }}</strong></dt>
+        <dt>{{ pretty_key(k) }}</dt>
         <dd>{{ render_value(v) }}</dd>
       {% endfor %}
       </dl>
     {% elif value is sequence and value is not string %}
       {% if value and value[0] is mapping %}
+        <div class="table-scroll">
         <table>
-          <thead><tr>{% for key in value[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
+          <thead><tr>{% for key in value[0].keys() %}<th>{{ pretty_key(key) }}</th>{% endfor %}</tr></thead>
           <tbody>
           {% for row in value %}
             <tr>{% for cell in row.values() %}<td>{{ render_value(cell) }}</td>{% endfor %}</tr>
           {% endfor %}
           </tbody>
         </table>
+        </div>
       {% else %}
         <ul>{% for item in value %}<li>{{ render_value(item) }}</li>{% endfor %}</ul>
       {% endif %}
     {% else %}
-      {{ value }}
+      {{ render_scalar(value) }}
     {% endif %}
   {% endmacro %}
 
