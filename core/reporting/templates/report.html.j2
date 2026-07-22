@@ -13,7 +13,14 @@
     --accent: {{ theme.accent_color }};
     --font: {{ theme.font_family }};
     --card-bg: color-mix(in srgb, var(--text) 4%, transparent);
+    --card-bg-strong: color-mix(in srgb, var(--text) 6%, transparent);
     --border: color-mix(in srgb, var(--text) 14%, transparent);
+    --muted: color-mix(in srgb, var(--text) 60%, transparent);
+    --sev-critical: #da3633;
+    --sev-high: #d29922;
+    --sev-medium: #9a6700;
+    --sev-low: #316dca;
+    --sev-info: #57606a;
   }
   * { box-sizing: border-box; }
   body {
@@ -24,43 +31,120 @@
     width: 260px; flex-shrink: 0; padding: 1.5rem 1rem; border-right: 1px solid var(--border);
     position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow-y: auto;
   }
+  nav#sidebar .brand { font-weight: 700; font-size: 0.95rem; margin-bottom: 1rem; word-break: break-word; }
   nav#sidebar a {
     display: block; color: var(--text); text-decoration: none; padding: 0.45rem 0.6rem;
     border-radius: 6px; font-size: 0.9rem; word-break: break-word;
   }
   nav#sidebar a:hover { background: var(--card-bg); color: var(--primary); }
-  main { flex: 1; padding: 2rem 3rem 4rem 3rem; max-width: 900px; min-width: 0; }
-  header.report-header { border-bottom: 2px solid var(--primary); margin-bottom: 2rem; padding-bottom: 1.25rem; }
-  header.report-header img.logo { max-height: 60px; margin-bottom: 0.5rem; }
-  header.report-header .report-meta {
-    color: color-mix(in srgb, var(--text) 65%, transparent); font-size: 0.9rem; margin-top: 0.4rem;
+  main { flex: 1; padding: 0; max-width: 980px; min-width: 0; }
+  .page { padding: 2.5rem 3rem; }
+  .page + .page { border-top: 1px solid var(--border); }
+
+  /* ---------- Cover page ---------- */
+  .cover {
+    min-height: 100vh; display: flex; flex-direction: column; justify-content: center;
+    background:
+      radial-gradient(1200px 600px at 100% 0%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 60%),
+      radial-gradient(900px 500px at 0% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%);
+    border-bottom: 4px solid var(--primary);
   }
+  .cover .kicker {
+    text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.8rem; font-weight: 700;
+    color: var(--primary); margin-bottom: 1rem;
+  }
+  .cover img.logo { max-height: 56px; margin-bottom: 1rem; }
+  .cover .org-name { font-weight: 600; color: var(--muted); margin-bottom: 0.35rem; }
+  .cover h1.cover-title { font-size: 2.4rem; margin: 0 0 0.75rem 0; line-height: 1.15; color: var(--text); }
+  .cover .cover-sub { font-size: 1.05rem; color: var(--muted); margin-bottom: 2rem; }
+  .cover-meta-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;
+    margin-top: 1rem; max-width: 760px;
+  }
+  .cover-meta-item {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem 1rem;
+  }
+  .cover-meta-item .label {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.25rem;
+  }
+  .cover-meta-item .value { font-size: 1.05rem; font-weight: 600; word-break: break-word; }
+  .cover-meta-item .value.mono { font-family: 'Courier New', monospace; font-size: 0.95rem; }
+
+  /* ---------- Section dividers & headers ---------- */
   h1 { color: var(--primary); margin: 0 0 0.25rem 0; font-size: 1.6rem; }
-  h2 { color: var(--primary); font-size: 1.1rem; margin: 0; }
-  h3 { color: var(--text); font-size: 1rem; margin: 0 0 0.6rem 0; }
-  details.section {
-    margin-bottom: 1.25rem; background: var(--card-bg); border: 1px solid var(--border);
-    border-radius: 10px; padding: 0 1.1rem;
+  h2.page-title {
+    color: var(--text); font-size: 1.5rem; margin: 0 0 1.5rem 0; padding-bottom: 0.75rem;
+    border-bottom: 3px solid var(--primary); display: flex; align-items: baseline; gap: 0.6rem;
   }
-  details.section summary {
-    cursor: pointer; font-size: 1.05rem; font-weight: 600; color: var(--primary);
-    padding: 0.9rem 0; list-style: none;
+  h2.page-title .idx { color: var(--muted); font-weight: 400; font-size: 1rem; }
+  h3.subheading { font-size: 1rem; margin: 1.4rem 0 0.7rem 0; color: var(--text); }
+  h3.subheading:first-child { margin-top: 0; }
+
+  /* ---------- Cards & grids ---------- */
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.9rem; margin-bottom: 1.5rem;
   }
-  details.section summary::-webkit-details-marker { display: none; }
-  details.section summary::before { content: "▸ "; display: inline-block; transition: transform 0.15s ease; }
-  details.section[open] summary::before { transform: rotate(90deg); }
-  details.section > *:not(summary) { padding-bottom: 1.1rem; }
+  .kpi-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.1rem;
+  }
+  .kpi-card .kpi-value { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+  .kpi-card .kpi-label {
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-top: 0.3rem;
+  }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.9rem; }
+  .entity-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-left: 4px solid var(--sev-info);
+    border-radius: 10px; padding: 0.9rem 1.1rem;
+  }
+  .entity-card.sev-critical { border-left-color: var(--sev-critical); }
+  .entity-card.sev-high { border-left-color: var(--sev-high); }
+  .entity-card.sev-medium { border-left-color: var(--sev-medium); }
+  .entity-card.sev-low { border-left-color: var(--sev-low); }
+  .entity-card.sev-info { border-left-color: var(--sev-info); }
+  .entity-card .card-title { font-weight: 600; margin-bottom: 0.3rem; word-break: break-word; }
+  .entity-card .card-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; }
+  .entity-card .card-body { font-size: 0.9rem; }
+  .callout {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.9rem 1.1rem; margin: 0.8rem 0;
+  }
+  .callout.warn { border-color: color-mix(in srgb, var(--sev-high) 55%, var(--border)); }
+
+  /* ---------- Badges & indicators ---------- */
   .badge {
     display: inline-block; padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.78rem;
     font-weight: 600; color: #fff; white-space: nowrap;
   }
   .badge.degraded { background: var(--accent); }
   .badge.ok { background: #2ea043; }
-  .badge.sev-critical { background: #ff6b6b; }
-  .badge.sev-high { background: #ff9f5b; }
-  .badge.sev-medium { background: #f5c451; color: #1a1a1a; }
-  .badge.sev-low { background: #7dd3fc; color: #1a1a1a; }
-  .badge.sev-info { background: color-mix(in srgb, var(--text) 35%, transparent); }
+  .badge.sev-critical { background: var(--sev-critical); }
+  .badge.sev-high { background: var(--sev-high); }
+  .badge.sev-medium { background: var(--sev-medium); color: #1a1a1a; }
+  .badge.sev-low { background: var(--sev-low); }
+  .badge.sev-info { background: var(--sev-info); }
+  .badge.outline {
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card-bg-strong);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.8rem;
+    margin: 0.15rem 0.3rem 0.15rem 0;
+  }
+  .meter {
+    height: 8px; border-radius: 999px; background: var(--card-bg-strong); overflow: hidden; margin: 0.35rem 0;
+  }
+  .meter > span { display: block; height: 100%; border-radius: 999px; }
+  .meter.risk-critical > span { background: var(--sev-critical); }
+  .meter.risk-high > span { background: var(--sev-high); }
+  .meter.risk-medium > span { background: var(--sev-medium); }
+  .meter.risk-low > span { background: var(--sev-low); }
+  .meter.risk-info > span { background: var(--sev-info); }
+  .risk-meter-block { display: flex; align-items: center; gap: 1rem; margin: 0.6rem 0 1.2rem 0; }
+  .risk-meter-block .risk-label { min-width: 130px; font-weight: 700; font-size: 1rem; }
+  .risk-meter-block .meter { flex: 1; height: 10px; }
+  .confidence-inline { font-size: 0.85rem; color: var(--muted); }
+
+  /* ---------- Tables ---------- */
   .table-scroll { overflow-x: auto; margin: 0.6rem 0; }
   table { border-collapse: collapse; width: 100%; min-width: 480px; }
   th, td {
@@ -75,25 +159,70 @@
   dl { margin: 0.4rem 0 1rem 0; }
   dt {
     font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em;
-    color: color-mix(in srgb, var(--text) 60%, transparent); margin-top: 0.7rem;
+    color: var(--muted); margin-top: 0.7rem;
   }
   dd { margin: 0.15rem 0 0 0; word-break: break-word; }
   dl dl { margin: 0.2rem 0 0.2rem 1rem; padding-left: 0.8rem; border-left: 2px solid var(--border); }
   ul { margin: 0.3rem 0; padding-left: 1.4rem; }
   li { margin-bottom: 0.25rem; word-break: break-word; }
+  ol.action-list { margin: 0.3rem 0; padding-left: 1.4rem; }
+  ol.action-list li { margin-bottom: 0.6rem; }
   .mono { font-family: 'Courier New', monospace; font-size: 0.85rem; }
+
+  /* ---------- Timeline (vertical) ---------- */
+  .timeline { position: relative; margin: 0.5rem 0 0 0.6rem; padding-left: 1.4rem; border-left: 2px solid var(--border); }
+  .timeline-item { position: relative; margin-bottom: 1.1rem; }
+  .timeline-item::before {
+    content: ""; position: absolute; left: -1.55rem; top: 0.25rem; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--primary); border: 2px solid var(--background);
+  }
+  .timeline-item .t-meta { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.15rem; }
+  .timeline-item .t-body { font-size: 0.92rem; }
+
+  /* ---------- Attack chain (MITRE) ---------- */
+  .attack-chain { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: stretch; margin: 0.8rem 0 1.2rem 0; }
+  .attack-chain .chain-stage { display: flex; align-items: center; gap: 0.6rem; }
+  .attack-chain .chain-stage:not(:last-child)::after {
+    content: "\2192"; color: var(--muted); font-size: 1.3rem; align-self: center;
+  }
+  .attack-chain .technique-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.6rem 0.8rem; min-width: 160px; max-width: 210px;
+  }
+  .attack-chain .technique-card .tactic-label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--primary); font-weight: 700;
+  }
+  .attack-chain .technique-card .technique-id { font-family: 'Courier New', monospace; font-weight: 700; margin: 0.2rem 0; }
+  .attack-chain .technique-card .rationale { font-size: 0.78rem; color: var(--muted); }
+
+  /* ---------- Sections (collapsible) ---------- */
+  details.section {
+    margin-bottom: 1.25rem; background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0 1.1rem;
+  }
+  details.section summary {
+    cursor: pointer; font-size: 1.05rem; font-weight: 600; color: var(--primary);
+    padding: 0.9rem 0; list-style: none;
+  }
+  details.section summary::-webkit-details-marker { display: none; }
+  details.section summary::before { content: "\25b8 "; display: inline-block; transition: transform 0.15s ease; }
+  details.section[open] summary::before { transform: rotate(90deg); }
+  details.section > *:not(summary) { padding-bottom: 1.1rem; }
   .chart-container {
     margin: 1rem 0; background: var(--card-bg); border: 1px solid var(--border);
     border-radius: 10px; padding: 1rem; overflow-x: auto;
   }
   footer.report-footer {
-    margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border);
-    font-size: 0.85rem; color: color-mix(in srgb, var(--text) 55%, transparent);
+    margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);
+    font-size: 0.85rem; color: var(--muted);
   }
   @media print {
     nav#sidebar { display: none; }
     body { display: block; background: #fff; color: #000; }
-    main { max-width: 100%; padding: 0.5rem; }
+    main { max-width: 100%; }
+    .cover { min-height: 90vh; page-break-after: always; }
+    .page { page-break-after: always; padding: 1.2rem 0.5rem; }
+    .page:last-child { page-break-after: auto; }
     details.section {
       break-inside: avoid; background: #fff; border-color: #ccc;
     }
@@ -105,95 +234,394 @@
 {% if plotlyjs %}<script>{{ plotlyjs | safe }}</script>{% endif %}
 </head>
 <body>
+
+{#- ============================= Shared helpers ============================= #}
+{% set severity_words = ["critical", "high", "medium", "low", "info"] %}
+{#- Canonical, publicly documented MITRE ATT&CK Enterprise tactic ordering
+    (kill-chain phase order) — used only to visually order/group technique
+    cards in the attack chain; never used to infer or fabricate a
+    case-specific temporal sequence. #}
+{% set tactic_order = ["TA0043", "TA0042", "TA0001", "TA0002", "TA0003", "TA0004", "TA0005",
+                        "TA0006", "TA0007", "TA0008", "TA0009", "TA0011", "TA0010", "TA0040"] %}
+
+{% macro severity_badge(value) %}
+  {% set text = value | string | lower %}
+  {% if text in severity_words %}<span class="badge sev-{{ text }}">{{ text.upper() }}</span>
+  {% else %}<span class="badge outline">{{ value }}</span>{% endif %}
+{% endmacro %}
+
+{% macro risk_meter(level, pct=none) %}
+  {% set text = level | string | lower %}
+  {% set p = pct if pct is not none else ({"critical": 100, "high": 78, "medium": 52, "low": 28, "info": 10}.get(text, 10)) %}
+  <div class="risk-meter-block">
+    <span class="risk-label">{{ severity_badge(level) }}</span>
+    <div class="meter risk-{{ text if text in severity_words else 'info' }}"><span style="width:{{ p }}%"></span></div>
+  </div>
+{% endmacro %}
+
+{% macro kpi(value, label) %}
+  <div class="kpi-card"><div class="kpi-value">{{ value }}</div><div class="kpi-label">{{ label }}</div></div>
+{% endmacro %}
+
+{% macro pretty_key(key) %}{{ key | string | replace('_', ' ') | title }}{% endmacro %}
+
+{% macro render_scalar(value) %}
+  {% set text = value | string %}
+  {% if text.lower() in severity_words %}{{ severity_badge(text) }}
+  {% elif text.startswith("http://") or text.startswith("https://") %}<span class="mono">{{ text }}</span>
+  {% else %}{{ value }}{% endif %}
+{% endmacro %}
+
+{% macro render_value(value) %}
+  {% if value is mapping %}
+    <dl>
+    {% for k, v in value.items() %}
+      <dt>{{ pretty_key(k) }}</dt><dd>{{ render_value(v) }}</dd>
+    {% endfor %}
+    </dl>
+  {% elif value is sequence and value is not string %}
+    {% if value and value[0] is mapping %}
+      <div class="table-scroll">
+      <table>
+        <thead><tr>{% for key in value[0].keys() %}<th>{{ pretty_key(key) }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for row in value %}
+          <tr>{% for cell in row.values() %}<td>{{ render_value(cell) }}</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    {% else %}
+      <ul>{% for item in value %}<li>{{ render_value(item) }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% else %}
+    {{ render_scalar(value) }}
+  {% endif %}
+{% endmacro %}
+
+{% macro chart_block(name, html) %}
+  <div class="chart-container">
+    <h3 class="subheading">{{ name.replace('_', ' ').title() }}</h3>
+    {{ html | safe }}
+  </div>
+{% endmacro %}
+
+{% set rendered_charts = [] %}
+{% macro chart_if_available(name) %}
+  {% if charts_html and name in charts_html %}
+    {{ chart_block(name, charts_html[name]) }}
+    {% if rendered_charts.append(name) %}{% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% set exec_section = report.sections | selectattr("section_type.value", "equalto", "executive_summary") | list | first %}
+{% set risk_section = report.sections | selectattr("section_type.value", "equalto", "risk_assessment") | list | first %}
+{% set ioc_section = report.sections | selectattr("section_type.value", "equalto", "ioc_summary") | list | first %}
+
 <nav id="sidebar">
-  <strong>{{ report.title }}</strong>
-  <ul style="list-style:none; padding-left:0;">
+  <div class="brand">{{ report.title }}</div>
+  <a href="#cover">Cover</a>
+  <a href="#toc">Table of Contents</a>
+  <a href="#dashboard">Executive Dashboard</a>
+  <ul style="list-style:none; padding-left:0; margin:0;">
     {% for section in report.sections %}
     <li><a href="#section-{{ section.section_type.value }}">{{ section.title }}</a></li>
     {% endfor %}
-    {% if charts_html %}<li><a href="#charts">Charts</a></li>{% endif %}
+    {% if charts_html %}<li><a href="#charts">Additional Charts</a></li>{% endif %}
   </ul>
 </nav>
 <main>
-  <header class="report-header">
+
+  {#- ============================= Cover page ============================= #}
+  <section class="cover page" id="cover">
+    <div class="kicker">{{ report.report_type.value.replace('_', ' ').title() }} Report</div>
     {% if theme.logo_data_uri %}<img class="logo" src="{{ theme.logo_data_uri }}" alt="Organization logo">{% endif %}
-    {% if theme.organization_name %}<div>{{ theme.organization_name }}</div>{% endif %}
-    <h1>{{ report.title }}</h1>
-    <div class="report-meta">Case: <span class="mono">{{ report.case_id }}</span> &middot; Type: {{ report.report_type.value.replace('_', ' ').title() }} &middot; Generated: {{ report.generated_at }}</div>
-    <div class="report-meta">
-      Confidence: {{ "%.0f"|format(report.confidence * 100) }}%
+    {% if theme.organization_name %}<div class="org-name">{{ theme.organization_name }}</div>{% endif %}
+    <h1 class="cover-title">{{ report.title }}</h1>
+    <div class="cover-sub">
       {% if report.degraded %}<span class="badge degraded">Degraded</span>{% else %}<span class="badge ok">Complete</span>{% endif %}
+      &nbsp; Confidence: <strong>{{ "%.0f"|format(report.confidence * 100) }}%</strong>
     </div>
-    {% if theme.header_text %}<div class="report-meta">{{ theme.header_text }}</div>{% endif %}
-  </header>
+    <div class="cover-meta-grid">
+      <div class="cover-meta-item"><div class="label">Case ID</div><div class="value mono">{{ report.case_id }}</div></div>
+      <div class="cover-meta-item"><div class="label">Report ID</div><div class="value mono">{{ report.report_id }}</div></div>
+      <div class="cover-meta-item"><div class="label">Generated</div><div class="value">{{ report.generated_at }}</div></div>
+      <div class="cover-meta-item"><div class="label">Analyst</div><div class="value">{{ theme.header_text or "Cyber Defense Copilot" }}</div></div>
+    </div>
+    {% if theme.header_text %}<div class="cover-sub" style="margin-top:1.5rem;">{{ theme.header_text }}</div>{% endif %}
+  </section>
 
-  {% set severity_words = ["critical", "high", "medium", "low", "info"] %}
-
-  {% macro pretty_key(key) %}{{ key | string | replace('_', ' ') | title }}{% endmacro %}
-
-  {% macro render_scalar(value) %}
-    {% set text = value | string %}
-    {% if text.lower() in severity_words %}
-      <span class="badge sev-{{ text.lower() }}">{{ text.upper() }}</span>
-    {% elif text.startswith("http://") or text.startswith("https://") %}
-      <span class="mono">{{ text }}</span>
-    {% else %}
-      {{ value }}
-    {% endif %}
-  {% endmacro %}
-
-  {% macro render_value(value) %}
-    {% if value is mapping %}
-      <dl>
-      {% for k, v in value.items() %}
-        <dt>{{ pretty_key(k) }}</dt>
-        <dd>{{ render_value(v) }}</dd>
+  {#- ============================= Table of Contents ============================= #}
+  <section class="page" id="toc">
+    <h2 class="page-title">Table of Contents</h2>
+    <ol class="action-list">
+      <li><a href="#dashboard">Executive Dashboard</a></li>
+      {% for section in report.sections %}
+      <li><a href="#section-{{ section.section_type.value }}">{{ section.title }}</a>{% if section.is_empty %} <span class="badge outline">no data</span>{% endif %}</li>
       {% endfor %}
-      </dl>
-    {% elif value is sequence and value is not string %}
-      {% if value and value[0] is mapping %}
-        <div class="table-scroll">
-        <table>
-          <thead><tr>{% for key in value[0].keys() %}<th>{{ pretty_key(key) }}</th>{% endfor %}</tr></thead>
-          <tbody>
-          {% for row in value %}
-            <tr>{% for cell in row.values() %}<td>{{ render_value(cell) }}</td>{% endfor %}</tr>
-          {% endfor %}
-          </tbody>
-        </table>
-        </div>
-      {% else %}
-        <ul>{% for item in value %}<li>{{ render_value(item) }}</li>{% endfor %}</ul>
-      {% endif %}
-    {% else %}
-      {{ render_scalar(value) }}
-    {% endif %}
-  {% endmacro %}
+      {% if charts_html %}<li><a href="#charts">Additional Charts</a></li>{% endif %}
+    </ol>
+  </section>
 
+  {#- ============================= Executive Dashboard ============================= #}
+  <section class="page" id="dashboard">
+    <h2 class="page-title">Executive Dashboard</h2>
+    <div class="kpi-grid">
+      {{ kpi(report.statistics.finding_count, "Findings") }}
+      {{ kpi(report.statistics.evidence_count, "Evidence Items") }}
+      {{ kpi(report.statistics.ioc_count, "IOCs") }}
+      {{ kpi(report.statistics.mitre_technique_count, "MITRE Techniques") }}
+      {{ kpi(report.statistics.incident_response_recommendation_count, "IR Recommendations") }}
+      {{ kpi("%.0f%%"|format(report.confidence * 100), "Confidence") }}
+    </div>
+    {% if exec_section and not exec_section.is_empty %}
+      {{ risk_meter(exec_section.content.get("overall_risk_level", "info")) }}
+    {% elif risk_section and not risk_section.is_empty %}
+      {{ risk_meter(risk_section.content.get("overall_risk_level", "info")) }}
+    {% endif %}
+    {% if report.degraded and report.degraded_reasons %}
+      <div class="callout warn">
+        <strong>Degraded report</strong> — this report was generated with incomplete data:
+        <ul>{% for reason in report.degraded_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+    <div class="card-grid" style="margin-top:1rem;">
+      {{ chart_if_available("case_statistics") }}
+      {{ chart_if_available("severity_distribution") }}
+    </div>
+  </section>
+
+  {#- ============================= Report sections ============================= #}
   {% for section in report.sections %}
-  <details class="section" id="section-{{ section.section_type.value }}" {{ "open" if not section.is_empty else "" }}>
-    <summary>{{ section.title }}{% if section.is_empty %} (no data){% endif %}</summary>
+  <section class="page" id="section-{{ section.section_type.value }}">
+    <h2 class="page-title">{{ section.title }}<span class="idx">{{ loop.index }} / {{ loop.length }}</span></h2>
+
     {% if section.is_empty %}
       <p><em>No data available for this section.</em></p>
+
+    {% elif section.section_type.value == "executive_summary" %}
+      <div class="kpi-grid">
+        {{ kpi(section.content.get("finding_count", 0), "Findings") }}
+        {{ kpi(section.content.get("ioc_count", 0), "IOCs") }}
+        {{ kpi(section.content.get("incident_response_recommendation_count", 0), "IR Recommendations") }}
+      </div>
+      {{ risk_meter(section.content.get("overall_risk_level", "info")) }}
+
+    {% elif section.section_type.value == "case_overview" %}
+      <div class="kpi-grid">
+        {{ kpi(section.content.get("evidence_item_count", 0), "Evidence Items") }}
+        {{ kpi(section.content.get("finding_count", 0), "Findings") }}
+        {{ kpi("Yes" if section.content.get("has_incident_response_plan") else "No", "IR Plan") }}
+      </div>
+      <div class="chip">Case ID: <span class="mono">{{ section.content.get("case_id", "") }}</span></div>
+
+    {% elif section.section_type.value == "investigation_timeline" %}
+      <div class="kpi-grid">{{ kpi(section.content.get("entry_count", 0), "Timeline Entries") }}</div>
+      {{ chart_if_available("timeline") }}
+      {{ chart_if_available("risk_trend") }}
+      <h3 class="subheading">Investigation Narrative</h3>
+      <div class="timeline">
+        {% for entry in section.content.get("entries", []) %}
+        <div class="timeline-item">
+          <div class="t-meta">{{ entry.get("created_at", "") }} &middot; <strong>{{ entry.get("agent_name", "") }}</strong> &middot; confidence {{ "%.0f"|format((entry.get("confidence", 0.0) or 0.0) * 100) }}%</div>
+          <div class="t-body">{{ entry.get("thought", "") }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+    {% elif section.section_type.value == "evidence_summary" %}
+      <div class="kpi-grid">{{ kpi(section.content.get("evidence_item_count", 0), "Evidence Items") }}</div>
+      <h3 class="subheading">Evidence Types</h3>
+      {% for etype in section.content.get("distinct_evidence_types", []) %}<span class="chip">{{ etype }}</span>{% endfor %}
+
+    {% elif section.section_type.value == "ioc_summary" %}
+      <div class="kpi-grid">{{ kpi(section.content.get("ioc_count", 0), "Total IOCs") }}</div>
+      <h3 class="subheading">IOC Types</h3>
+      {% for itype, count in section.content.get("iocs_by_type", {}).items() %}<span class="chip">{{ itype }}: {{ count }}</span>{% endfor %}
+      {{ chart_if_available("ioc_categories") }}
+      {% set iocs = section.content.get("iocs", []) %}
+      {% if iocs %}
+      <h3 class="subheading">Indicator Table</h3>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Value</th><th>Type</th><th>Severity</th><th>Classification</th><th>Score</th><th>First Seen</th></tr></thead>
+        <tbody>
+        {% for row in iocs %}
+        <tr>
+          <td class="mono">{{ row.get("value", "") }}</td>
+          <td>{{ row.get("ioc_type", "") }}</td>
+          <td>{{ severity_badge(row.get("severity", "info")) }}</td>
+          <td>{{ row.get("classification", "") }}</td>
+          <td>{{ "%.1f"|format(row.get("composite_score", 0.0) or 0.0) }}</td>
+          <td>{{ row.get("first_seen", "") }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% if section.content.get("truncated_row_count", 0) %}
+      <p class="confidence-inline">+ {{ section.content["truncated_row_count"] }} additional indicator(s) not shown (see aggregate counts above).</p>
+      {% endif %}
+      {% endif %}
+
+    {% elif section.section_type.value == "threat_intelligence_summary" %}
+      <div class="kpi-grid">
+        {{ kpi(section.content.get("ioc_count", 0), "IOCs") }}
+        {{ kpi(section.content.get("distinct_mitre_technique_count", 0), "MITRE Techniques") }}
+      </div>
+      {{ chart_if_available("threat_intelligence_sources") }}
+
+    {% elif section.section_type.value == "mitre_mapping" %}
+      <div class="kpi-grid">
+        {{ kpi(section.content.get("technique_count", 0), "Techniques") }}
+        {{ kpi(section.content.get("distinct_tactic_count", 0), "Tactics") }}
+      </div>
+      {% set techniques = section.content.get("techniques", []) %}
+      {% if techniques %}
+      <h3 class="subheading">Attack Chain (TTP Coverage, ordered by ATT&CK tactic phase)</h3>
+      <div class="attack-chain">
+        {% for tactic in tactic_order %}
+          {% for tech in techniques if tactic in tech.get("tactic_ids", []) %}
+          <div class="chain-stage">
+            <div class="technique-card">
+              <div class="tactic-label">{{ tactic }}</div>
+              <div class="technique-id">{{ tech.get("technique_id", "") }}</div>
+              <div class="confidence-inline">confidence {{ "%.0f"|format((tech.get("confidence", 0.0) or 0.0) * 100) }}%</div>
+              {% if tech.get("rationale") %}<div class="rationale">{{ tech.get("rationale") }}</div>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        {% endfor %}
+      </div>
+      {{ chart_if_available("mitre_heatmap") }}
+      <h3 class="subheading">All Mapped Techniques</h3>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Technique</th><th>Tactics</th><th>Confidence</th><th>Rule</th><th>Rationale</th></tr></thead>
+        <tbody>
+        {% for tech in techniques %}
+        <tr>
+          <td class="mono">{{ tech.get("technique_id", "") }}</td>
+          <td>{{ tech.get("tactic_ids", []) | join(", ") }}</td>
+          <td>{{ "%.0f"|format((tech.get("confidence", 0.0) or 0.0) * 100) }}%</td>
+          <td class="mono">{{ tech.get("rule_id", "") }}</td>
+          <td>{{ tech.get("rationale", "") }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% endif %}
+
+    {% elif section.section_type.value == "findings" %}
+      <div class="kpi-grid">
+        {{ kpi(section.content.get("finding_count", 0), "Findings") }}
+      </div>
+      {{ risk_meter(section.content.get("highest_severity", "info")) }}
+      {{ chart_if_available("finding_distribution") }}
+      {% set findings = section.content.get("findings", []) %}
+      {% for level in severity_words %}
+        {% set level_findings = findings | selectattr("severity", "equalto", level) | list %}
+        {% if level_findings %}
+        <h3 class="subheading">{{ level.title() }} Findings ({{ level_findings | length }})</h3>
+        <div class="card-grid">
+          {% for f in level_findings %}
+          <div class="entity-card sev-{{ level }}">
+            <div class="card-title">{{ f.get("title", "") }}</div>
+            <div class="card-meta">{{ severity_badge(f.get("severity", "info")) }} &middot; source: {{ f.get("source", "") }} &middot; risk score {{ "%.0f"|format(f.get("risk_score", 0.0) or 0.0) }}</div>
+            {% if f.get("evidence_summary") %}<div class="card-body">{{ f.get("evidence_summary") }}</div>{% endif %}
+            {% if f.get("severity_rationale") %}<div class="card-body confidence-inline">{{ f.get("severity_rationale") }}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+
+    {% elif section.section_type.value == "incident_response_actions" %}
+      {% if section.content.get("has_plan") %}
+      <div class="kpi-grid">{{ kpi(section.content.get("recommendation_count", 0), "Recommendations") }}</div>
+      {{ risk_meter(section.content.get("incident_severity", "info")) }}
+      {% if section.content.get("severity_justification") %}
+      <div class="callout warn"><strong>Severity Justification:</strong> {{ section.content.get("severity_justification") }}</div>
+      {% endif %}
+      {% set recs = section.content.get("recommendations", []) | sort(attribute="execution_order") %}
+      <ol class="action-list">
+      {% for r in recs %}
+        <li>
+          <strong>{{ r.get("title", "") }}</strong>
+          <span class="badge outline">{{ r.get("priority", "") }}</span>
+          {% if r.get("category") %}<span class="chip">{{ r.get("category") }}</span>{% endif %}
+          {% if r.get("phase") %}<span class="chip">{{ r.get("phase") }}</span>{% endif %}
+          {% if r.get("rationale") %}<div class="confidence-inline">{{ r.get("rationale") }}</div>{% endif %}
+        </li>
+      {% endfor %}
+      </ol>
+      {% endif %}
+
+    {% elif section.section_type.value == "risk_assessment" %}
+      {{ risk_meter(section.content.get("overall_risk_level", "info")) }}
+      <div class="kpi-grid">{{ kpi(section.content.get("total_risk_signals", 0), "Risk Signals") }}</div>
+      <h3 class="subheading">Severity Breakdown</h3>
+      {% for level in severity_words %}
+        {% set count = section.content.get("severity_breakdown", {}).get(level) %}
+        {% if count %}
+        <div class="risk-meter-block">
+          <span class="risk-label">{{ severity_badge(level) }} ({{ count }})</span>
+          <div class="meter risk-{{ level }}"><span style="width:{{ (count / (section.content.get('total_risk_signals', 1) or 1) * 100) }}%"></span></div>
+        </div>
+        {% endif %}
+      {% endfor %}
+
+    {% elif section.section_type.value == "recommendations" %}
+      <ol class="action-list">
+        {% for rec in section.content.get("recommendations", []) %}<li>{{ rec }}</li>{% endfor %}
+      </ol>
+
+    {% elif section.section_type.value == "appendix" %}
+      <div class="kpi-grid">{{ kpi(section.content.get("skipped_record_count", 0), "Skipped/Malformed Records") }}</div>
+      <h3 class="subheading">Data Sources Consulted</h3>
+      {% for src in section.content.get("data_sources", []) %}<span class="chip">{{ src.replace('_', ' ') }}</span>{% endfor %}
+      {% if ioc_section and not ioc_section.is_empty and ioc_section.content.get("hashes") %}
+      <h3 class="subheading">File Hashes</h3>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Hash</th><th>Algorithm</th><th>Classification</th></tr></thead>
+        <tbody>
+        {% for h in ioc_section.content["hashes"] %}
+        <tr><td class="mono">{{ h.get("value", "") }}</td><td>{{ h.get("ioc_type", "") }}</td><td>{{ h.get("classification", "") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% endif %}
+      <h3 class="subheading">Audit Information</h3>
+      <dl>
+        <dt>Report ID</dt><dd class="mono">{{ report.report_id }}</dd>
+        <dt>Generated At</dt><dd>{{ report.generated_at }}</dd>
+        <dt>Confidence</dt><dd>{{ "%.0f"|format(report.confidence * 100) }}%</dd>
+        <dt>Status</dt><dd>{% if report.degraded %}Degraded{% else %}Complete{% endif %}</dd>
+      </dl>
+
     {% else %}
       {{ render_value(section.content) }}
     {% endif %}
-  </details>
+  </section>
   {% endfor %}
 
+  {#- ============================= Any charts not already shown inline ============================= #}
   {% if charts_html %}
-  <section id="charts">
-    <h2>Charts</h2>
-    {% for name, html in charts_html.items() %}
-    <div class="chart-container">
-      <h3>{{ name.replace('_', ' ').title() }}</h3>
-      {{ html | safe }}
-    </div>
+  {% set leftover = charts_html.keys() | reject("in", rendered_charts) | list %}
+  {% if leftover %}
+  <section class="page" id="charts">
+    <h2 class="page-title">Additional Charts</h2>
+    {% for name in leftover %}
+      {{ chart_block(name, charts_html[name]) }}
     {% endfor %}
   </section>
   {% endif %}
+  {% endif %}
 
-  <footer class="report-footer">
+  <footer class="report-footer page">
     {% if theme.footer_text %}<div>{{ theme.footer_text }}</div>{% endif %}
     <div>Generated by Cyber Defense Copilot{% if theme.page_numbering %} &middot; Report ID: {{ report.report_id }}{% endif %}</div>
   </footer>

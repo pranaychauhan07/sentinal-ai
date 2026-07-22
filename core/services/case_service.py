@@ -693,14 +693,18 @@ async def _hydrate_attributed_iocs(
     session: AsyncSession, *, evidence_id: uuid.UUID
 ) -> list[dict[str, object]]:
     """Reduces this evidence's already-persisted, already-scored `IOC` rows
-    to plain dicts (`{"evidence_id", "ioc_type", "composite_score"}`) for
+    to plain dicts (`{"evidence_id", "ioc_type", "composite_score", "value",
+    "severity", "classification", "first_seen"}`) for
     `CaseInvestigationState.extracted_indicators` — never re-extracts or
-    re-scores an IOC (constitution §1.9); `IOC.composite_score` was already
-    computed by `core.threat_intel`'s Threat Scoring Engine
+    re-scores an IOC (constitution §1.9); every field here was already
+    computed by `core.threat_intel`'s Threat Scoring/Classification Engines
     (`core/services/threat_intel_service.py`). Kept as plain dicts rather
     than a typed `core.threat_intel.models.ScoredIOC` per
     `core/agents/phishing_agent.py`'s docstring: `core/agents` has no import
-    edge onto `core/threat_intel` (docs/dependency-rules.md rule 4)."""
+    edge onto `core/threat_intel` (docs/dependency-rules.md rule 4). `value`/
+    `severity`/`classification`/`first_seen` are additive fields over the
+    original three — existing consumers reading only the original keys are
+    unaffected."""
     repository = IOCRepository(session)
     iocs = await repository.find_by_evidence(evidence_id)
     return [
@@ -708,6 +712,10 @@ async def _hydrate_attributed_iocs(
             "evidence_id": ioc.evidence_id,
             "ioc_type": ioc.ioc_type.value,
             "composite_score": ioc.composite_score,
+            "value": ioc.value,
+            "severity": ioc.severity.value,
+            "classification": ioc.classification.value,
+            "first_seen": ioc.first_seen_at.isoformat(),
         }
         for ioc in iocs
     ]

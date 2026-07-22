@@ -41,6 +41,42 @@ def test_case_overview_reports_counts() -> None:
     assert section.is_empty is False
 
 
+def test_ioc_summary_includes_bounded_sorted_table_and_hash_subset() -> None:
+    context = ReportGenerationContext(
+        case_id="c1",
+        iocs=(
+            {
+                "value": "203.0.113.5",
+                "ioc_type": "ipv4",
+                "severity": "high",
+                "classification": "malicious",
+                "composite_score": 40.0,
+                "first_seen": "2026-01-01T00:00:00+00:00",
+            },
+            {
+                "value": "a" * 64,
+                "ioc_type": "sha256",
+                "severity": "critical",
+                "classification": "malicious",
+                "composite_score": 90.0,
+                "first_seen": "2026-01-02T00:00:00+00:00",
+            },
+        ),
+    )
+    section = build_ioc_summary(context)
+    assert section.content["ioc_count"] == 2
+    iocs = section.content["iocs"]
+    assert isinstance(iocs, list)
+    assert len(iocs) == 2
+    # Sorted by composite_score descending — highest-risk indicator first.
+    assert iocs[0]["value"] == "a" * 64
+    hashes = section.content["hashes"]
+    assert isinstance(hashes, list)
+    assert len(hashes) == 1
+    assert hashes[0]["ioc_type"] == "sha256"
+    assert section.content["truncated_row_count"] == 0
+
+
 def test_findings_aggregates_across_every_source() -> None:
     context = ReportGenerationContext(
         case_id="c1",

@@ -108,17 +108,59 @@ def build_evidence_summary(context: ReportGenerationContext) -> ReportSection:
     )
 
 
+#: `iocs` table rows are capped so one evidence-heavy case can't produce an
+#: unbounded report page — the aggregate counts above already summarize the
+#: full set; this is a representative sample for the Appendix IOC table,
+#: sorted by composite_score (highest-risk indicators first).
+_MAX_IOC_TABLE_ROWS = 100
+
+#: The IOC types this pipeline already extracts (`IOCType`) that are file
+#: hashes — used only to label the Appendix table's "Hashes" subset, never
+#: to re-derive or re-classify an indicator (constitution §1.9).
+_HASH_IOC_TYPES = {"sha1", "sha256", "md5"}
+
+
+def _score(value: object) -> float:
+    """`dict[str, object].get(...)` carries no static type guarantee
+    (constitution §1.7: skip malformed, never crash) — a non-numeric
+    `composite_score` sorts as `0.0` rather than raising `TypeError`."""
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
 def build_ioc_summary(context: ReportGenerationContext) -> ReportSection:
     by_type: dict[str, int] = {}
+    rows: list[dict[str, object]] = []
     for ioc in context.iocs:
         if not isinstance(ioc, dict):
             continue
         ioc_type = str(ioc.get("ioc_type", "unknown"))
         by_type[ioc_type] = by_type.get(ioc_type, 0) + 1
+        rows.append(
+            {
+                "value": ioc.get("value", ""),
+                "ioc_type": ioc_type,
+                "severity": ioc.get("severity", "info"),
+                "classification": ioc.get("classification", "unknown"),
+                "composite_score": ioc.get("composite_score", 0.0),
+                "first_seen": ioc.get("first_seen", ""),
+            }
+        )
+    rows.sort(key=lambda r: _score(r["composite_score"]), reverse=True)
+    truncated_row_count = max(0, len(rows) - _MAX_IOC_TABLE_ROWS)
+    rows = rows[:_MAX_IOC_TABLE_ROWS]
+    hash_rows = [r for r in rows if str(r["ioc_type"]) in _HASH_IOC_TYPES]
     return _section(
         ReportSectionType.IOC_SUMMARY,
         "IOC Summary",
-        {"ioc_count": len(context.iocs), "iocs_by_type": by_type},
+        {
+            "ioc_count": len(context.iocs),
+            "iocs_by_type": by_type,
+            "iocs": rows,
+            "hashes": hash_rows,
+            "truncated_row_count": truncated_row_count,
+        },
         is_empty=not context.iocs,
     )
 
