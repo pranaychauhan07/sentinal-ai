@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .cd-tab { padding:9px 4px; font-size:12.5px; font-weight:500; color:#9aa1b0; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }
+  .cd-tab:hover { color:#e8eaf0; }
+  .cd-tab.active { color:#e8eaf0; border-bottom-color:#7aa2ff; }
+  .cd-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:18px; }
+</style>
+</helmet>
+
+<div style="display:flex;flex-direction:column;gap:16px;max-width:1400px;color:{{ textColor }}">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#7aa2ff">{{ c.id }}</div>
+        <span style="padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;{{ c.sevPillStyle }}">{{ c.severity }}</span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:#9aa1b0"><div style="width:6px;height:6px;border-radius:50%;{{ c.statusDotStyle }}"></div>{{ c.status }}</span>
+      </div>
+      <div style="font-size:19px;font-weight:700;margin-top:8px;letter-spacing:-0.2px">{{ c.title }}</div>
+      <div style="color:#6b7280;font-size:12.5px;margin-top:6px">Assigned to {{ c.assignee }} · opened {{ c.created }} · {{ c.evidenceCount }} evidence · {{ c.findingsCount }} findings</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-shrink:0">
+      <button style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.09);color:#e8eaf0;border-radius:8px;padding:9px 14px;font-size:12.5px;font-weight:600;cursor:pointer" onClick="{{ goToChat }}">Ask AI about this case</button>
+      <button style="background:#7aa2ff;border:none;color:#0a0b0e;border-radius:8px;padding:9px 14px;font-size:12.5px;font-weight:600;cursor:pointer" onClick="{{ goToReports }}">Generate Report</button>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:20px;border-bottom:1px solid rgba(255,255,255,0.07);overflow-x:auto">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="11">
+      <div class="{{ t.className }}" onClick="{{ t.onClick }}">{{ t.label }}</div>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="cd-card">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:10px">Case Summary</div>
+          <div style="font-size:13px;color:#c7cbd4;line-height:1.6">A sustained SSH brute-force campaign against WEB-PROD-03 culminated in a confirmed valid-account compromise, followed by internal lateral movement and an encoded PowerShell execution. A concurrent, related credential-phishing email targeted the same host's administrators. Five findings were generated across two coordinated attack vectors.</div>
+        </div>
+        <div class="cd-card">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:12px">Key Findings</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ overviewFindings }}" as="f" hint-placeholder-count="3">
+              <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <span style="padding:3px 8px;border-radius:6px;font-size:10.5px;font-weight:600;flex-shrink:0;{{ f.pillStyle }}">{{ f.severity }}</span>
+                <div style="font-size:12.5px;color:#c7cbd4;line-height:1.5">{{ f.title }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="cd-card">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:12px">Risk Score</div>
+          <div style="font-size:36px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:#ff6b6b">{{ c.risk }}</div>
+          <div style="color:#6b7280;font-size:11.5px;margin-top:4px">Critical — driven by confirmed account compromise</div>
+        </div>
+        <div class="cd-card">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:10px">Tags</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <sc-for list="{{ c.tagObjs }}" as="tag" hint-placeholder-count="3">
+              <span style="font-size:11px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.05);color:#9aa1b0">{{ tag.v }}</span>
+            </sc-for>
+          </div>
+        </div>
+        <div class="cd-card">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:10px">Memory Agent</div>
+          <div style="font-size:12px;color:#c7cbd4;line-height:1.5">2 similar past cases surfaced: <a href="#">CASE-1988</a>, <a href="#">CASE-1873</a> — shared IOC and technique overlap.</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isTimeline }}" hint-placeholder-val="{{ false }}">
+    <div class="cd-card">
+      <div style="display:flex;flex-direction:column">
+        <sc-for list="{{ timeline }}" as="ev" hint-placeholder-count="8">
+          <div style="display:flex;gap:14px">
+            <div style="display:flex;flex-direction:column;align-items:center;padding-top:2px">
+              <div style="width:9px;height:9px;border-radius:50%;{{ ev.dotStyle }}"></div>
+              <div style="width:1.5px;flex:1;background:rgba(255,255,255,0.08);margin-top:4px"></div>
+            </div>
+            <div style="flex:1;padding-bottom:20px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:10px;padding:2px 7px;border-radius:5px;font-weight:600;{{ ev.catPillStyle }}">{{ ev.category }}</span>
+                <div style="font-size:13px;font-weight:600">{{ ev.title }}</div>
+              </div>
+              <div style="font-size:12px;color:#9aa1b0;margin-top:5px;line-height:1.5">{{ ev.detail }}</div>
+              <div style="font-size:11px;color:#6b7280;margin-top:4px;font-family:'IBM Plex Mono',monospace">{{ ev.time }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isEvidence }}" hint-placeholder-val="{{ false }}">
+    <div class="cd-card" style="padding:0;overflow:hidden">
+      <div style="display:grid;grid-template-columns:1.4fr 1fr 90px 1.3fr 110px 70px;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase">
+        <div>Name</div><div>Type</div><div>Size</div><div>Parser</div><div>Status</div><div>Findings</div>
+      </div>
+      <sc-for list="{{ evidence }}" as="e" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:1.4fr 1fr 90px 1.3fr 110px 70px;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.045);align-items:center">
+          <div style="font-size:13px;font-weight:500;font-family:'IBM Plex Mono',monospace">{{ e.name }}</div>
+          <div style="font-size:12px;color:#9aa1b0">{{ e.type }}</div>
+          <div style="font-size:12px;color:#9aa1b0">{{ e.size }}</div>
+          <div style="font-size:12px;color:#9aa1b0">{{ e.parser }}</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;{{ e.statusColor }}"><div style="width:6px;height:6px;border-radius:50%;{{ e.statusDot }}"></div>{{ e.status }}</div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;color:#9aa1b0">{{ e.findings }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isIocs }}" hint-placeholder-val="{{ false }}">
+    <div class="cd-card" style="padding:0;overflow:hidden">
+      <div style="display:grid;grid-template-columns:90px 1.6fr 1.4fr 90px 90px 90px;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase">
+        <div>Type</div><div>Value</div><div>Role</div><div>Confidence</div><div>Threat</div><div>Severity</div>
+      </div>
+      <sc-for list="{{ iocs }}" as="i" hint-placeholder-count="9">
+        <div style="display:grid;grid-template-columns:90px 1.6fr 1.4fr 90px 90px 90px;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.045);align-items:center">
+          <div style="font-size:11px;color:#9aa1b0">{{ i.type }}</div>
+          <div style="font-size:12.5px;font-family:'IBM Plex Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ i.value }}</div>
+          <div style="font-size:12px;color:#9aa1b0">{{ i.role }}</div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace">{{ i.confidence }}%</div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;{{ i.threatColor }}">{{ i.threatScore }}</div>
+          <div><span style="padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:600;{{ i.pillStyle }}">{{ i.severity }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isMitre }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ mitre }}" as="t" hint-placeholder-count="8">
+        <div class="cd-card" style="opacity:{{ t.opacity }}">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa">{{ t.id }}</div>
+            <div style="font-size:13.5px;font-weight:600">{{ t.name }}</div>
+            <span style="font-size:10.5px;padding:2px 8px;border-radius:5px;background:rgba(255,255,255,0.05);color:#9aa1b0">{{ t.tactic }}</span>
+            <div style="flex:1"></div>
+            <div style="font-size:11.5px;color:#6b7280;font-family:'IBM Plex Mono',monospace">{{ t.confidenceLabel }}</div>
+          </div>
+          <div style="font-size:12px;color:#9aa1b0;margin-top:8px;line-height:1.5">{{ t.rationale }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isFindings }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ allFindings }}" as="f" hint-placeholder-count="5">
+        <div class="cd-card">
+          <div style="display:flex;align-items:flex-start;gap:10px;justify-content:space-between">
+            <div style="font-size:13.5px;font-weight:600;line-height:1.4">{{ f.title }}</div>
+            <span style="padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:600;flex-shrink:0;{{ f.pillStyle }}">{{ f.severity }}</span>
+          </div>
+          <div style="font-size:12px;color:#9aa1b0;margin-top:8px;line-height:1.5"><span style="color:#6b7280">Evidence: </span>{{ f.evidenceSummary }}</div>
+          <div style="font-size:12px;color:#9aa1b0;margin-top:6px;line-height:1.5"><span style="color:#6b7280">Severity rationale: </span>{{ f.severityRationale }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isThreatIntel }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ relatedIntel }}" as="t" hint-placeholder-count="3">
+        <div class="cd-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div style="font-size:13px;font-weight:600;line-height:1.4">{{ t.title }}</div>
+            <span style="padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:600;flex-shrink:0;{{ t.pillStyle }}">{{ t.severity }}</span>
+          </div>
+          <div style="color:#6b7280;font-size:11.5px;margin-top:6px">{{ t.source }} · confidence {{ t.confidence }}%</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isAgents }}" hint-placeholder-val="{{ false }}">
+    <div class="cd-card" style="padding:0;overflow:hidden">
+      <sc-for list="{{ agentDecisions }}" as="a" hint-placeholder-count="6">
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+            <div style="font-size:12.5px;font-weight:600;color:#7aa2ff">{{ a.agent }}</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:10.5px;color:#6b7280">confidence: {{ a.confidence }}</span>
+              <span style="font-size:11px;color:#6b7280;font-family:'IBM Plex Mono',monospace">{{ a.time }}</span>
+            </div>
+          </div>
+          <div style="font-size:12.5px;color:#c7cbd4;margin-top:6px;line-height:1.5">{{ a.decision }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isIr }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="cd-card">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="padding:4px 10px;border-radius:6px;font-size:11.5px;font-weight:600;background:rgba(255,107,107,0.14);color:#ff6b6b">{{ ir.severity }}</span>
+          <div style="font-size:13.5px;font-weight:600">Severity Justification</div>
+        </div>
+        <div style="font-size:12.5px;color:#c7cbd4;margin-top:10px;line-height:1.6">{{ ir.justification }}</div>
+      </div>
+      <sc-for list="{{ irActions }}" as="cat" hint-placeholder-count="4">
+        <div class="cd-card">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">{{ cat.name }}</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ cat.items }}" as="item" hint-placeholder-count="2">
+              <div style="display:flex;gap:10px;align-items:flex-start">
+                <span style="font-size:10px;padding:2px 7px;border-radius:5px;flex-shrink:0;{{ item.pillStyle }}">{{ item.priority }}</span>
+                <div style="font-size:12.5px;color:#c7cbd4;line-height:1.5">{{ item.text }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isReports }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ caseReports }}" as="r" hint-placeholder-count="3">
+        <div class="cd-card" style="display:flex;align-items:center;gap:14px;cursor:pointer" onClick="{{ goToReports }}">
+          <div style="width:34px;height:40px;border:1.5px solid rgba(255,255,255,0.15);border-radius:4px;flex-shrink:0;position:relative">
+            <div style="position:absolute;top:7px;left:6px;right:6px;height:2px;background:rgba(255,255,255,0.2)"></div>
+            <div style="position:absolute;top:13px;left:6px;right:10px;height:2px;background:rgba(255,255,255,0.15)"></div>
+            <div style="position:absolute;top:19px;left:6px;right:14px;height:2px;background:rgba(255,255,255,0.15)"></div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">{{ r.title }}</div>
+            <div style="color:#6b7280;font-size:11.5px;margin-top:4px">{{ r.type }} report · generated {{ r.generated }} · {{ r.pages }} pages</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isActivity }}" hint-placeholder-val="{{ false }}">
+    <div class="cd-card" style="padding:0;overflow:hidden">
+      <sc-for list="{{ activity }}" as="a" hint-placeholder-count="5">
+        <div style="display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,0.05);align-items:center">
+          <div style="font-size:12px;font-weight:600;color:#c7cbd4;width:130px;flex-shrink:0">{{ a.actor }}</div>
+          <div style="font-size:12.5px;color:#9aa1b0;flex:1">{{ a.action }}</div>
+          <div style="font-size:11px;color:#6b7280;font-family:'IBM Plex Mono',monospace">{{ a.time }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const SEV_COLOR = {
+  Critical: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.14)' },
+  High: { text: '#ff9f5b', bg: 'rgba(255,159,91,0.14)' },
+  Medium: { text: '#f5c451', bg: 'rgba(245,196,81,0.14)' },
+  Low: { text: '#7dd3fc', bg: 'rgba(125,211,252,0.14)' },
+};
+const STATUS_COLOR = { Active: '#7aa2ff', Investigating: '#f5c451', Contained: '#7dd3fc', Resolved: '#3ddc97' };
+const CAT_COLOR = { evidence: '#7aa2ff', ioc: '#f5c451', finding: '#ff6b6b', mitre: '#a78bfa', agent: '#3ddc97', recommendation: '#ff9f5b' };
+const TABS = [
+  ['overview', 'Overview'], ['timeline', 'Timeline'], ['evidence', 'Evidence'], ['iocs', 'Extracted IOCs'],
+  ['mitre', 'MITRE ATT&CK'], ['findings', 'Findings'], ['threatIntel', 'Threat Intelligence'],
+  ['agents', 'Agent Decisions'], ['ir', 'Incident Response Plan'], ['reports', 'Generated Reports'], ['activity', 'Activity Log'],
+];
+
+class Component extends DCLogic {
+  state = { data: null, tab: 'overview' };
+  componentDidMount() { import('./sentinelData.js').then((m) => this.setState({ data: m })); }
+
+  renderVals() {
+    const d = this.state.data;
+    if (!d) return {};
+    const c0 = d.cases.find((x) => x.id === this.props.caseId) || d.primaryCase;
+    const sc = SEV_COLOR[c0.severity];
+    const c = { ...c0, sevPillStyle: `color:${sc.text};background:${sc.bg}`, statusDotStyle: `background:${STATUS_COLOR[c0.status] || '#6b7280'}`, tagObjs: c0.tags.map((v) => ({ v })) };
+
+    const tabs = TABS.map(([id, label]) => ({ id, label, className: 'cd-tab' + (this.state.tab === id ? ' active' : ''), onClick: () => this.setState({ tab: id }) }));
+
+    const overviewFindings = d.findings.slice(0, 3).map((f) => ({ ...f, pillStyle: `color:${SEV_COLOR[f.severity].text};background:${SEV_COLOR[f.severity].bg}` }));
+    const allFindings = d.findings.map((f) => ({ ...f, pillStyle: `color:${SEV_COLOR[f.severity].text};background:${SEV_COLOR[f.severity].bg}` }));
+
+    const timeline = d.timelineEvents.map((ev) => ({
+      ...ev, dotStyle: `background:${CAT_COLOR[ev.category] || '#9aa1b0'}`,
+      catPillStyle: `color:${CAT_COLOR[ev.category] || '#9aa1b0'};background:rgba(255,255,255,0.06)`,
+    }));
+
+    const evidence = d.evidenceItems.map((e) => ({
+      ...e, statusColor: e.status === 'Processed' ? 'color:#3ddc97' : 'color:#f5c451',
+      statusDot: e.status === 'Processed' ? 'background:#3ddc97' : 'background:#f5c451',
+    }));
+
+    const iocs = d.iocs.map((i) => ({
+      ...i, threatColor: `color:${i.threatScore >= 80 ? '#ff6b6b' : i.threatScore >= 60 ? '#ff9f5b' : '#f5c451'}`,
+      pillStyle: `color:${SEV_COLOR[i.severity].text};background:${SEV_COLOR[i.severity].bg}`,
+    }));
+
+    const mitre = d.mitreTechniques.map((t) => ({
+      ...t, opacity: t.ruleId ? 1 : 0.5,
+      confidenceLabel: t.ruleId ? `${t.confidence}% confidence` : 'dormant',
+    }));
+
+    const relatedIntel = d.threatIntelFeed.slice(0, 3).map((t) => ({ ...t, pillStyle: `color:${SEV_COLOR[t.severity].text};background:${SEV_COLOR[t.severity].bg}` }));
+
+    const PRIORITY_COLOR = { Immediate: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.14)' }, High: { text: '#ff9f5b', bg: 'rgba(255,159,91,0.14)' }, Medium: { text: '#f5c451', bg: 'rgba(245,196,81,0.14)' } };
+    const catMap = {};
+    d.irPlan.actions.forEach((a) => {
+      if (!catMap[a.category]) catMap[a.category] = [];
+      catMap[a.category].push({ ...a, pillStyle: `color:${PRIORITY_COLOR[a.priority].text};background:${PRIORITY_COLOR[a.priority].bg}` });
+    });
+    const irActions = Object.entries(catMap).map(([name, items]) => ({ name, items }));
+
+    return {
+      textColor: this.props.textColor ?? '#e8eaf0',
+      c, tabs,
+      isOverview: this.state.tab === 'overview', isTimeline: this.state.tab === 'timeline', isEvidence: this.state.tab === 'evidence',
+      isIocs: this.state.tab === 'iocs', isMitre: this.state.tab === 'mitre', isFindings: this.state.tab === 'findings',
+      isThreatIntel: this.state.tab === 'threatIntel', isAgents: this.state.tab === 'agents', isIr: this.state.tab === 'ir',
+      isReports: this.state.tab === 'reports', isActivity: this.state.tab === 'activity',
+      overviewFindings, allFindings, timeline, evidence, iocs, mitre, relatedIntel,
+      agentDecisions: d.agentDecisions, ir: d.irPlan, irActions, caseReports: d.reports, activity: d.activityLog,
+      goToChat: () => this.props.goTo && this.props.goTo('aiChat'),
+      goToReports: () => this.props.goTo && this.props.goTo('reports'),
+    };
+  }
+}
+
+</script>
+</body>
+</html>

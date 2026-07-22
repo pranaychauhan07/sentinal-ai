@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .chat-input { flex:1; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; color:#e8eaf0; font-size:13.5px; padding:12px 14px; outline:none; resize:none; font-family:'Inter',sans-serif; }
+  .chat-input:focus { border-color:rgba(122,162,255,0.4); }
+  .suggested-q { padding:8px 13px; border-radius:8px; border:1px solid rgba(255,255,255,0.08); font-size:12.5px; color:#9aa1b0; cursor:pointer; }
+  .suggested-q:hover { background:rgba(255,255,255,0.04); color:#e8eaf0; }
+  .cite-chip { display:inline-flex; align-items:center; padding:1px 7px; border-radius:5px; background:rgba(122,162,255,0.14); color:#7aa2ff; font-size:11px; font-weight:600; font-family:'IBM Plex Mono',monospace; margin:0 2px; }
+</style>
+</helmet>
+
+<div style="display:grid;grid-template-columns:1fr 280px;gap:16px;height:calc(100vh - 130px);max-width:1400px;color:{{ textColor }}">
+  <div style="display:flex;flex-direction:column;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;overflow:hidden">
+    <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px">
+      <div style="width:8px;height:8px;border-radius:50%;background:#3ddc97"></div>
+      <div style="font-size:13px;font-weight:600">Investigating CASE-2049</div>
+      <div style="color:#6b7280;font-size:11.5px;margin-left:auto">Coordinator Agent</div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:18px">
+      <sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
+        <div style="display:flex;{{ m.rowStyle }}">
+          <div style="max-width:78%;{{ m.bubbleStyle }}">
+            <div style="font-size:13px;line-height:1.6;white-space:pre-wrap">{{ m.textRendered }}</div>
+            <sc-if value="{{ m.hasCitations }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08)">
+                <sc-for list="{{ m.citations }}" as="cit" hint-placeholder-count="2">
+                  <span class="cite-chip">{{ cit.v }}</span>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ isStreaming }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex">
+          <div style="max-width:78%;background:rgba(255,255,255,0.04);border-radius:12px 12px 12px 3px;padding:12px 15px">
+            <div style="font-size:13px;line-height:1.6;color:#e8eaf0">{{ streamText }}<span style="opacity:0.5">▍</span></div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="padding:14px 18px;border-top:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <sc-for list="{{ suggestions }}" as="s" hint-placeholder-count="3">
+          <div class="suggested-q" onClick="{{ s.onClick }}">{{ s.text }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <textarea class="chat-input" rows="1" placeholder="Ask about this case's IOCs, findings, or MITRE mapping..." value="{{ draft }}" onChange="{{ setDraft }}"></textarea>
+        <button style="background:#7aa2ff;border:none;color:#0a0b0e;border-radius:9px;padding:11px 18px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0" onClick="{{ send }}">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:16px">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:10px">Conversation History</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ history }}" as="h" hint-placeholder-count="3">
+          <div style="padding:8px 9px;border-radius:7px;cursor:pointer;background:{{ h.bg }}">
+            <div style="font-size:11.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.title }}</div>
+            <div style="font-size:10.5px;color:#6b7280;margin-top:2px">{{ h.time }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:16px">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:10px">Generate Report</div>
+      <div style="color:#9aa1b0;font-size:11.5px;line-height:1.5;margin-bottom:10px">Ask the assistant to synthesize this conversation into a report.</div>
+      <button style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.09);color:#e8eaf0;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer">Draft Executive Report</button>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const INITIAL = [
+  { id: 'm1', role: 'user', text: 'Why was this case escalated to Critical?' },
+  { id: 'm2', role: 'ai', text: "This case was escalated to Critical because a brute-force campaign from 203.0.113.44 [F-1] produced 312 failed logins, then succeeded — confirming a valid-account compromise [F-2]. Per policy, a confirmed compromise following a high-volume brute-force window automatically escalates severity from High to Critical [T1110] [T1078].", citations: ['F-1', 'F-2', 'T1110', 'T1078'] },
+];
+const SUGGESTIONS = ['What should we contain first?', 'Show me related past cases', 'Summarize the phishing vector'];
+
+class Component extends DCLogic {
+  state = { messages: INITIAL, draft: '', streaming: false, streamText: '' };
+
+  send = () => {
+    const text = this.state.draft.trim();
+    if (!text) return;
+    const userMsg = { id: 'u' + Date.now(), role: 'user', text };
+    this.setState({ messages: [...this.state.messages, userMsg], draft: '', streaming: true, streamText: '' });
+    const full = "Based on the incident response plan, immediate containment priorities are: block the 4 malicious network indicators [F-1], and force a credential reset for the compromised account [F-2]. The persistence mechanism should be removed next [T1078].";
+    let i = 0;
+    const tick = () => {
+      if (i >= full.length) {
+        const aiMsg = { id: 'a' + Date.now(), role: 'ai', text: full, citations: ['F-1', 'F-2', 'T1078'] };
+        this.setState({ messages: [...this.state.messages, aiMsg], streaming: false, streamText: '' });
+        return;
+      }
+      i += 3;
+      this.setState({ streamText: full.slice(0, i) });
+      setTimeout(tick, 12);
+    };
+    tick();
+  };
+
+  renderVals() {
+    const messages = this.state.messages.map((m) => ({
+      ...m,
+      textRendered: m.text,
+      rowStyle: m.role === 'user' ? 'justify-content:flex-end' : 'justify-content:flex-start',
+      bubbleStyle: m.role === 'user'
+        ? 'background:#7aa2ff;color:#0a0b0e;border-radius:12px 12px 3px 12px;padding:12px 15px'
+        : 'background:rgba(255,255,255,0.04);border-radius:12px 12px 12px 3px;padding:12px 15px;color:#e8eaf0',
+      hasCitations: !!(m.citations && m.citations.length),
+      citations: (m.citations || []).map((v) => ({ v })),
+    }));
+    const suggestions = SUGGESTIONS.map((text) => ({ text, onClick: () => this.setState({ draft: text }) }));
+    return {
+      textColor: this.props.textColor ?? '#e8eaf0',
+      messages, suggestions,
+      isStreaming: this.state.streaming,
+      streamText: this.state.streamText,
+      draft: this.state.draft,
+      setDraft: (e) => this.setState({ draft: e.target.value }),
+      send: this.send,
+      history: [
+        { title: 'CASE-2049 — escalation reasoning', time: '2 min ago', bg: 'rgba(122,162,255,0.08)' },
+        { title: 'CASE-2047 — PowerShell analysis', time: 'yesterday', bg: 'transparent' },
+        { title: 'CASE-2042 — exfil timeline', time: '2 days ago', bg: 'transparent' },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

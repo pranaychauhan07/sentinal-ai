@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .ioc-chip { padding:6px 12px; border-radius:7px; font-size:12.5px; font-weight:500; cursor:pointer; border:1px solid rgba(255,255,255,0.08); color:#9aa1b0; }
+  .ioc-chip:hover { background:rgba(255,255,255,0.04); }
+  .ioc-chip.active { background:rgba(122,162,255,0.12); border-color:rgba(122,162,255,0.35); color:#dbe4ff; }
+  .ioc-row:hover { background:rgba(255,255,255,0.025); }
+</style>
+</helmet>
+
+<div style="display:flex;flex-direction:column;gap:16px;max-width:1400px;color:{{ textColor }}">
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <sc-for list="{{ typeChips }}" as="chip" hint-placeholder-count="8">
+      <div class="{{ chip.className }}" onClick="{{ chip.onClick }}">{{ chip.label }}</div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;overflow:hidden">
+      <div style="display:grid;grid-template-columns:90px 1.7fr 1.3fr 90px 90px 90px;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase">
+        <div>Type</div><div>Value</div><div>Role</div><div>Confidence</div><div>Threat</div><div>Severity</div>
+      </div>
+      <sc-for list="{{ iocs }}" as="i" hint-placeholder-count="9">
+        <div class="ioc-row" style="display:grid;grid-template-columns:90px 1.7fr 1.3fr 90px 90px 90px;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.045);align-items:center;cursor:pointer" onClick="{{ i.onClick }}">
+          <div style="font-size:11px;color:#9aa1b0">{{ i.type }}</div>
+          <div style="font-size:12.5px;font-family:'IBM Plex Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ i.value }}</div>
+          <div style="font-size:12px;color:#9aa1b0">{{ i.role }}</div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace">{{ i.confidence }}%</div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;{{ i.threatColor }}">{{ i.threatScore }}</div>
+          <div><span style="padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:600;{{ i.pillStyle }}">{{ i.severity }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px;position:sticky;top:0">
+      <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ true }}">
+        <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em">{{ selected.type }}</div>
+        <div style="font-size:14px;font-weight:700;font-family:'IBM Plex Mono',monospace;margin-top:6px;word-break:break-all">{{ selected.value }}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <div style="flex:1;background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:700;font-family:'IBM Plex Mono',monospace">{{ selected.confidence }}%</div>
+            <div style="font-size:10.5px;color:#6b7280;margin-top:2px">Confidence</div>
+          </div>
+          <div style="flex:1;background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:700;font-family:'IBM Plex Mono',monospace;{{ selected.threatColor }}">{{ selected.threatScore }}</div>
+            <div style="font-size:10.5px;color:#6b7280;margin-top:2px">Threat Score</div>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">Role in investigation</div>
+          <div style="font-size:12px;color:#9aa1b0;line-height:1.5">{{ selected.role }}</div>
+        </div>
+        <div style="margin-top:14px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">Tags</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <sc-for list="{{ selected.tagObjs }}" as="tag" hint-placeholder-count="2">
+              <span style="font-size:10.5px;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,0.05);color:#9aa1b0">{{ tag.v }}</span>
+            </sc-for>
+          </div>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06)">
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px">Related Indicators</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ related }}" as="r" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:5px;height:5px;border-radius:50%;background:#7aa2ff"></div>
+                <div style="font-size:11.5px;font-family:'IBM Plex Mono',monospace;color:#9aa1b0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:14px">First seen {{ selected.firstSeen }}</div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const SEV_COLOR = {
+  Critical: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.14)' },
+  High: { text: '#ff9f5b', bg: 'rgba(255,159,91,0.14)' },
+  Medium: { text: '#f5c451', bg: 'rgba(245,196,81,0.14)' },
+  Low: { text: '#7dd3fc', bg: 'rgba(125,211,252,0.14)' },
+};
+const TYPES = ['All', 'IP', 'Domain', 'URL', 'Hash', 'Email', 'Process', 'Registry Key'];
+
+class Component extends DCLogic {
+  state = { data: null, typeFilter: 'All', selectedId: 'ioc-1' };
+  componentDidMount() { import('./sentinelData.js').then((m) => this.setState({ data: m })); }
+
+  renderVals() {
+    const d = this.state.data;
+    if (!d) return {};
+    const typeChips = TYPES.map((t) => ({ label: t, className: 'ioc-chip' + (this.state.typeFilter === t ? ' active' : ''), onClick: () => this.setState({ typeFilter: t }) }));
+    let list = d.iocs;
+    if (this.state.typeFilter !== 'All') list = list.filter((i) => i.type === this.state.typeFilter);
+
+    const iocs = list.map((i) => ({
+      ...i, threatColor: `color:${i.threatScore >= 80 ? '#ff6b6b' : i.threatScore >= 60 ? '#ff9f5b' : '#f5c451'}`,
+      pillStyle: `color:${SEV_COLOR[i.severity].text};background:${SEV_COLOR[i.severity].bg}`,
+      onClick: () => this.setState({ selectedId: i.id }),
+    }));
+
+    const sel0 = d.iocs.find((i) => i.id === this.state.selectedId);
+    const selected = sel0 ? { ...sel0, threatColor: `color:${sel0.threatScore >= 80 ? '#ff6b6b' : '#ff9f5b'}`, tagObjs: sel0.tags.map((v) => ({ v })) } : null;
+    const related = selected ? d.iocs.filter((i) => i.id !== selected.id).slice(0, 3) : [];
+
+    return { textColor: this.props.textColor ?? '#e8eaf0', typeChips, iocs, hasSelection: !!selected, selected, related };
+  }
+}
+
+</script>
+</body>
+</html>

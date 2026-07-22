@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet></helmet>
+<div style="display:flex;flex-direction:column;gap:16px;max-width:1400px;color:{{ textColor }}">
+  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:16px;align-items:start">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+      <div style="font-size:13.5px;font-weight:600;margin-bottom:14px">Live Threat Feed</div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ feed }}" as="t" hint-placeholder-count="5">
+          <div style="display:flex;gap:12px;padding:12px 8px;border-bottom:1px solid rgba(255,255,255,0.05);align-items:flex-start">
+            <div style="width:7px;height:7px;border-radius:50%;margin-top:6px;flex-shrink:0;{{ t.dotStyle }}"></div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500;line-height:1.5">{{ t.title }}</div>
+              <div style="color:#6b7280;font-size:11.5px;margin-top:4px">{{ t.source }} · confidence {{ t.confidence }}% · {{ t.time }}</div>
+            </div>
+            <span style="padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:600;flex-shrink:0;{{ t.pillStyle }}">{{ t.severity }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:12px">IOC Enrichment Snapshot</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ enrichment }}" as="e" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;color:#9aa1b0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.value }}</div>
+              <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;{{ e.color }}">{{ e.threatScore }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div style="font-size: 13.5px; font-weight: 600; margin-bottom: 12px; text-align: center">Threat Actor Cards</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+      <sc-for list="{{ actors }}" as="a" hint-placeholder-count="3">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:14px;font-weight:700;letter-spacing:0.3px">{{ a.name }}</div>
+            <div style="font-size:11px;color:#6b7280;font-family:'IBM Plex Mono',monospace">{{ a.confidence }}% conf.</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <span style="font-size:10.5px;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,0.05);color:#9aa1b0">{{ a.motivation }}</span>
+            <span style="font-size:10.5px;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,0.05);color:#9aa1b0">{{ a.sophistication }}</span>
+          </div>
+          <div style="font-size:11.5px;color:#9aa1b0;margin-top:12px;line-height:1.5"><span style="color:#6b7280">Targets: </span>{{ a.targets }}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+            <sc-for list="{{ a.techObjs }}" as="tech" hint-placeholder-count="2">
+              <span style="font-size:10px;padding:2px 7px;border-radius:5px;background:rgba(167,139,250,0.12);color:#a78bfa;font-family:'IBM Plex Mono',monospace">{{ tech.v }}</span>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const SEV_COLOR = {
+  Critical: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.14)' },
+  High: { text: '#ff9f5b', bg: 'rgba(255,159,91,0.14)' },
+  Medium: { text: '#f5c451', bg: 'rgba(245,196,81,0.14)' },
+  Low: { text: '#7dd3fc', bg: 'rgba(125,211,252,0.14)' },
+};
+class Component extends DCLogic {
+  state = { data: null };
+  componentDidMount() { import('./sentinelData.js').then((m) => this.setState({ data: m })); }
+  renderVals() {
+    const d = this.state.data;
+    const textColor = this.props.textColor ?? '#e8eaf0';
+    if (!d) return { textColor };
+    const feed = d.threatIntelFeed.map((t) => {
+      const sc = SEV_COLOR[t.severity];
+      return { ...t, dotStyle: `background:${sc.text}`, pillStyle: `color:${sc.text};background:${sc.bg}` };
+    });
+    const enrichment = d.iocs.slice(0, 4).map((i) => ({ value: i.value, threatScore: i.threatScore, color: `color:${i.threatScore >= 80 ? '#ff6b6b' : '#ff9f5b'}` }));
+    const actors = d.threatActors.map((a) => ({ ...a, techObjs: a.techniques.map((v) => ({ v })) }));
+    return { feed, enrichment, actors, textColor };
+  }
+}
+
+</script>
+</body>
+</html>

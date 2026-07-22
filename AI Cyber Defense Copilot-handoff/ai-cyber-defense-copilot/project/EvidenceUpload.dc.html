@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .dropzone { border:1.5px dashed rgba(122,162,255,0.35); border-radius:14px; padding:48px 24px; text-align:center; transition:all .15s ease; cursor:pointer; }
+  .dropzone:hover, .dropzone.dragging { border-color:#7aa2ff; background:rgba(122,162,255,0.04); }
+  .parser-opt { border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 14px; cursor:pointer; transition:all .15s ease; }
+  .parser-opt:hover { background:rgba(255,255,255,0.03); }
+  .parser-opt.selected { border-color:rgba(122,162,255,0.5); background:rgba(122,162,255,0.07); }
+</style>
+</helmet>
+
+<div style="display:flex;flex-direction:column;gap:16px;max-width:1100px;color:{{ textColor }}">
+  <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;align-items:start">
+    <div class="{{ dropClass }}" onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" onDrop="{{ onDrop }}" onClick="{{ simulateUpload }}">
+      <div style="width:44px;height:44px;border-radius:12px;background:rgba(122,162,255,0.1);border:1px solid rgba(122,162,255,0.3);display:flex;align-items:center;justify-content:center;margin:0 auto 14px auto">
+        <div style="width:16px;height:16px;border:2px solid #7aa2ff;border-bottom:none;border-right:none;transform:rotate(45deg) translate(1px,1px)"></div>
+      </div>
+      <div style="font-size:14px;font-weight:600">Drag &amp; drop evidence here</div>
+      <div style="color:#6b7280;font-size:12.5px;margin-top:6px">Logs, PCAPs, emails (.eml), Nmap XML, EDR exports, scan reports — up to 250 MB</div>
+      <div style="color:#7aa2ff;font-size:12.5px;margin-top:14px;font-weight:500">or click to browse files</div>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Parser Selection</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ parsers }}" as="p" hint-placeholder-count="5">
+          <div class="{{ p.className }}" onClick="{{ p.onClick }}">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:14px;height:14px;border-radius:50%;border:1.5px solid {{ p.dotBorder }};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <div style="{{ p.innerDot }}"></div>
+              </div>
+              <div>
+                <div style="font-size:12.5px;font-weight:600">{{ p.name }}</div>
+                <div style="color:#6b7280;font-size:11px;margin-top:2px">{{ p.desc }}</div>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:14px">Upload Queue</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <sc-for list="{{ queue }}" as="q" hint-placeholder-count="3">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+            <div style="width:30px;height:36px;border:1.5px solid rgba(255,255,255,0.15);border-radius:4px;flex-shrink:0"></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.name }}</div>
+              <div style="color:#6b7280;font-size:11px;margin-top:2px">{{ q.size }} · {{ q.parser }}</div>
+            </div>
+            <div style="{{ q.statusColor }};font-size:11.5px;font-weight:600;flex-shrink:0">{{ q.statusLabel }}</div>
+          </div>
+          <div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+            <div style="{{ q.barStyle }}"></div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-if value="{{ hasPreview }}" hint-placeholder-val="{{ true }}">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600">Evidence Preview — ssh_auth.log</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#3ddc97"><div style="width:6px;height:6px;border-radius:50%;background:#3ddc97"></div>Validation passed</div>
+      </div>
+      <div style="background:#08090c;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:14px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#9aa1b0;line-height:1.7;overflow-x:auto">
+        <div>Jul 18 03:12:41 web-prod-03 sshd[2291]: Failed password for admin from 203.0.113.44 port 51422 ssh2</div>
+        <div>Jul 18 03:12:44 web-prod-03 sshd[2291]: Failed password for root from 203.0.113.44 port 51423 ssh2</div>
+        <div>Jul 18 03:12:47 web-prod-03 sshd[2291]: Failed password for ubuntu from 203.0.113.44 port 51424 ssh2</div>
+        <div style="color:#4b5160">... 309 more matching lines ...</div>
+        <div style="color:#3ddc97">Jul 18 03:54:02 web-prod-03 sshd[2291]: Accepted password for admin from 203.0.113.44 port 51701 ssh2</div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const PARSERS = [
+  { id: 'syslog', name: 'Syslog / SSH Auth Parser', desc: 'Line-oriented auth logs (sshd, sudo, PAM)' },
+  { id: 'email', name: 'Email Header + Body Parser', desc: '.eml/.msg — headers, links, attachments' },
+  { id: 'nmap', name: 'Nmap XML Parser', desc: 'Nmap scan output, service/version detection' },
+  { id: 'edr', name: 'EDR Process Tree Parser', desc: 'JSON process-tree exports' },
+  { id: 'auto', name: 'Auto-detect', desc: 'Infer parser from file signature and extension' },
+];
+
+class Component extends DCLogic {
+  state = { dragging: false, selectedParser: 'auto', queue: [], showPreview: false };
+
+  simulateUpload = () => {
+    if (this.state.queue.length) return;
+    const item = { name: 'ssh_auth.log', size: '4.2 MB', parser: 'Syslog / SSH Auth Parser', pct: 0, status: 'uploading' };
+    this.setState({ queue: [item] });
+    const tick = (pct) => {
+      if (pct > 100) {
+        this.setState((s) => ({ queue: s.queue.map((q) => ({ ...q, status: 'done' })), showPreview: true }));
+        return;
+      }
+      this.setState((s) => ({ queue: s.queue.map((q) => ({ ...q, pct })) }));
+      setTimeout(() => tick(pct + 20), 180);
+    };
+    tick(20);
+  };
+
+  renderVals() {
+    const parsers = PARSERS.map((p) => ({
+      ...p,
+      className: 'parser-opt' + (this.state.selectedParser === p.id ? ' selected' : ''),
+      dotBorder: this.state.selectedParser === p.id ? '#7aa2ff' : 'rgba(255,255,255,0.25)',
+      innerDot: this.state.selectedParser === p.id ? 'width:6px;height:6px;border-radius:50%;background:#7aa2ff' : '',
+      onClick: () => this.setState({ selectedParser: p.id }),
+    }));
+
+    const queue = this.state.queue.map((q) => ({
+      ...q,
+      statusLabel: q.status === 'done' ? 'Processed' : `${q.pct}%`,
+      statusColor: q.status === 'done' ? 'color:#3ddc97' : 'color:#7aa2ff',
+      barStyle: `height:100%;border-radius:3px;background:${q.status === 'done' ? '#3ddc97' : '#7aa2ff'};width:${q.status === 'done' ? 100 : q.pct}%;transition:width .18s ease`,
+    }));
+
+    return {
+      textColor: this.props.textColor ?? '#e8eaf0',
+      dropClass: 'dropzone' + (this.state.dragging ? ' dragging' : ''),
+      onDragOver: (e) => { e.preventDefault(); this.setState({ dragging: true }); },
+      onDragLeave: () => this.setState({ dragging: false }),
+      onDrop: (e) => { e.preventDefault(); this.setState({ dragging: false }); this.simulateUpload(); },
+      simulateUpload: this.simulateUpload,
+      parsers, queue,
+      hasPreview: this.state.showPreview,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

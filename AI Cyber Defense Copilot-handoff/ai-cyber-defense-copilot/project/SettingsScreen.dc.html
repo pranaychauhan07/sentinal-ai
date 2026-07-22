@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .set-nav-item { padding:9px 12px; border-radius:8px; font-size:12.5px; font-weight:500; color:#9aa1b0; cursor:pointer; }
+  .set-nav-item:hover { background:rgba(255,255,255,0.04); }
+  .set-nav-item.active { background:rgba(122,162,255,0.12); color:#dbe4ff; }
+  .toggle { width:36px; height:20px; border-radius:10px; position:relative; cursor:pointer; flex-shrink:0; }
+  .toggle-knob { width:16px; height:16px; border-radius:50%; background:#fff; position:absolute; top:2px; transition:left .15s ease; }
+</style>
+</helmet>
+
+<div style="display:grid;grid-template-columns:200px 1fr;gap:20px;max-width:1200px;color:{{ textColor }}">
+  <div style="display:flex;flex-direction:column;gap:2px">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="8">
+      <div class="{{ t.className }}" onClick="{{ t.onClick }}">{{ t.label }}</div>
+    </sc-for>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <sc-if value="{{ isTheme }}" hint-placeholder-val="{{ true }}">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:4px">Appearance</div>
+        <div style="color:#6b7280;font-size:12px;margin-bottom:14px">Sentinel Copilot is optimized for a dark, low-glare SOC environment.</div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1;border:1.5px solid #7aa2ff;border-radius:10px;padding:12px;background:#0d0f14;text-align:center">
+            <div style="width:100%;height:44px;border-radius:6px;background:linear-gradient(180deg,#12141a,#0a0b0e);margin-bottom:8px"></div>
+            <div style="font-size:12px;font-weight:600">Dark (default)</div>
+          </div>
+          <div style="flex:1;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;text-align:center;opacity:0.4">
+            <div style="width:100%;height:44px;border-radius:6px;background:linear-gradient(180deg,#f4f5f7,#e5e7eb);margin-bottom:8px"></div>
+            <div style="font-size:12px;font-weight:600">Light (coming soon)</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isApiKeys }}" hint-placeholder-val="{{ false }}">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:0;overflow:hidden">
+        <sc-for list="{{ apiKeys }}" as="k" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:600">{{ k.name }}</div>
+              <div style="font-size:11.5px;color:#6b7280;font-family:'IBM Plex Mono',monospace;margin-top:3px">{{ k.masked }}</div>
+            </div>
+            <span style="font-size:10.5px;padding:3px 8px;border-radius:5px;background:rgba(61,220,151,0.12);color:#3ddc97;font-weight:600">{{ k.status }}</span>
+            <div style="font-size:11.5px;color:#6b7280">{{ k.created }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isIntegrations }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+        <sc-for list="{{ integrations }}" as="i" hint-placeholder-count="4">
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px">
+            <div style="width:36px;height:36px;border-radius:8px;background:rgba(122,162,255,0.12);flex-shrink:0"></div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:600">{{ i.name }}</div>
+              <div style="font-size:11.5px;color:#6b7280;margin-top:2px">{{ i.desc }}</div>
+            </div>
+            <div class="toggle" style="background:{{ i.toggleBg }}"><div class="toggle-knob" style="left:{{ i.knobLeft }}"></div></div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isUsers }}" hint-placeholder-val="{{ false }}">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:0;overflow:hidden">
+        <sc-for list="{{ users }}" as="u" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div style="width:28px;height:28px;border-radius:50%;background:#232838;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#dbe4ff">{{ u.initials }}</div>
+            <div style="flex:1">
+              <div style="font-size:12.5px;font-weight:600">{{ u.name }}</div>
+              <div style="font-size:11px;color:#6b7280">{{ u.role }}</div>
+            </div>
+            <span style="font-size:10.5px;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,0.05);color:#9aa1b0">{{ u.access }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isAudit }}" hint-placeholder-val="{{ false }}">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:0;overflow:hidden">
+        <sc-for list="{{ auditLog }}" as="a" hint-placeholder-count="5">
+          <div style="display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,0.05);align-items:center">
+            <div style="font-size:12px;font-weight:600;color:#c7cbd4;width:130px;flex-shrink:0">{{ a.actor }}</div>
+            <div style="font-size:12.5px;color:#9aa1b0;flex:1">{{ a.action }}</div>
+            <div style="font-size:11px;color:#6b7280;font-family:'IBM Plex Mono',monospace">{{ a.time }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isOther }}" hint-placeholder-val="{{ false }}">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:24px;color:#6b7280;font-size:13px">{{ activeLabel }} settings — configuration panel.</div>
+    </sc-if>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const TABS = ['Theme', 'API Keys', 'Integrations', 'Users', 'Roles', 'Notifications', 'Security', 'Audit Logs'];
+class Component extends DCLogic {
+  state = { tab: 'Theme' };
+  renderVals() {
+    const tabs = TABS.map((t) => ({ label: t, className: 'set-nav-item' + (this.state.tab === t ? ' active' : ''), onClick: () => this.setState({ tab: t }) }));
+    const textColor = this.props.textColor ?? '#e8eaf0';
+    return {
+      textColor,
+      tabs,
+      isTheme: this.state.tab === 'Theme',
+      isApiKeys: this.state.tab === 'API Keys',
+      isIntegrations: this.state.tab === 'Integrations',
+      isUsers: this.state.tab === 'Users' || this.state.tab === 'Roles',
+      isAudit: this.state.tab === 'Audit Logs',
+      isOther: !['Theme', 'API Keys', 'Integrations', 'Users', 'Roles', 'Audit Logs'].includes(this.state.tab),
+      activeLabel: this.state.tab,
+      apiKeys: [
+        { name: 'OpenAI (LLM Provider)', masked: 'sk-••••••••••••4f2a', status: 'Active', created: 'Jul 2, 2026' },
+        { name: 'ChromaDB Vector Store', masked: 'local · persistent', status: 'Active', created: 'Jun 14, 2026' },
+        { name: 'Open Threat Exchange', masked: 'otx-••••••••••••9c11', status: 'Active', created: 'May 30, 2026' },
+      ],
+      integrations: [
+        { name: 'Splunk', desc: 'Log ingestion & correlation', toggleBg: '#7aa2ff', knobLeft: '18px' },
+        { name: 'Slack', desc: 'Alert notifications', toggleBg: '#7aa2ff', knobLeft: '18px' },
+        { name: 'Jira', desc: 'Ticket sync for cases', toggleBg: 'rgba(255,255,255,0.1)', knobLeft: '2px' },
+        { name: 'PagerDuty', desc: 'Critical alert paging', toggleBg: '#7aa2ff', knobLeft: '18px' },
+      ],
+      users: [
+        { initials: 'MA', name: 'M. Alvarez', role: 'Senior SOC Analyst', access: 'Analyst' },
+        { initials: 'JO', name: 'J. Okafor', role: 'Threat Hunter', access: 'Analyst' },
+        { initials: 'RC', name: 'R. Chen', role: 'IR Lead', access: 'Admin' },
+        { initials: 'SN', name: 'S. Novak', role: 'SOC Analyst', access: 'Analyst' },
+      ],
+      auditLog: [
+        { actor: 'R. Chen', action: 'Changed CASE-2049 severity from High to Critical', time: '10:05:12' },
+        { actor: 'System', action: 'API key rotated for OpenAI provider', time: '09:40:00' },
+        { actor: 'M. Alvarez', action: 'Exported Technical Report as PDF', time: '10:14:20' },
+        { actor: 'S. Novak', action: 'Added analyst J. Okafor to CASE-2046', time: 'yesterday' },
+        { actor: 'System', action: 'Nightly threat intel feed sync completed', time: 'yesterday' },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .auth-root { width:100%; height:100%; background:#0a0b0e; background-image: radial-gradient(circle at 50% 0%, rgba(122,162,255,0.05), transparent 55%); display:flex; align-items:center; justify-content:center; font-family:'Inter',sans-serif; position:relative; overflow:hidden; }
+  .auth-input { width:100%; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:11px 13px; color:#e8eaf0; font-size:14px; font-family:'Inter',sans-serif; outline:none; transition:border-color .15s ease, background .15s ease; }
+  .auth-input:focus { border-color:rgba(122,162,255,0.55); background:rgba(255,255,255,0.045); }
+  .auth-btn { width:100%; background:#7aa2ff; color:#0a0b0e; border:none; border-radius:8px; padding:12px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s ease, transform .1s ease; font-family:'Inter',sans-serif; }
+  .auth-btn:hover { background:#93b3ff; }
+  .auth-btn:active { transform:scale(0.99); }
+  .mfa-digit { width:44px; height:52px; text-align:center; font-size:20px; }
+</style>
+</helmet>
+
+<div class="auth-root">
+  <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+    <div class="fade-in" style="display:flex;flex-direction:column;align-items:center;gap:22px">
+      <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#7aa2ff,#4d6fd6);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(255,255,255,0.08), 0 8px 24px rgba(122,162,255,0.25)">
+        <div style="width:14px;height:14px;border-radius:3px;background:#0a0b0e"></div>
+      </div>
+      <div style="width:26px;height:26px;border-radius:50%;border:2.5px solid rgba(255,255,255,0.1);border-top-color:#7aa2ff;animation:spin 0.8s linear infinite"></div>
+      <div style="text-align:center">
+        <div style="color:#e8eaf0;font-size:13px;font-weight:600;letter-spacing:0.2px">{{ loadingLabel }}</div>
+        <div style="color:#6b7280;font-size:12px;margin-top:6px;font-family:'IBM Plex Mono',monospace">{{ loadingSub }}</div>
+      </div>
+      <div style="width:220px;height:3px;border-radius:2px;background:rgba(255,255,255,0.06);overflow:hidden">
+        <div style="{{ loadingBarStyle }}"></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isLogin }}" hint-placeholder-val="{{ true }}">
+    <div class="fade-in" style="width:380px;display:flex;flex-direction:column;align-items:center;gap:28px">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <div style="width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#7aa2ff,#4d6fd6);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(255,255,255,0.08)">
+          <div style="width:12px;height:12px;border-radius:3px;background:#0a0b0e"></div>
+        </div>
+        <div style="text-align:center">
+          <div style="color:#e8eaf0;font-size:17px;font-weight:700;letter-spacing:-0.2px">Sentinel Copilot</div>
+          <div style="color:#6b7280;font-size:13px;margin-top:3px">AI Cyber Defense Platform</div>
+        </div>
+      </div>
+
+      <div style="width:100%;background:rgba(255,255,255,0.025);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:28px;display:flex;flex-direction:column;gap:16px">
+        <div>
+          <div style="color:#9aa1b0;font-size:12.5px;font-weight:500;margin-bottom:6px">Work email</div>
+          <input class="auth-input" type="email" placeholder="analyst@company.com" value="{{ email }}" onChange="{{ setEmail }}"></input>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <div style="color:#9aa1b0;font-size:12.5px;font-weight:500">Password</div>
+            <a href="#" style="font-size:12px;color:#7aa2ff">Forgot?</a>
+          </div>
+          <input class="auth-input" type="password" placeholder="••••••••••••" value="{{ password }}" onChange="{{ setPassword }}"></input>
+        </div>
+        <button class="auth-btn" onClick="{{ submitLogin }}" style="margin-top:6px">Sign in</button>
+        <div style="display:flex;align-items:center;gap:10px;margin:2px 0">
+          <div style="flex:1;height:1px;background:rgba(255,255,255,0.07)"></div>
+          <div style="color:#4b5160;font-size:11px">SSO</div>
+          <div style="flex:1;height:1px;background:rgba(255,255,255,0.07)"></div>
+        </div>
+        <button class="auth-btn" onClick="{{ submitLogin }}" style="background:rgba(255,255,255,0.05);color:#e8eaf0;border:1px solid rgba(255,255,255,0.09)">Continue with SAML SSO</button>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;color:#4b5160;font-size:11.5px">
+        <div style="width:6px;height:6px;border-radius:50%;background:#3ddc97"></div>
+        SOC2 Type II · encrypted at rest · audit-logged
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isMfa }}" hint-placeholder-val="{{ false }}">
+    <div class="fade-in" style="width:380px;display:flex;flex-direction:column;align-items:center;gap:24px">
+      <div style="width:52px;height:52px;border-radius:50%;background:rgba(122,162,255,0.1);border:1px solid rgba(122,162,255,0.25);display:flex;align-items:center;justify-content:center">
+        <div style="width:20px;height:20px;border-radius:4px;border:2px solid #7aa2ff"></div>
+      </div>
+      <div style="text-align:center">
+        <div style="color:#e8eaf0;font-size:16px;font-weight:700">Two-factor verification</div>
+        <div style="color:#9aa1b0;font-size:13px;margin-top:6px">Enter the 6-digit code from your authenticator app</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <sc-for list="{{ mfaDigits }}" as="d" hint-placeholder-count="6">
+          <input class="auth-input mfa-digit" maxlength="1" value="{{ d.value }}" onChange="{{ d.onChange }}"></input>
+        </sc-for>
+      </div>
+      <button class="auth-btn" onClick="{{ submitMfa }}" style="width:100%">Verify &amp; continue</button>
+      <div style="color:#6b7280;font-size:12.5px">Didn't get a code? <a href="#">Resend</a> · <a href="#">Use backup code</a></div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { email: '', password: '', digits: ['','','','','',''], loadingPct: 0 };
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.authStage !== 'loading' && this.props.authStage === 'loading') {
+      this._runLoading();
+    }
+  }
+
+  _runLoading() {
+    this.setState({ loadingPct: 0 });
+    const steps = [
+      [18, 'Establishing secure session'],
+      [46, 'Loading case workspace'],
+      [72, 'Syncing threat intelligence feed'],
+      [100, 'Ready'],
+    ];
+    let i = 0;
+    const tick = () => {
+      if (i >= steps.length) {
+        setTimeout(() => this.props.onReady && this.props.onReady(), 250);
+        return;
+      }
+      const [pct, label] = steps[i];
+      this.setState({ loadingPct: pct, loadingLabel: label });
+      i++;
+      setTimeout(tick, 420);
+    };
+    tick();
+  }
+
+  submitLogin = () => this.props.onLogin && this.props.onLogin();
+  submitMfa = () => this.props.onMfa && this.props.onMfa();
+
+  renderVals() {
+    const stage = this.props.authStage;
+    const digitVals = this.state.digits;
+    return {
+      isLogin: stage === 'login',
+      isMfa: stage === 'mfa',
+      isLoading: stage === 'loading',
+      email: this.state.email,
+      password: this.state.password,
+      setEmail: (e) => this.setState({ email: e.target.value }),
+      setPassword: (e) => this.setState({ password: e.target.value }),
+      submitLogin: this.submitLogin,
+      submitMfa: this.submitMfa,
+      mfaDigits: digitVals.map((v, idx) => ({
+        value: v,
+        onChange: (e) => {
+          const next = this.state.digits.slice();
+          next[idx] = e.target.value.slice(-1);
+          this.setState({ digits: next });
+        },
+      })),
+      loadingLabel: this.state.loadingLabel || 'Establishing secure session',
+      loadingSub: `${this.state.loadingPct || 0}%`,
+      loadingBarStyle: `height:100%;background:#7aa2ff;border-radius:2px;width:${this.state.loadingPct || 0}%;transition:width .35s ease`,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

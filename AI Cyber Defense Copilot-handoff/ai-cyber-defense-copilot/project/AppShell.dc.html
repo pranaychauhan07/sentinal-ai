@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  .shell { width:100%; height:100%; background:#0a0b0e; display:flex; font-family:'Inter',sans-serif; color:#e8eaf0; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:500; color:#9aa1b0; transition:background .15s ease, color .15s ease; }
+  .nav-item:hover { background:rgba(255,255,255,0.04); color:#e8eaf0; }
+  .nav-item.active { background:rgba(122,162,255,0.12); color:#dbe4ff; }
+  .icon-dot { width:16px; height:16px; border-radius:4px; flex-shrink:0; }
+  .topbar-input { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:8px; color:#e8eaf0; font-size:13px; padding:7px 10px 7px 30px; outline:none; font-family:'Inter',sans-serif; }
+  .topbar-input:focus { border-color:rgba(122,162,255,0.4); }
+</style>
+</helmet>
+
+<div class="shell">
+  <div style="width:224px;flex-shrink:0;background:#0c0d12;border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;padding:16px 12px;gap:4px">
+    <div style="display:flex;align-items:center;gap:9px;padding:6px 6px 18px 6px">
+      <div style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#7aa2ff,#4d6fd6);flex-shrink:0"></div>
+      <div style="font-size:14px;font-weight:700;letter-spacing:-0.2px">Sentinel Copilot</div>
+    </div>
+
+    <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="10">
+      <div class="{{ item.className }}" onClick="{{ item.onClick }}">
+        <div class="icon-dot" style="{{ item.iconStyle }}"></div>
+        {{ item.label }}
+      </div>
+    </sc-for>
+
+    <div style="flex:1"></div>
+
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 8px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+      <div style="width:8px;height:8px;border-radius:50%;background:#3ddc97;animation:pulseDot 2s ease-in-out infinite"></div>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600">All agents nominal</div>
+        <div style="font-size:11px;color:#6b7280">4 active investigations</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;padding:8px">
+      <div style="width:26px;height:26px;border-radius:50%;background:#232838;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#dbe4ff">MA</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">M. Alvarez</div>
+        <div style="font-size:11px;color:#6b7280">Senior SOC Analyst</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <div style="height:56px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:16px;padding:0 20px;background:rgba(10,11,14,0.7);backdrop-filter:blur(12px)">
+      <div style="font-size:14px;font-weight:600">{{ pageTitle }}</div>
+      <div style="position:relative;width:320px;margin-left:8px">
+        <div style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;border:1.5px solid #6b7280"></div>
+        <input class="topbar-input" style="width:100%" placeholder="Search cases, IOCs, techniques..."></input>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;background:rgba(122,162,255,0.1);border:1px solid rgba(122,162,255,0.2);font-size:12px;color:#c7d5ff;font-weight:500">
+        <div style="width:6px;height:6px;border-radius:50%;background:#7aa2ff"></div>
+        AI Coordinator active
+      </div>
+      <div style="width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);position:relative;cursor:pointer">
+        <div style="width:13px;height:13px;border-radius:50% 50% 50% 3px;border:1.5px solid #9aa1b0"></div>
+        <div style="position:absolute;top:6px;right:7px;width:6px;height:6px;border-radius:50%;background:#ff6b6b"></div>
+      </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:22px 26px 40px 26px">
+      <div class="fade-in" key="{{ screen }}">
+        <sc-if value="{{ vis.dashboard }}" hint-placeholder-val="{{ true }}">
+          <dc-import name="Dashboard" hint-size="100%,auto" go-to="{{ goTo }}" select-case="{{ selectCase }}"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.cases }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="CasesScreen" hint-size="100%,auto" select-case="{{ selectCase }}"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.caseDetail }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="CaseDetail" hint-size="100%,auto" case-id="{{ selectedCase }}" go-to="{{ goTo }}"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.evidenceUpload }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="EvidenceUpload" hint-size="100%,auto"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.iocExplorer }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="IocExplorer" hint-size="100%,auto"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.mitre }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="MitreMatrix" hint-size="100%,auto"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.aiChat }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="AiChat" hint-size="100%,auto"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.reports }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="ReportsScreen" hint-size="100%,auto"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.threatIntel }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="ThreatIntelScreen" hint-size="100%,auto"></dc-import>
+        </sc-if>
+        <sc-if value="{{ vis.settings }}" hint-placeholder-val="{{ false }}">
+          <dc-import name="SettingsScreen" hint-size="100%,auto"></dc-import>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const ICONS = {
+  dashboard: 'background:linear-gradient(135deg,#7aa2ff33,#7aa2ff11);border:1.5px solid #7aa2ff',
+  cases: 'background:transparent;border:1.5px solid currentColor;border-radius:3px',
+  caseDetail: 'background:transparent;border:1.5px solid currentColor;border-radius:3px',
+  evidenceUpload: 'background:transparent;border:1.5px solid currentColor;border-radius:50% 50% 50% 3px',
+  iocExplorer: 'background:currentColor;border-radius:50%;opacity:0.7',
+  mitre: 'background:transparent;border:1.5px solid currentColor;border-radius:2px',
+  timeline: 'background:transparent;border-top:1.5px solid currentColor;height:1.5px;margin-top:7px;border-radius:0',
+  aiChat: 'background:transparent;border:1.5px solid currentColor;border-radius:5px 5px 5px 1px',
+  reports: 'background:transparent;border:1.5px solid currentColor;border-radius:2px',
+  threatIntel: 'background:transparent;border:1.5px solid currentColor;border-radius:50%',
+  settings: 'background:transparent;border:1.5px solid currentColor;border-radius:50%',
+};
+
+const NAV = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'cases', label: 'Cases' },
+  { id: 'evidenceUpload', label: 'Evidence Upload' },
+  { id: 'iocExplorer', label: 'IOC Explorer' },
+  { id: 'mitre', label: 'MITRE ATT&CK' },
+  { id: 'aiChat', label: 'AI Investigation Chat' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'threatIntel', label: 'Threat Intelligence' },
+  { id: 'settings', label: 'Settings' },
+];
+
+const TITLES = {
+  dashboard: 'Security Operations Dashboard',
+  cases: 'Cases',
+  caseDetail: 'Case Detail',
+  evidenceUpload: 'Evidence Upload',
+  iocExplorer: 'IOC Explorer',
+  mitre: 'MITRE ATT&CK Coverage',
+  aiChat: 'AI Investigation Assistant',
+  reports: 'Reports',
+  threatIntel: 'Threat Intelligence',
+  settings: 'Settings',
+};
+
+class Component extends DCLogic {
+  renderVals() {
+    const screen = this.props.screen || 'dashboard';
+    const activeScreen = screen === 'caseDetail' ? 'cases' : screen;
+    const navItems = NAV.map((n) => ({
+      ...n,
+      className: 'nav-item' + (activeScreen === n.id ? ' active' : ''),
+      iconStyle: ICONS[n.id] || '',
+      onClick: () => this.props.goTo && this.props.goTo(n.id),
+    }));
+    const vis = {};
+    ['dashboard', 'cases', 'caseDetail', 'evidenceUpload', 'iocExplorer', 'mitre', 'timeline', 'aiChat', 'reports', 'threatIntel', 'settings'].forEach((k) => {
+      vis[k] = screen === k;
+    });
+    return {
+      navItems,
+      pageTitle: TITLES[screen] || 'Sentinel Copilot',
+      vis,
+      screen,
+      goTo: this.props.goTo,
+      selectCase: this.props.selectCase,
+      selectedCase: this.props.selectedCase,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

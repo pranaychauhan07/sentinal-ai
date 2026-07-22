@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet></helmet>
+<div style="display:flex;flex-direction:column;gap:16px;max-width:1400px;color:{{ textColor }}">
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+      <div style="color:#9aa1b0;font-size:12.5px;font-weight:500">Active Cases</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+        <div style="font-size:30px;font-weight:700;font-family:'IBM Plex Mono',monospace">6</div>
+        <div style="color:#3ddc97;font-size:12px;font-weight:600">+2 today</div>
+      </div>
+      <div style="color:#6b7280;font-size:11.5px;margin-top:4px">2 unassigned</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,107,107,0.18);border-radius:12px;padding:18px">
+      <div style="color:#9aa1b0;font-size:12.5px;font-weight:500">Critical Alerts</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+        <div style="font-size:30px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:#ff6b6b">3</div>
+        <div style="color:#ff9f5b;font-size:12px;font-weight:600">2 need triage</div>
+      </div>
+      <div style="color:#6b7280;font-size:11.5px;margin-top:4px">Oldest: CASE-2042 · 2 days</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+      <div style="color:#9aa1b0;font-size:12.5px;font-weight:500">Org Risk Score</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <div style="position:relative;width:44px;height:44px">
+          <svg width="44" height="44" viewBox="0 0 44 44">
+            <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="5"></circle>
+            <circle cx="22" cy="22" r="18" fill="none" stroke="#ff9f5b" stroke-width="5" stroke-dasharray="88.5" stroke-dashoffset="21" stroke-linecap="round" transform="rotate(-90 22 22)"></circle>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:'IBM Plex Mono',monospace">76</div>
+        </div>
+        <div>
+          <div style="color:#ff9f5b;font-size:12px;font-weight:600">Elevated</div>
+          <div style="color:#6b7280;font-size:11px">+4 vs last week</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+      <div style="color:#9aa1b0;font-size:12.5px;font-weight:500">AI Investigations</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+        <div style="font-size:30px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:#7aa2ff">4</div>
+        <div style="color:#6b7280;font-size:12px">running</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;margin-top:6px">
+        <div style="width:6px;height:6px;border-radius:50%;background:#3ddc97;animation:pulseDot 2s ease-in-out infinite"></div>
+        <div style="color:#6b7280;font-size:11.5px">All agents nominal</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:14px">
+
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13.5px;font-weight:600">Active Cases</div>
+          <div style="color:#7aa2ff;font-size:12px;font-weight:500;cursor:pointer" onClick="{{ goToCases }}">View all cases →</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <sc-for list="{{ topCases }}" as="c" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:8px;cursor:pointer" onClick="{{ c.onClick }}" onMouseEnter="{{ hoverOn }}">
+              <div style="width:6px;height:32px;border-radius:3px;{{ c.sevBarStyle }}"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div>
+                <div style="color:#6b7280;font-size:11.5px;margin-top:2px;font-family:'IBM Plex Mono',monospace">{{ c.id }} · {{ c.assignee }} · updated {{ c.updated }}</div>
+              </div>
+              <div style="padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;{{ c.sevPillStyle }}">{{ c.severity }}</div>
+              <div style="width:40px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#9aa1b0">{{ c.risk }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:14px">MITRE ATT&CK Coverage — CASE-2049</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
+          <sc-for list="{{ heatCells }}" as="cell" hint-placeholder-count="14">
+            <div style="display:flex;flex-direction:column;gap:5px;align-items:center">
+              <div style="width:100%;aspect-ratio:1.6;border-radius:6px;{{ cell.style }}"></div>
+              <div style="font-size:9.5px;color:#6b7280;text-align:center;line-height:1.2">{{ cell.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13.5px;font-weight:600">Recent Activity</div>
+        </div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ recentActivity }}" as="ev" hint-placeholder-count="5">
+            <div style="display:flex;gap:12px;padding:9px 2px">
+              <div style="display:flex;flex-direction:column;align-items:center">
+                <div style="width:7px;height:7px;border-radius:50%;{{ ev.dotStyle }}"></div>
+                <div style="width:1px;flex:1;background:rgba(255,255,255,0.08);margin-top:3px"></div>
+              </div>
+              <div style="flex:1;padding-bottom:2px">
+                <div style="font-size:12.5px;font-weight:500">{{ ev.title }}</div>
+                <div style="color:#6b7280;font-size:11px;margin-top:2px;font-family:'IBM Plex Mono',monospace">{{ ev.time }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:14px">IOC Summary</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ iocSummary }}" as="s" hint-placeholder-count="6">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:64px;font-size:11.5px;color:#9aa1b0">{{ s.type }}</div>
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+                <div style="{{ s.barStyle }}"></div>
+              </div>
+              <div style="width:18px;text-align:right;font-size:12px;font-family:'IBM Plex Mono',monospace;color:#e8eaf0">{{ s.count }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:14px">Analyst Workload</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <sc-for list="{{ workload }}" as="w" hint-placeholder-count="4">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#232838;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:#dbe4ff;flex-shrink:0">{{ w.initials }}</div>
+                <div style="font-size:12.5px;font-weight:500;flex:1">{{ w.name }}</div>
+                <div style="font-size:11.5px;color:#6b7280;font-family:'IBM Plex Mono',monospace">{{ w.load }}/{{ w.capacity }}</div>
+              </div>
+              <div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+                <div style="{{ w.barStyle }}"></div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13.5px;font-weight:600">Threat Intelligence Feed</div>
+          <div style="color:#7aa2ff;font-size:12px;cursor:pointer" onClick="{{ goToThreatIntel }}">See all →</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:11px">
+          <sc-for list="{{ threatFeed }}" as="t" hint-placeholder-count="4">
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:7px;height:7px;border-radius:50%;margin-top:5px;flex-shrink:0;{{ t.dotStyle }}"></div>
+              <div style="flex:1">
+                <div style="font-size:12px;font-weight:500;line-height:1.4">{{ t.title }}</div>
+                <div style="color:#6b7280;font-size:10.5px;margin-top:3px">{{ t.source }} · {{ t.time }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;textColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#e8eaf0&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#e8eaf0&quot;, &quot;#dbe4ff&quot;, &quot;#c7cbd4&quot;, &quot;#f5f5f5&quot;]}}">
+const SEV_COLOR = {
+  Critical: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.14)' },
+  High: { text: '#ff9f5b', bg: 'rgba(255,159,91,0.14)' },
+  Medium: { text: '#f5c451', bg: 'rgba(245,196,81,0.14)' },
+  Low: { text: '#7dd3fc', bg: 'rgba(125,211,252,0.14)' },
+};
+
+class Component extends DCLogic {
+  state = { data: null };
+  componentDidMount() {
+    import('./sentinelData.js').then((m) => this.setState({ data: m }));
+  }
+
+  renderVals() {
+    const d = this.state.data;
+    if (!d) return {};
+    const topCases = d.cases.slice(0, 4).map((c) => {
+      const sc = SEV_COLOR[c.severity];
+      return {
+        ...c,
+        onClick: () => this.props.selectCase && this.props.selectCase(c.id),
+        sevBarStyle: `background:${sc.text}`,
+        sevPillStyle: `color:${sc.text};background:${sc.bg}`,
+      };
+    });
+
+    const tacticCounts = {};
+    d.mitreTactics.forEach((t) => (tacticCounts[t] = 0));
+    d.mitreTechniques.forEach((t) => { if (t.ruleId) tacticCounts[t.tactic] = (tacticCounts[t.tactic] || 0) + 1; });
+    const heatCells = d.mitreTactics.map((t) => {
+      const n = tacticCounts[t] || 0;
+      const alpha = n === 0 ? 0.04 : Math.min(0.18 + n * 0.24, 0.9);
+      return { label: t, style: `background:rgba(122,162,255,${alpha});border:1px solid rgba(122,162,255,${n ? 0.35 : 0.08})` };
+    });
+
+    const recentActivity = d.timelineEvents.slice(-5).reverse().map((e) => ({
+      title: e.title,
+      time: e.time.split(' ')[1],
+      dotStyle: `background:${{ evidence: '#7aa2ff', ioc: '#f5c451', finding: '#ff6b6b', mitre: '#a78bfa', agent: '#3ddc97', recommendation: '#ff9f5b' }[e.category] || '#9aa1b0'}`,
+    }));
+
+    const typeCounts = {};
+    d.iocs.forEach((i) => (typeCounts[i.type] = (typeCounts[i.type] || 0) + 1));
+    const maxCount = Math.max(...Object.values(typeCounts), 1);
+    const iocSummary = Object.entries(typeCounts).map(([type, count]) => ({
+      type, count, barStyle: `height:100%;border-radius:3px;background:#7aa2ff;width:${(count / maxCount) * 100}%`,
+    }));
+
+    const workload = d.analysts.map((a) => ({
+      ...a, barStyle: `height:100%;border-radius:3px;background:${a.load / a.capacity > 0.8 ? '#ff9f5b' : '#7aa2ff'};width:${(a.load / a.capacity) * 100}%`,
+    }));
+
+    const threatFeed = d.threatIntelFeed.slice(0, 4).map((t) => {
+      const sc = SEV_COLOR[t.severity] || SEV_COLOR.Low;
+      return { ...t, dotStyle: `background:${sc.text}` };
+    });
+
+    return {
+      textColor: this.props.textColor ?? '#e8eaf0',
+      topCases, heatCells, recentActivity, iocSummary, workload, threatFeed,
+      goToCases: () => this.props.goTo && this.props.goTo('cases'),
+      goToThreatIntel: () => this.props.goTo && this.props.goTo('threatIntel'),
+      hoverOn: () => {},
+    };
+  }
+}
+
+</script>
+</body>
+</html>
