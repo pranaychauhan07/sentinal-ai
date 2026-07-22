@@ -11,6 +11,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **`core/reporting/templates/report.html.j2` redesigned as a premium,
+  consulting-style report.** Previously a generic key/value renderer with a
+  flat "Charts" dump at the end. Now: a dedicated cover page (org branding,
+  case ID, report ID, confidence/degraded status, generated timestamp), an
+  in-content Table of Contents (in addition to the existing sidebar nav, so
+  it survives print/PDF-preview where the sidebar is hidden), an Executive
+  Dashboard (KPI cards from `ReportStatistics` plus a risk meter), and
+  section-type-aware rendering for every `ReportSectionType` (risk cards
+  grouped by severity for Findings, a vertical timeline for the
+  Investigation Timeline, an ATT&CK-tactic-ordered "attack chain" visual
+  plus a full technique table for MITRE Mapping, an indicator table for IOC
+  Summary, action cards for Incident Response, severity-bucketed risk bars
+  for Risk Assessment) — each of this pipeline's 8 existing Plotly charts
+  (`core/reporting/charts.py`, unchanged) is now embedded next to its
+  matching section instead of bundled at the bottom; any future section
+  type falls back to the original generic renderer, so this never breaks on
+  an unrecognized `ReportSectionType`. Purely a template-layer change —
+  `report_engine.py`/`section_builders.py`'s existing section-building logic
+  is untouched except for the additive fix below.
+- **IOC Summary section now includes a real indicator table, not just
+  counts.** `core.services.case_service._hydrate_attributed_iocs` only ever
+  reduced a persisted `IOC` row to `{evidence_id, ioc_type, composite_score}`
+  — the actual indicator value, severity, classification, and first-seen
+  timestamp (all already computed and persisted) were dropped before
+  reaching `core/reporting`, so an "IOC Table"/"Hashes" section was
+  structurally impossible before this fix. Added `value`/`severity`/
+  `classification`/`first_seen` as additive dict keys (existing callers
+  reading only the original three keys are unaffected), and
+  `core.reporting.section_builders.build_ioc_summary` now emits a
+  composite-score-sorted, 100-row-capped `iocs` table plus a `hashes`
+  subset (SHA-1/SHA-256/MD5-typed indicators) consumed by the Appendix's
+  new "File Hashes" table.
+- **AI Analyst Chat now uses progressive ("streaming") answer delivery and
+  shows suggested starting prompts on a new session.** Wires the chat page
+  to `conversation_service.stream_answer` (built in ADR-0029 but never
+  actually called from `apps/web`) via `st.write_stream`, giving a real
+  typing effect for the already-fully-validated answer rather than a single
+  blocking `st.markdown` dump. A session with no turns yet shows four
+  illustrative suggested-prompt buttons (generic question shapes the
+  retrieval pipeline already answers — never a claim about this specific
+  case's data).
 - **`core/threat_intel/default_rules.py` — the Detection Rule Engine's
   first real, populated rule set.** `core.threat_intel.rules.
   DetectionRuleEngine` was built with the full pattern/regex/threshold/

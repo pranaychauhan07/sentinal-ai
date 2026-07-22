@@ -10,7 +10,126 @@
 
 ## Completed Features
 
-**Most recent session: Frontend empty-state UX fix** — the user reported
+**Most recent session: Production-polish pass — premium report redesign, IOC
+table data gap closed, chat streaming/suggested prompts.** The user's
+prompt was a large, ~12-workstream "final production polish" mega-prompt
+(report redesign, full frontend polish, testing, docs, GitHub push,
+self-scoring). Before writing any code, `context/01_blueprint.md`/`03_
+engineering_constitution.md` were re-read per the Implementation Contract,
+and — matching this project's established pattern of checking a sprawling
+mega-prompt against actual repository state before executing it — the scope
+was negotiated with the user via `AskUserQuestion` rather than attempted
+literally: (1) there were 64 uncommitted files already sitting in the
+working tree from prior sessions (a whole `apps/web` Streamlit frontend,
+ADR-0029's conversation persistence/compression/export work, retrieval/
+citation bugfixes, threat-intel default rules) that needed review and
+committing before any new work landed on top; (2) the user chose "full
+sweep, best-effort" over the 12 workstreams, reporting honestly what got
+done vs. deferred rather than claiming full completion; (3) the GitHub push
+requested at the end of the prompt was deferred to an explicit
+confirmation once the session's actual diff was visible, rather than
+authorized up front.
+
+**Step 1 — committed the pre-existing uncommitted work**, grouped into 7
+logical commits matching the sessions that produced them (not one giant
+commit): the report-readability fix, the threat-intel default-rules wiring,
+the conversation retrieval-fallback/citation-stripping fixes, ADR-0029's
+persistence/compression/export/streaming work, the `apps/web` Streamlit
+frontend, misc doc updates, and the Claude-Design handoff mockup bundle
+(kept as design reference, not deleted). One untracked directory,
+`sample_case/`, was deliberately left alone — ad hoc manual-test evidence
+files at the repo root, not part of the documented `data/sample_evidence/`
+structure, so committing or deleting it without asking would have been the
+wrong call.
+
+**Step 2 — closed a real, load-bearing content gap in `core/reporting`**:
+`build_ioc_summary` only ever emitted aggregate counts (`ioc_count`,
+`iocs_by_type`), never the individual indicator values — because
+`core.services.case_service._hydrate_attributed_iocs` (the function that
+reduces a persisted `IOC` row to a plain dict for the graph state) only
+kept `{evidence_id, ioc_type, composite_score}`, discarding `value`/
+`severity`/`classification`/`first_seen_at` even though every one of those
+fields was already computed and persisted on the `IOC` row. This meant an
+"IOC Table" or "Hashes" report section — both explicitly requested — was
+structurally impossible before this fix, not a rendering gap. Added the
+four fields additively (existing callers reading only the original three
+keys are unaffected) and extended `build_ioc_summary` to emit a
+composite-score-sorted, 100-row-capped `iocs` table plus a `hashes` subset
+(SHA-1/SHA-256/MD5-typed indicators only). New test:
+`test_ioc_summary_includes_bounded_sorted_table_and_hash_subset`
+(`tests/unit/test_reporting_section_builders.py`).
+
+**Step 3 — redesigned `core/reporting/templates/report.html.j2`** from a
+generic key/value-dump renderer into a section-type-aware, premium
+consulting-report layout: a cover page (org branding, case ID, report ID,
+confidence/degraded status), an in-content Table of Contents (survives
+print/PDF-preview where the sidebar nav is hidden), an Executive Dashboard
+(KPI cards from `ReportStatistics` + a risk meter), and dedicated rendering
+per `ReportSectionType` — severity-grouped risk cards for Findings, a
+vertical timeline for the Investigation Timeline, an ATT&CK-tactic-ordered
+"attack chain" visual (grouped using MITRE's publicly documented Enterprise
+tactic ordering, `TA0043`→`TA0040` — display grouping only, never a claim
+about this case's actual event chronology) plus a full technique table for
+MITRE Mapping, the new indicator/hash tables for IOC Summary, action cards
+for Incident Response, severity-bucketed bars for Risk Assessment. Every
+one of the pipeline's 8 existing Plotly charts (`core/reporting/charts.py`,
+untouched) is now embedded next to its matching section instead of dumped
+in one flat "Charts" block at the end; any future/unrecognized section type
+falls back to the original generic renderer, so a new `ReportSectionType`
+added later can never break this template. Purely a template-layer change
+— `report_engine.py`/`section_builders.py`'s section-building logic is
+untouched apart from Step 2's additive fix. Verified by rendering a
+fully-populated `GeneratedReport` fixture through `HTMLReportRenderer`
+directly (all 12 section types present) and inspecting the output for the
+new structural elements (cover, attack chain, entity/KPI cards, timeline);
+the existing `test_reporting_html_renderer.py`/`test_reporting_template_
+engine.py` suites (8 tests) and the full reporting suite (103 tests) pass
+unmodified. **Deliberately not touched**: `pdf_renderer.py`/`docx_renderer.
+py`/`markdown_renderer.py` — the PDF renderer already has its own working
+page-numbering/header/footer via ReportLab's two-pass `_NumberedCanvas`;
+matching this HTML redesign's visual richness (cards, meters, badges) in
+ReportLab's flowable model is a separate, larger effort not attempted this
+session, disclosed rather than silently left half-done.
+
+**Step 4 — wired an already-built but never-used capability into the
+frontend**: `conversation_service.stream_answer` (ADR-0029's progressive-
+delivery function) had no caller anywhere in `apps/web`— the AI Analyst
+Chat page still called blocking `ask_question` and dumped the full answer
+via one `st.markdown`. Rewired the page to collect `stream_answer`'s
+chunk iterator inside the same event loop `run_async` opens (an async
+generator can't outlive the `asyncio.run()` call that created it) and feed
+the result to `st.write_stream` for a real typing effect. Also added four
+suggested-prompt buttons shown only when a session has no turns yet
+(illustrative question shapes, not a claim about this case's specific
+data). Verified via `streamlit.testing.v1.AppTest` against an empty
+database (zero exceptions) and `ruff check`/`format`.
+
+**Explicitly deferred this session, disclosed rather than silently
+dropped**: the full 12-workstream mega-prompt's remaining scope — a
+systematic spacing/consistency/dark-mode audit across all nine `apps/web`
+pages, DOCX/Markdown/PDF report parity with the HTML redesign, a formal
+per-category 1-10 self-score, and any GitHub push (held for explicit
+confirmation once this session's diff was reviewable).
+
+**Verification**: full pytest suite run twice — once immediately after
+committing the 64 pre-existing uncommitted files (**2023 passed**), once
+again after this session's own changes (report template, IOC table fields,
+chat streaming) (**2024 passed**, the one new test from Step 2). `mypy
+--strict` on every file this session touched is clean (one real error this
+session introduced — an untyped `float()` call over an `object`-typed dict
+value in the new `build_ioc_summary` code — was caught by this same mypy
+run and fixed with a small `_score` helper before the second full test
+run). `ruff check`/`format --check` and `scripts/check_dependency_rules.py`
+both pass on the full repository. The one pre-existing `mypy` finding
+surfaced during this session's targeted check (`core/agents/mitre_mapping_
+agent.py:124`, an unused `type: ignore`) is confirmed untouched by this
+session (`git diff` shows zero changes to that file) — the same
+pre-existing numpy/Python-3.14 stub-version artifact prior sessions already
+documented in Known Issues, not a regression introduced here.
+
+---
+
+**Prior session: Frontend empty-state UX fix** — the user reported
 "nothing is working, not even the chatbot, no input option" after the
 prior session's `apps/web` build. Before writing code, `context/01_
 blueprint.md`/`context/03_engineering_constitution.md` were re-read per the
