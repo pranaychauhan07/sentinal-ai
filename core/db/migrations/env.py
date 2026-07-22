@@ -7,6 +7,14 @@ docs/adr/0004-relational-database.md.
 domain table onto ``Base.metadata`` before autogeneration inspects it — a
 new domain module (Milestone M1's ``Case``/``Finding``/etc.) only needs to
 be imported from ``core/db/models/__init__.py``, not from here.
+
+``core.memory``'s own persistence submodules (``db_models.py``,
+``conversation_db_models.py``) are imported here too, for the identical
+reason: ``core/memory`` owns a narrow slice of the schema
+(``memory_records``, ``conversation_sessions``/``conversation_messages``/
+``conversation_summaries``) the same way ``core/db`` owns the domain schema
+(docs/adr/0029-conversation-persistence-compression-export.md Decision 1) —
+both need to be on ``Base.metadata`` for autogeneration to see them.
 """
 
 from __future__ import annotations
@@ -19,6 +27,8 @@ from alembic import context
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import core.db.models  # noqa: F401 - registers domain tables onto Base.metadata
+import core.memory.conversation_db_models  # noqa: F401 - registers conversation tables
+import core.memory.db_models  # noqa: F401 - registers the memory_records table
 from core.config import get_settings
 from core.db.session import Base, create_engine
 

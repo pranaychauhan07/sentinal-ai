@@ -272,6 +272,44 @@ class ConversationAskResponse(BaseModel):
     prompt_injection_flagged: bool
 
 
+# --- Conversation persistence/compression/export (docs/adr/0029) --------
+
+
+class ConversationSessionResponse(BaseModel):
+    """One entry of `GET /cases/{case_id}/conversation/sessions`."""
+
+    session_id: uuid.UUID
+    status: str
+    turn_count: int
+    created_at: datetime
+    last_active_at: datetime
+
+
+class ConversationMessageResponse(BaseModel):
+    """One entry of a session's replayed transcript or a search result."""
+
+    sequence_index: int
+    role: str
+    content: str
+    created_at: datetime
+    citations: list[dict[str, object]]
+    confidence: float | None
+    degraded: bool
+
+
+class ConversationAnalyticsResponse(BaseModel):
+    """`GET /cases/{case_id}/conversation/analytics`'s response — computed
+    on demand from persisted messages, never a separately stored snapshot."""
+
+    total_sessions: int
+    total_messages: int
+    assistant_message_count: int
+    degraded_answer_count: int
+    prompt_injection_flag_count: int
+    average_confidence: float
+    category_usage: dict[str, int]
+
+
 # --- Report Export (Report Export Framework, docs/adr/0026) --------------
 
 

@@ -73,20 +73,46 @@ Layer/cross-case results); it triggers no new analysis, agent run, or
 scoring — it is a read-only orchestration layer over what the Case
 Investigation pipeline already produced.
 
-**Deliberately NOT built:** persisted conversation history/audit rows
-(ADR-0010's existing, deliberate scope); streaming responses; the
-`apps/web` chat UI page (`6_AI_Analyst_Chat.py` stays a future milestone
-item); authentication (uses the existing `get_current_user` placeholder,
-unchanged); a graph-integrated Memory Agent surfacing "similar past cases"
-automatically at investigation start (ADR-0027 — this package's
-`SIMILAR_CASE` category is chat-triggered, on-demand, not automatic).
+**ADR-0029 additions (Conversation Persistence, Compression, Export):**
+- `compression.py` — `estimate_tokens`/`summarize_turns`/
+  `build_bounded_history`: deterministic (never LLM-generated) token
+  budgeting and extractive summarization for long chat sessions, a
+  distinct axis from `context_builder.py`'s retrieved-evidence ranking.
+- `export.py` — `render_json`/`render_markdown`/`export_conversation`: a
+  chat transcript exporter, deliberately separate from
+  `core/reporting`'s Export Framework (no themes/charts/branding apply to
+  a flat message transcript).
+- Persisted conversation history/sessions/summaries now exist —
+  `core.memory.conversation_memory.DbConversationMemory` (backed by new
+  `core.memory.conversation_db_models`/`conversation_repository`), selected
+  by default via `Settings.conversation_persistence_backend`.
+  `InMemoryConversationMemory` remains fully supported for tests/offline
+  use/an explicit `memory` opt-out.
+- New read paths in `core/services/conversation_service.py`: session
+  listing, full transcript replay, keyword search, and usage analytics —
+  all computed on demand from persisted messages, no new redundant tables.
+- `POST /conversation/stream` — progressive delivery of an already-
+  validated answer (word-chunked), not raw LLM token streaming; see
+  `docs/adr/0029-conversation-persistence-compression-export.md` Decision 6
+  for why real token streaming would conflict with the Response
+  Validator's placement in this pipeline.
+
+**Deliberately NOT built:** the `apps/web` chat UI page
+(`6_AI_Analyst_Chat.py` stays a future milestone item — still no
+`apps/web` code exists at all); authentication (uses the existing
+`get_current_user` placeholder, unchanged); a graph-integrated Memory Agent
+surfacing "similar past cases" automatically at investigation start
+(ADR-0027 — this package's `SIMILAR_CASE` category is chat-triggered,
+on-demand, not automatic; a real graph-integrated Memory Agent for case
+*findings* now exists per ADR-0028, but conversation retrieval's own
+`SIMILAR_CASE` lookup stays independent, on-demand); real LLM-token-level
+streaming (ADR-0029 Decision 6).
 
 **Why it exists:** Turns every already-built specialist agent's output into
 something an analyst can actually converse with, grounded and cited, per
 blueprint §2's differentiation goal (a real platform, not disconnected
 demo modules) and §13's explicit AI Analyst Chat requirement.
 
-**Future expansion:** persisted conversation history (swap
-`InMemoryConversationMemory` for a DB-backed implementation behind the same
-Protocol), streaming responses, the `apps/web` chat UI, and a
-graph-integrated Memory Agent (blueprint §7).
+**Future expansion:** the `apps/web` chat UI, real LLM-token-level
+streaming (would require its own ADR revisiting the Response Validator's
+pipeline placement).

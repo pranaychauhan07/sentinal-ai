@@ -110,3 +110,101 @@ def test_ask_flags_prompt_injection_attempts_without_refusing_to_answer(
     )
     assert response.status_code == 200
     assert response.json()["prompt_injection_flagged"] is True
+
+
+# --- Persistence/replay/search/analytics/export/stream (ADR-0029) --------
+
+
+def test_conversation_persists_across_requests_and_is_replayable(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Persistence check"}).json()
+    case_id = created["id"]
+
+    first = client.post(
+        f"/api/v1/cases/{case_id}/conversation", json={"question": "What is the case status?"}
+    ).json()
+    session_id = first["session_id"]
+    client.post(
+        f"/api/v1/cases/{case_id}/conversation",
+        json={"question": "Anything else?", "session_id": session_id},
+    )
+
+    sessions = client.get(f"/api/v1/cases/{case_id}/conversation/sessions").json()
+    assert any(s["session_id"] == session_id for s in sessions)
+    matching = next(s for s in sessions if s["session_id"] == session_id)
+    assert matching["turn_count"] >= 2
+
+    messages = client.get(
+        f"/api/v1/cases/{case_id}/conversation/sessions/{session_id}/messages"
+    ).json()
+    assert len(messages) == 4  # 2 user + 2 assistant turns
+    assert [m["role"] for m in messages[:2]] == ["user", "assistant"]
+    assert messages == sorted(messages, key=lambda m: m["sequence_index"])
+
+
+def test_conversation_search_finds_matching_messages(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Search check"}).json()
+    case_id = created["id"]
+    client.post(
+        f"/api/v1/cases/{case_id}/conversation",
+        json={"question": "Was T1110-brute-force-marker mapped here?"},
+    )
+
+    results = client.get(
+        f"/api/v1/cases/{case_id}/conversation/search",
+        params={"q": "T1110-brute-force-marker"},
+    ).json()
+    assert len(results) >= 1
+    assert any("T1110-brute-force-marker" in r["content"] for r in results)
+
+
+def test_conversation_analytics_reflects_persisted_messages(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Analytics check"}).json()
+    case_id = created["id"]
+    client.post(f"/api/v1/cases/{case_id}/conversation", json={"question": "Summarize the case."})
+
+    analytics = client.get(f"/api/v1/cases/{case_id}/conversation/analytics").json()
+    assert analytics["total_sessions"] == 1
+    assert analytics["total_messages"] == 2
+    assert analytics["assistant_message_count"] == 1
+
+
+def test_conversation_export_json_and_markdown(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Export check"}).json()
+    case_id = created["id"]
+    body = client.post(
+        f"/api/v1/cases/{case_id}/conversation", json={"question": "Give me a summary."}
+    ).json()
+    session_id = body["session_id"]
+
+    json_response = client.get(
+        f"/api/v1/cases/{case_id}/conversation/sessions/{session_id}/export",
+        params={"format": "json"},
+    )
+    assert json_response.status_code == 200
+    assert json_response.headers["content-type"].startswith("application/json")
+    assert json_response.json()["message_count"] == 2
+
+    markdown_response = client.get(
+        f"/api/v1/cases/{case_id}/conversation/sessions/{session_id}/export",
+        params={"format": "markdown"},
+    )
+    assert markdown_response.status_code == 200
+    assert "text/markdown" in markdown_response.headers["content-type"]
+    assert "Give me a summary." in markdown_response.text
+
+
+def test_conversation_stream_returns_the_full_answer_in_chunks(client: TestClient) -> None:
+    created = client.post("/api/v1/cases", json={"title": "Stream check"}).json()
+    case_id = created["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/cases/{case_id}/conversation/stream",
+        json={"question": "What is the case status?"},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(response.iter_text())
+
+    assert "event: chunk" in body
+    assert "event: done" in body

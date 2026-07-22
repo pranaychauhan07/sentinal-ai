@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     )
     evidence_allowed_extensions: str = Field(
         default=".log,.txt,.csv,.json,.xml,.evtx,.eml,.nessus,"
-        ".py,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.java",
+        ".py,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.java,.sh,.cmd,.http,.har",
         alias="EVIDENCE_ALLOWED_EXTENSIONS",
     )
     evidence_storage_dir: Path = Field(
@@ -326,6 +326,29 @@ class Settings(BaseSettings):
         default=2_000, gt=0, alias="MEMORY_AGENT_MAX_QUERY_CHARS"
     )
 
+    # --- Conversation persistence/compression (core/memory/conversation_*, ADR-0029) ---
+    conversation_persistence_backend: str = Field(
+        default="database", alias="CONVERSATION_PERSISTENCE_BACKEND"
+    )
+    conversation_history_turn_limit: int = Field(
+        default=20, gt=0, alias="CONVERSATION_HISTORY_TURN_LIMIT"
+    )
+    conversation_compression_trigger_turns: int = Field(
+        default=40, gt=0, alias="CONVERSATION_COMPRESSION_TRIGGER_TURNS"
+    )
+    conversation_summary_keep_recent_turns: int = Field(
+        default=10, gt=0, alias="CONVERSATION_SUMMARY_KEEP_RECENT_TURNS"
+    )
+    conversation_max_prompt_history_tokens: int = Field(
+        default=2_000, gt=0, alias="CONVERSATION_MAX_PROMPT_HISTORY_TOKENS"
+    )
+    conversation_export_max_messages: int = Field(
+        default=2_000, gt=0, alias="CONVERSATION_EXPORT_MAX_MESSAGES"
+    )
+    conversation_stream_chunk_words: int = Field(
+        default=8, gt=0, alias="CONVERSATION_STREAM_CHUNK_WORDS"
+    )
+
     # --- Frontend / API ---
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     api_base_url: str = Field(default="http://localhost:8000", alias="API_BASE_URL")
@@ -341,6 +364,17 @@ class Settings(BaseSettings):
         normalized = value.upper()
         if normalized not in allowed:
             raise ValueError(f"log_level must be one of {sorted(allowed)}, got {value!r}")
+        return normalized
+
+    @field_validator("conversation_persistence_backend")
+    @classmethod
+    def _validate_conversation_persistence_backend(cls, value: str) -> str:
+        allowed = {"database", "memory"}
+        normalized = value.lower()
+        if normalized not in allowed:
+            raise ValueError(
+                f"conversation_persistence_backend must be one of {sorted(allowed)}, got {value!r}"
+            )
         return normalized
 
     @property

@@ -11,8 +11,12 @@ needs to remember, at four distinct scopes:
 - **Case** (`case_memory.py`) — analyst notes scoped to a case but outside
   graph-execution state (`CaseMemory`), persisted via `repository.py`.
 - **Conversation** (`conversation_memory.py`) — case-scoped chat turn
-  history for the AI Analyst Chat (blueprint §13), a new Protocol distinct
-  from `CaseMemory` (see ADR-0010).
+  history for the AI Analyst Chat (blueprint §13), a Protocol distinct from
+  `CaseMemory` (see ADR-0010). Two implementations: `InMemoryConversationMemory`
+  (process-local, the original/still-supported default for tests/offline
+  use) and `DbConversationMemory` (ADR-0029 — durable, session-scoped,
+  backed by `conversation_db_models.py`/`conversation_repository.py`, the
+  default via `Settings.conversation_persistence_backend`).
 - **Long-term** (`long_term.py`, `vector_store.py`) — cross-case retrieval
   (`LongTermMemory`/`VectorMemory`), always advisory (ADR-0006): a backend
   outage degrades to "no historical context," never blocks an investigation.
@@ -71,6 +75,14 @@ degrades to "no historical context," never blocks an investigation (ADR-0006).
 - `interfaces.py`'s `SimilarResult` gained `recorded_at` (ADR-0028) —
   `LongTermMemoryManager.record` now stamps a timestamp into every vector's
   metadata; `None` for any vector recorded before this field existed.
+- `conversation_db_models.py`/`conversation_repository.py` (ADR-0029) —
+  `ConversationSessionRow`/`ConversationMessageRow`/`ConversationSummaryRow`
+  and their repositories, the durable backend for
+  `conversation_memory.DbConversationMemory`. Real foreign keys to
+  `cases`/`conversation_sessions` (unlike `MemoryRecordRow`'s plain UUID
+  `case_id`, written before the `Case` table existed) — see
+  `docs/adr/0029-conversation-persistence-compression-export.md` Decision 1
+  for why this lives in `core/memory` rather than `core/db`.
 
 **Graph-integrated Memory Agent: built (ADR-0028).**
 `core.agents.memory_agent.MemoryAgent` is a real, cross-cutting graph node

@@ -103,7 +103,10 @@ class ConversationManager:
             )
 
             retrieved_items = self.retrieval.retrieve(
-                retrieval_context, question=question, categories=selection.categories
+                retrieval_context,
+                question=question,
+                categories=selection.categories,
+                allow_fallback=selection.explicit,
             )
             self.metrics.record_retrieval_result(item_count=len(retrieved_items))
 
