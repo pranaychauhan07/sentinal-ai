@@ -435,7 +435,7 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       preview}` — a case now genuinely produces a real, branded, chart-embedded
       PDF (and HTML/Markdown/DOCX/JSON) on request, previewable in-app first.
 
-- [ ] **M6 — Memory + Threat Timeline + UX polish.** ChromaDB long-term
+- [x] **M6 — Memory + Threat Timeline + UX polish.** ChromaDB long-term
       memory, Threat Timeline cross-evidence view, MITRE ATT&CK heatmap,
       case-scoped AI Analyst Chat.
       **Built ahead of schedule** (`docs/adr/0010-memory-knowledge-layer-shape.md`):
@@ -511,8 +511,29 @@ Pre-1.0: one tagged release per completed milestone (`v0.1-foundation`,
       dedicated malware-family/threat-actor knowledge category (no such data
       model exists in this codebase — see ADR-0028's "Alternatives
       Considered").
-      *Demo: full Investigation Workspace as described in `docs/user-guide.md`
-      (backend only — no UI yet).*
+      **`apps/web` built, closing M6's own demo criterion.** The user handed
+      off a Claude-Design HTML/CSS/JS mockup (`AI Cyber Defense Copilot-
+      handoff/`) covering blueprint §13's exact page set; recreating it
+      pixel-for-pixel in Streamlit was assessed as infeasible (custom
+      flexbox shell, blur, gradients) and presented to the user as a
+      React-vs-Streamlit tradeoff — the user chose Streamlit, matching the
+      mockup's information architecture and this phase's blueprint-committed
+      frontend, not its exact visual treatment. Built: `apps/web/runtime.py`
+      (the sync/async bridge Streamlit needs to call `core/services`),
+      `theme.py` (dark theme inspired by the mockup's palette),
+      `components/{badges,cards,charts,case_picker}.py`, and all nine
+      blueprint-named pages (`Home.py` through `8_Settings.py`) — Case
+      Dashboard, New Investigation, Evidence Explorer (Evidence/Findings/IOC
+      tabs), Threat Timeline, MITRE ATT&CK Coverage (backed by a new,
+      additive `core.services.finding_service.list_mitre_mappings_for_case`
+      — the one genuine read-path gap this build found), AI Analyst Chat
+      (a UI for ADR-0025/0027/0028/0029's already-shipped backend), Executive
+      Reports (the Export Framework, ADR-0026), and read-only Settings.
+      Smoke-tested via `streamlit.testing.v1.AppTest` against both an empty
+      database and a real seeded case (including a full round-trip chat
+      question) — every page renders with no exceptions.
+      *Demo: full Investigation Workspace as described in `docs/user-guide.md`,
+      now with a real, working Streamlit UI.*
 
 - [ ] **M7 — Hardening, tests, docs, GitHub polish.** Full test coverage pass
       (unit + integration + golden), mypy/ruff clean, docs/diagrams/

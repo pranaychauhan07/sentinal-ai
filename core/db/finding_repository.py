@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.base_repository import BaseRepository
 from core.db.models.finding import Finding
 from core.db.models.finding_mitre_mapping import FindingMitreMapping
+from core.db.models.mitre_technique import MitreTechnique
 from core.findings.models import FindingStatus
 
 
@@ -71,3 +72,20 @@ class FindingRepository(BaseRepository[Finding]):
         stmt = select(FindingMitreMapping).where(FindingMitreMapping.finding_id == finding_id)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def mitre_mappings_for_case(
+        self, case_id: uuid.UUID
+    ) -> list[tuple[FindingMitreMapping, MitreTechnique, Finding]]:
+        """Every MITRE mapping across every Finding in one case, joined with
+        its `MitreTechnique` reference row — the one query the MITRE Map UI
+        needs (`apps/web/pages/5_MITRE_Map.py`) that no existing method
+        provides (`find_by_technique` goes the other direction: one
+        technique -> its Findings, not one case -> all its techniques)."""
+        stmt = (
+            select(FindingMitreMapping, MitreTechnique, Finding)
+            .join(Finding, FindingMitreMapping.finding_id == Finding.id)
+            .join(MitreTechnique, FindingMitreMapping.mitre_technique_id == MitreTechnique.id)
+            .where(Finding.case_id == case_id)
+        )
+        result = await self._session.execute(stmt)
+        return [(mapping, technique, finding) for mapping, technique, finding in result.all()]

@@ -5,3 +5,9 @@ One file per page, numeric-prefixed for Streamlit's sidebar ordering
 `4_Threat_Timeline.py`, `5_MITRE_Map.py`, `6_AI_Analyst_Chat.py`,
 `7_Executive_Reports.py`, `8_Settings.py`). Each page imports and calls
 `core/services` functions only — no direct DB/agent access from a page.
+
+**Built.** Every page above is implemented, each calling exactly one
+`core/services` function per user action via `apps/web/runtime.run_async`.
+Case-scoped pages (3–7) share one case selection via
+`apps/web/components/case_picker.select_case` and
+`st.session_state["case_id"]`.

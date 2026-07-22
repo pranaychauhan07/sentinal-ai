@@ -251,6 +251,40 @@ async def test_get_finding_and_list_findings_for_case(
 
 
 @pytest.mark.unit
+async def test_list_mitre_mappings_for_case_aggregates_by_technique(
+    database: Database, test_settings: Settings
+) -> None:
+    from core.services.finding_service import list_mitre_mappings_for_case
+    from core.threat_intel.models import IOCType
+
+    case_id = uuid.uuid4()
+    async with database.session_factory() as session:
+        await _seed_technique(session, "T1110", "Brute Force")
+        await _seed_ioc(session, case_id, ioc_type=IOCType.USERNAME, value="admin")
+        await session.commit()
+
+        await generate_findings_for_case(session, case_id=case_id, settings=test_settings)
+        await session.commit()
+
+        summaries = await list_mitre_mappings_for_case(session, case_id)
+
+    assert len(summaries) == 1
+    assert summaries[0].technique_id == "T1110"
+    assert summaries[0].technique_name == "Brute Force"
+    assert summaries[0].finding_count == 1
+
+
+@pytest.mark.unit
+async def test_list_mitre_mappings_for_case_returns_empty_for_a_case_with_no_findings(
+    database: Database,
+) -> None:
+    from core.services.finding_service import list_mitre_mappings_for_case
+
+    async with database.session_factory() as session:
+        assert await list_mitre_mappings_for_case(session, uuid.uuid4()) == []
+
+
+@pytest.mark.unit
 async def test_memory_notification_failure_never_breaks_generation(
     database: Database, test_settings: Settings
 ) -> None:

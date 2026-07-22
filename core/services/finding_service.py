@@ -19,6 +19,7 @@ reasoning.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -394,3 +395,58 @@ async def list_findings_for_case(
 ) -> list[Finding]:
     repository = FindingRepository(session)
     return await repository.find_by_case(case_id, limit=limit, cursor=cursor)
+
+
+class CaseMitreMappingSummary(BaseModel):
+    """One case's mapped MITRE technique, joined with its reference-table
+    name/tactics and the count of Findings that mapped to it — the read
+    shape blueprint §13's MITRE ATT&CK Coverage view needs
+    (`apps/web/pages/5_MITRE_Map.py`), not otherwise exposed by
+    `list_findings_for_case` (which returns raw `Finding` rows, each only
+    carrying its mappings inside `finding_data_json`, not joined with the
+    `MitreTechnique` reference table's name/tactics)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    technique_id: str
+    technique_name: str
+    tactic_shortnames: tuple[str, ...]
+    finding_count: int
+    max_confidence: float
+
+
+async def list_mitre_mappings_for_case(
+    session: AsyncSession, case_id: uuid.UUID
+) -> list[CaseMitreMappingSummary]:
+    """Aggregates `FindingRepository.mitre_mappings_for_case`'s per-mapping
+    rows into one summary per distinct technique (a technique mapped from
+    several Findings collapses into one row with a Finding count) — never a
+    re-derivation of the mapping itself (constitution §1.9), purely a
+    read-side grouping of what `FindingGenerationPipeline` already computed
+    and persisted."""
+    repository = FindingRepository(session)
+    rows = await repository.mitre_mappings_for_case(case_id)
+
+    by_technique: dict[str, CaseMitreMappingSummary] = {}
+    for mapping, technique, _finding in rows:
+        try:
+            tactic_shortnames = tuple(json.loads(technique.tactic_shortnames_json))
+        except (TypeError, ValueError):
+            tactic_shortnames = ()
+        existing = by_technique.get(technique.technique_id)
+        if existing is None:
+            by_technique[technique.technique_id] = CaseMitreMappingSummary(
+                technique_id=technique.technique_id,
+                technique_name=technique.name,
+                tactic_shortnames=tactic_shortnames,
+                finding_count=1,
+                max_confidence=mapping.confidence,
+            )
+        else:
+            by_technique[technique.technique_id] = existing.model_copy(
+                update={
+                    "finding_count": existing.finding_count + 1,
+                    "max_confidence": max(existing.max_confidence, mapping.confidence),
+                }
+            )
+    return sorted(by_technique.values(), key=lambda s: s.technique_id)

@@ -149,3 +149,44 @@ async def test_add_mapping_and_find_by_technique(database: Database) -> None:
 
         by_technique = await finding_repo.find_by_technique(technique.id)
         assert [f.id for f in by_technique] == [finding.id]
+
+
+@pytest.mark.unit
+async def test_mitre_mappings_for_case_joins_technique_and_scopes_to_case(
+    database: Database,
+) -> None:
+    case_a, case_b = uuid.uuid4(), uuid.uuid4()
+    async with database.session_factory() as session:
+        finding_repo = FindingRepository(session)
+        finding_a = await finding_repo.add(_make_finding(case_a, title="A"))
+        finding_b = await finding_repo.add(_make_finding(case_b, title="B"))
+        technique = _make_technique()
+        session.add(technique)
+        await session.flush()
+
+        await finding_repo.add_mapping(
+            FindingMitreMapping(
+                finding_id=finding_a.id,
+                mitre_technique_id=technique.id,
+                confidence=0.8,
+                mapping_source="rule_based",
+                attack_spec_version="15.1",
+            )
+        )
+        await finding_repo.add_mapping(
+            FindingMitreMapping(
+                finding_id=finding_b.id,
+                mitre_technique_id=technique.id,
+                confidence=0.5,
+                mapping_source="rule_based",
+                attack_spec_version="15.1",
+            )
+        )
+        await session.commit()
+
+        rows = await finding_repo.mitre_mappings_for_case(case_a)
+        assert len(rows) == 1
+        mapping, fetched_technique, fetched_finding = rows[0]
+        assert mapping.confidence == 0.8
+        assert fetched_technique.technique_id == "T1110"
+        assert fetched_finding.id == finding_a.id
