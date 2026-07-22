@@ -66,10 +66,69 @@ def test_retrieve_scores_matching_finding_above_zero() -> None:
 
 
 @pytest.mark.unit
-def test_retrieve_returns_nothing_for_unrelated_question() -> None:
+def test_retrieve_falls_back_to_available_records_when_explicitly_requested() -> None:
+    """Regression test: a case with a real finding previously returned an
+    empty list for any question whose keywords didn't literally overlap
+    with that finding's text (e.g. a bare "findings" — plain keyword
+    overlap has no stemming/semantics, so a question that deliberately asks
+    about a category by name doesn't always lexically match that
+    category's own record text), which `ConversationManager` then reported
+    as "no matching case evidence was available" for a case that plainly
+    has data. `RetrievalLayer` falls back to surfacing the available
+    record(s) instead — but *only* when `allow_fallback=True`, i.e. only
+    when `ToolSelectionEngine` determined the question explicitly named
+    this category (see the next test for why the default must be off)."""
     layer = RetrievalLayer()
     items = layer.retrieve(
-        _context(), question="zzz unrelated gibberish", categories=(EvidenceCategory.FINDING,)
+        _context(),
+        question="findings",
+        categories=(EvidenceCategory.FINDING,),
+        allow_fallback=True,
+    )
+    assert len(items) == 1
+    assert items[0].source_id == "f1"
+    assert 0.0 < items[0].relevance_score < 0.1
+
+
+@pytest.mark.unit
+def test_retrieve_never_falls_back_for_a_genuinely_unrelated_question() -> None:
+    """The default (`allow_fallback=False`, matching a question that
+    matched no category keyword at all — `ToolSelection.explicit=False`)
+    must never surface unrelated case data. This is the anti-hallucination
+    guarantee `test_conversation_manager.py::
+    test_answer_never_fabricates_when_question_is_unrelated_to_case_data`
+    depends on: asking "What is the capital of France?" against an
+    SSH-brute-force case must never answer using that unrelated finding."""
+    layer = RetrievalLayer()
+    items = layer.retrieve(
+        _context(),
+        question="What is the capital of France?",
+        categories=(EvidenceCategory.FINDING,),
+    )
+    assert items == []
+
+
+@pytest.mark.unit
+def test_retrieve_prefers_a_real_match_over_the_fallback() -> None:
+    """A genuine keyword match must still outrank/replace the fallback —
+    the fallback only fires when nothing scored above zero."""
+    layer = RetrievalLayer()
+    items = layer.retrieve(
+        _context(),
+        question="Why was the brute force finding scored high?",
+        categories=(EvidenceCategory.FINDING,),
+    )
+    assert len(items) == 1
+    assert items[0].relevance_score > 0.1
+
+
+@pytest.mark.unit
+def test_retrieve_returns_nothing_when_the_category_genuinely_has_no_records() -> None:
+    layer = RetrievalLayer()
+    items = layer.retrieve(
+        _context(findings=()),
+        question="zzz unrelated gibberish",
+        categories=(EvidenceCategory.FINDING,),
     )
     assert items == []
 

@@ -30,6 +30,24 @@ from core.conversation.models import (
 #: fast and loud, not silently degrade retrieval quality by truncation.
 MAX_RECORDS_PER_CATEGORY = 5_000
 
+#: When plain keyword overlap scores every record in a category as 0.0 —
+#: which happens for any short, generic, or vocabulary-mismatched question
+#: ("findings", "summarize this case"; the case's own Finding text rarely
+#: contains the literal word "findings") — fall back to surfacing this many
+#: of that category's most-recently-hydrated records anyway, at a small
+#: fixed non-zero score. Without this, `RetrievalLayer.retrieve()` returns
+#: an empty list for a case that plainly has data, which
+#: `ConversationManager` then reports as "no matching case evidence was
+#: available" — the exact "insufficient evidence" vs. "nothing to find"
+#: conflation blueprint §7 already names as a Threat Hunting Agent failure
+#: mode this system must never repeat (constitution §9, Principle 7).
+FALLBACK_RECORDS_PER_CATEGORY = 3
+
+#: The score given to a fallback record — deliberately below any real
+#: keyword-matched score (which starts above 0.0) so a genuine match always
+#: outranks a fallback item whenever both exist for the same question.
+_FALLBACK_SCORE = 0.01
+
 _WORD_PATTERN = re.compile(r"[a-z0-9]+")
 
 
@@ -162,7 +180,9 @@ def _records_for_category(
 
 class RetrievalLayer:
     """Deterministic, keyword-scored retrieval over already-hydrated case
-    data. Stateless — every method is a pure function of its arguments."""
+    data, with a deterministic zero-match fallback per category (see
+    `FALLBACK_RECORDS_PER_CATEGORY`). Stateless — every method is a pure
+    function of its arguments."""
 
     def retrieve(
         self,
@@ -170,7 +190,16 @@ class RetrievalLayer:
         *,
         question: str,
         categories: tuple[EvidenceCategory, ...],
+        allow_fallback: bool = False,
     ) -> list[RetrievedItem]:
+        """`allow_fallback` must only be `True` when `categories` came from
+        `ToolSelectionEngine` actually matching a keyword (`ToolSelection.
+        explicit`) — never for its "no keyword matched, search everything"
+        catch-all. Applying the fallback there would surface unrelated case
+        data for a genuinely off-topic question (e.g. "What is the capital
+        of France?" against an SSH-brute-force case), which is exactly the
+        fabrication this system's anti-hallucination guarantee must not
+        allow — a real regression this parameter exists to prevent."""
         question_tokens = _tokenize(question)
         items: list[RetrievedItem] = []
         for category in categories:
@@ -182,6 +211,7 @@ class RetrievalLayer:
                     details={"category": category.value, "count": len(records)},
                 )
             id_key, text_fn, summary_fn = _CATEGORY_EXTRACTORS[category]
+            category_items: list[RetrievedItem] = []
             for index, record in enumerate(records):
                 if not isinstance(record, dict):
                     continue
@@ -190,7 +220,7 @@ class RetrievalLayer:
                 score = _relevance_score(question_tokens, text)
                 if score <= 0.0:
                     continue
-                items.append(
+                category_items.append(
                     RetrievedItem(
                         category=category,
                         source_id=source_id,
@@ -203,4 +233,41 @@ class RetrievalLayer:
                         ),
                     )
                 )
+            if not category_items and records and allow_fallback:
+                category_items = self._fallback_items(
+                    category, records, id_key, text_fn, summary_fn
+                )
+            items.extend(category_items)
         return items
+
+    def _fallback_items(
+        self,
+        category: EvidenceCategory,
+        records: tuple[dict[str, object], ...],
+        id_key: str,
+        text_fn: _TextExtractor,
+        summary_fn: _TextExtractor,
+    ) -> list[RetrievedItem]:
+        """No record in this category scored above 0.0 against the
+        question's keywords, yet the case has real data here — surface the
+        first `FALLBACK_RECORDS_PER_CATEGORY` records (already hydrated in
+        most-recent-first order by `core/services/conversation_service.py`)
+        at `_FALLBACK_SCORE` rather than silently reporting "no evidence."
+        """
+        fallback: list[RetrievedItem] = []
+        for index, record in enumerate(records[:FALLBACK_RECORDS_PER_CATEGORY]):
+            if not isinstance(record, dict):
+                continue
+            source_id = str(record.get(id_key) or f"{category.value}-{index}")
+            fallback.append(
+                RetrievedItem(
+                    category=category,
+                    source_id=source_id,
+                    text=text_fn(record),
+                    relevance_score=_FALLBACK_SCORE,
+                    reference=SourceReference(
+                        category=category, source_id=source_id, summary=summary_fn(record)
+                    ),
+                )
+            )
+        return fallback

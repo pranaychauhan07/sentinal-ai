@@ -87,6 +87,26 @@ def test_openai_chat_model_provider_extracts_cited_bracket_tags() -> None:
 
 
 @pytest.mark.unit
+def test_openai_chat_model_provider_strips_bracket_tags_from_displayed_answer() -> None:
+    """Regression test: a real completion previously echoed the raw
+    `[category:source_id]` tag inline in the answer text shown to the
+    analyst (e.g. `... per [finding:e64e9e73-...] this is brute force.`) —
+    unreadable, internal-id-leaking prose. The tag must still be counted as
+    a citation, but must not appear in the text a human reads."""
+    provider = OpenAIChatModelProvider(api_key="sk-test", model="gpt-4o-mini", timeout=5)
+    prompt = _prompt("[finding:f1] Brute force detected")
+    with patch.object(
+        type(provider._client),
+        "invoke",
+        return_value=_fake_response("Yes, per [finding:f1] this is brute force."),
+    ):
+        completion = provider.generate(prompt)
+    assert completion.used_source_ids == ("f1",)
+    assert "[finding:f1]" not in completion.answer_text
+    assert "brute force" in completion.answer_text.lower()
+
+
+@pytest.mark.unit
 def test_openai_chat_model_provider_never_fabricates_an_unknown_citation() -> None:
     provider = OpenAIChatModelProvider(api_key="sk-test", model="gpt-4o-mini", timeout=5)
     prompt = _prompt("[finding:f1] Brute force detected")

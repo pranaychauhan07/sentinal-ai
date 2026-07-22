@@ -110,6 +110,18 @@ def _available_source_ids(context_text: str) -> set[str]:
     return set(_BRACKET_TAG.findall(context_text))
 
 
+def _strip_bracket_tags(answer_text: str) -> str:
+    """Removes `[category:source_id]` tags from a real model's free-text
+    answer once they've served their citation-verification purpose
+    (`_cited_source_ids`). Without this, a real completion echoes raw
+    internal ids (e.g. `[finding:e64e9e73-1c6d-4841-b5e0-d5998a59e4c5]`)
+    inline in prose meant for a human analyst to read — the resolved
+    citation list (`ChatCompletion.used_source_ids`) is what the UI renders
+    as its "Sources" line instead, per constitution §11's "human-readable
+    reasoning... never raw [internal identifiers] dumped to the screen.\""""
+    return re.sub(r"\s?" + _BRACKET_TAG.pattern, "", answer_text).strip()
+
+
 def _cited_source_ids(answer_text: str, available: set[str]) -> tuple[str, ...]:
     """Deterministic post-processing of a real completion's free text
     (constitution §1.9 — the LLM's job is synthesis, not self-reporting a
@@ -154,8 +166,9 @@ class OpenAIChatModelProvider:
                 f"OpenAI chat completion failed: {exc}", details={"provider": "openai"}
             ) from exc
         available = _available_source_ids(prompt.context_text)
+        used_source_ids = _cited_source_ids(answer_text, available)
         return ChatCompletion(
-            answer_text=answer_text, used_source_ids=_cited_source_ids(answer_text, available)
+            answer_text=_strip_bracket_tags(answer_text), used_source_ids=used_source_ids
         )
 
 
@@ -175,8 +188,9 @@ class GeminiChatModelProvider:
                 f"Gemini chat completion failed: {exc}", details={"provider": "gemini"}
             ) from exc
         available = _available_source_ids(prompt.context_text)
+        used_source_ids = _cited_source_ids(answer_text, available)
         return ChatCompletion(
-            answer_text=answer_text, used_source_ids=_cited_source_ids(answer_text, available)
+            answer_text=_strip_bracket_tags(answer_text), used_source_ids=used_source_ids
         )
 
 
@@ -196,8 +210,9 @@ class OllamaChatModelProvider:
                 f"Ollama chat completion failed: {exc}", details={"provider": "ollama"}
             ) from exc
         available = _available_source_ids(prompt.context_text)
+        used_source_ids = _cited_source_ids(answer_text, available)
         return ChatCompletion(
-            answer_text=answer_text, used_source_ids=_cited_source_ids(answer_text, available)
+            answer_text=_strip_bracket_tags(answer_text), used_source_ids=used_source_ids
         )
 
 

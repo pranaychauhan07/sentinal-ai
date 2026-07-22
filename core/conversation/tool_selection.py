@@ -75,6 +75,7 @@ class ToolSelectionEngine:
                     "No specific category keywords matched the question; "
                     "searching every available evidence category."
                 ),
+                explicit=False,
             )
 
         return ToolSelection(
@@ -83,4 +84,5 @@ class ToolSelectionEngine:
                 f"Matched keyword(s) {', '.join(matched_keywords)}; "
                 f"searching {', '.join(c.value for c in matched)}."
             ),
+            explicit=True,
         )

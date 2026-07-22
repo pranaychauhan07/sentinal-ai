@@ -104,6 +104,16 @@ class ToolSelection(BaseModel):
 
     categories: tuple[EvidenceCategory, ...]
     thought: str
+    #: True when at least one category keyword actually matched the
+    #: question; False when no keyword matched and every category was
+    #: selected as a last-resort, "search everything" fallback. Distinct
+    #: from a genuine, on-topic-but-generically-worded question (e.g.
+    #: "findings") deliberately naming a category — used by
+    #: `RetrievalLayer.retrieve()` to decide whether its own zero-match
+    #: fallback is safe to apply (never for a question that matched no
+    #: category at all, since that's the "is this even about this case"
+    #: signal the anti-hallucination guarantee depends on).
+    explicit: bool = True
 
 
 class AssembledConversationContext(BaseModel):
