@@ -38,7 +38,7 @@ if case is not None:
         )
     else:
         st.subheader("Preview")
-        components.html(preview.content.decode("utf-8"), height=800, scrolling=True)
+        components.html(preview.content.decode("utf-8"), height=1000, scrolling=True)
 
         st.subheader("Download")
         cols = st.columns(len(list_supported_formats()))
