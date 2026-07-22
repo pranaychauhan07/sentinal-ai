@@ -35,6 +35,7 @@ from core.threat_intel.classification import (
     derive_severity_from_classification,
 )
 from core.threat_intel.dedup import deduplicate_iocs
+from core.threat_intel.default_rules import build_default_rule_engine
 from core.threat_intel.events import (
     ThreatIntelEvent,
     ThreatIntelEventPublisher,
@@ -105,7 +106,7 @@ class IOCExtractionPipeline:
         self._case_memory = case_memory
         self._validator = IOCValidator()
         self._normalizer = IOCNormalizer()
-        self._rule_engine = rule_engine or DetectionRuleEngine()
+        self._rule_engine = rule_engine or build_default_rule_engine()
         self._scoring_engine = ThreatScoringEngine(weights=scoring_weights)
         self._confidence_calculator = ConfidenceCalculator()
         self._classification_engine = ThreatClassificationEngine(
