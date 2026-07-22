@@ -46,7 +46,7 @@ kaleido>=1.0            # static PNG rasterization of Plotly figures for
                          # rasterizer; the static-format renderers do
 
 # Security
-detoxify>=0.5            # optional toxicity scoring, used by prompt_guard
+detoxify>=0.5.2            # optional toxicity scoring, used by prompt_guard
 
 # Observability
 structlog>=24.4
