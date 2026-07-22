@@ -213,6 +213,11 @@ core/knowledge , core/memory , core/security , core/db , core/reporting , core/c
    See `docs/adr/0025-ai-investigation-assistant-conversational-interface.md`
    and `docs/adr/0027-production-memory-embedding-chat-provider-infrastructure.md`.
    No other `core/services` module gets this exception without its own ADR.
+   ADR-0029 adds no new import edge here: `DbConversationMemory` and the new
+   `core.memory.conversation_repository`/`conversation_db_models` modules it
+   depends on all live *inside* `core/memory`, reached the same way this
+   module already reaches `InMemoryConversationMemory` — through
+   `core.memory.conversation_memory`, already granted above.
 
 4k. **`core/services/report_export_service.py` may import `core/reporting`
    directly** — the eleventh documented exception to "services only call

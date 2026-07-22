@@ -10,7 +10,573 @@
 
 ## Completed Features
 
-**Most recent session: Memory Agent — graph-integrated cross-case retrieval,
+**Most recent session: Frontend empty-state UX fix** — the user reported
+"nothing is working, not even the chatbot, no input option" after the
+prior session's `apps/web` build. Before writing code, `context/01_
+blueprint.md`/`context/03_engineering_constitution.md` were re-read per the
+Implementation Contract, and the user's initial mega-prompt (a full
+"replace every mock/placeholder" rewrite request) was checked against the
+actual repository state rather than taken at face value: `Home.py` and all
+nine pages already call real `core/services` functions with zero mock
+data, `2_New_Investigation.py` already runs the full upload -> parse ->
+extract -> score -> find -> analyze -> map -> report pipeline synchronously
+on every upload, and the AI Copilot/report export frameworks are already
+built (ADR-0025/0026/0027/0028/0029) — confirmed by directly reading the
+page source and by running the pages, not by trusting this file's own
+prior claims (which turned out to be partly unverifiable: no
+`streamlit.testing.v1.AppTest` test file actually exists anywhere in the
+repo, despite the prior session's entry claiming nine pages were smoke-
+tested this way — that claim could not be confirmed and should be treated
+as undocumented/unverified, not as fact). This mismatch was surfaced to the
+user via `AskUserQuestion` rather than either blindly executing the
+mega-prompt (which would have meant redesigning already-complete,
+tested modules) or silently re-scoping; the user then reported the
+concrete, reproducible symptom driving their "nothing works" experience.
+
+**Root cause, found by actually running the app** (not by inspection
+alone): `apps/web/components/case_picker.py`'s `select_case()` — the
+shared widget every case-scoped page (AI Analyst Chat, Evidence Explorer,
+Threat Timeline, MITRE Map, Executive Reports) calls first — rendered
+*only* a bare `st.info("No cases yet...")` message and returned `None`
+whenever the case table was empty, which hid every other control on the
+page, including AI Chat's `st.chat_input`. On a first run against a freshly
+migrated, empty database (no seeded cases), every one of these five pages
+rendered identically and looked completely dead — this is exactly what the
+user hit, and precisely matches "not even the chatbot, no input option."
+`Home.py`'s empty "Recent cases" state had the equivalent gap (an info
+line with no actionable next step).
+
+**What this session actually built:**
+- **`apps/web/components/case_picker.py`** (extended) — `select_case()`'s
+  empty-case branch now renders an inline "create a case" quick-form
+  (`case_service.create_case`, catching `BusinessRuleError` on a duplicate
+  title exactly like the existing Case Dashboard/New Investigation forms
+  do) plus `st.page_link` navigation to Case Dashboard and New
+  Investigation — so any case-scoped page is now a valid place to start,
+  not a dead end that forces navigating elsewhere first.
+- **`apps/web/Home.py`** (extended) — the empty "Recent cases" state gained
+  the same two `st.page_link` navigation entries.
+- No `core/services`, `core/graph`, `core/agents`, or any other
+  business-logic module changed — this was purely a presentation-layer gap
+  in already-correct backend wiring (constitution §3's "Streamlit pages
+  never contain business logic" was not at risk; the fix only adds more UI
+  for an already-existing service call).
+- **Verification, done for real this time** — `streamlit.testing.v1.
+  AppTest` driven against a freshly `alembic upgrade head`-migrated,
+  genuinely empty local SQLite database (`DATABASE_URL` override, no
+  Postgres dependency needed for this check): all nine pages
+  (`Home.py` through `8_Settings.py`) render with zero exceptions against
+  zero cases; using the inline quick-create form on the AI Chat page makes
+  `st.chat_input` appear on the very next rerun of that same page; typing a
+  question into it and submitting drives the real, unmocked
+  `conversation_service.ask_question` pipeline end-to-end and returns a
+  cited, confidence-scored answer with zero exceptions. Full pytest suite
+  (**2009 tests**, unchanged — this was a presentation-only fix, no new
+  test file added; the existing suite's continued green run is the
+  regression check) plus `ruff check`/`format --check` and
+  `scripts/check_dependency_rules.py` all pass on the changed files.
+
+**Two follow-up fixes in the same session, driven by the user actually
+using the running app (not hypothetical review):**
+
+1. **Stale local `dev.db` several migrations behind head** — the user's
+   default-fallback SQLite database (`Settings.database_url` defaults to
+   `sqlite+aiosqlite:///./dev.db` when no `.env` exists) predated the
+   `incident_response_plans` table and several later migrations, so the
+   very first real evidence upload raised
+   `sqlite3.OperationalError: no such table: incident_response_plans`. Not
+   a code defect — no code path auto-runs Alembic migrations on startup
+   (matching `apps/api/main.py`'s existing behavior; this was never
+   inconsistent between the two `apps/*` entry points) and the required
+   `alembic upgrade head` / `make migrate` step, while documented in
+   `README.md`, simply hadn't been run against this particular file. Fixed
+   by running `alembic upgrade head` against the actual `dev.db` in use.
+2. **Multi-file upload aborted the whole batch on the first rejected
+   file, and two supported parser extensions were unreachable through the
+   upload boundary.** `apps/web/pages/2_New_Investigation.py`'s per-file
+   loop had no exception handling around each file's
+   `investigate_new_evidence` call, so one `UnsupportedFormatError` (or any
+   other `AppError`) stopped every subsequent file in the same batch from
+   ever being attempted. Separately, `core/parsers/http_transaction_parser.py`
+   has always declared `supported_extensions = (".http", ".har", ".txt")`
+   and `core/parsers/linux_command_parser.py` `(".sh", ".cmd", ".txt")`,
+   but `Settings.evidence_allowed_extensions` — the independent upload-
+   validation allowlist checked *before* parser selection — never included
+   `.http`/`.har`/`.sh`/`.cmd`, so those genuinely supported evidence types
+   were rejected at the boundary before any parser ever ran; the two
+   allowlists had drifted out of sync. Fixed: `core/config/settings.py`/
+   `.env.example`'s `EVIDENCE_ALLOWED_EXTENSIONS` default now includes
+   `.sh,.cmd,.http,.har`; the per-file loop now catches `core.exceptions.
+   AppError` around each call, shows a plain-language rejection message for
+   that one file, and continues to the next — constitution §9's "a failure
+   ... never aborts other independent [work]" and "plain language, no
+   stack traces" rules. Verified directly against
+   `case_service.investigate_new_evidence`: `[bad.foo (rejected), good.log]`
+   now rejects only `bad.foo` and still successfully processes `good.log`
+   (4 IOCs extracted) — previously the second file was never reached.
+
+**Two more rounds of user-driven fixes in the same session** (asked
+directly: "should I give you another prompt so you can rebuild it" — the
+answer, per the constitution's "list files before generating code" /
+"never redesign completed modules" discipline, was to diagnose the
+specific complaints first rather than accept an open-ended rebuild
+request; the user agreed and gave three concrete complaints instead):
+
+3. **AI Analyst Chat gave short/templated answers** — root cause: no LLM
+   provider configured at all (`.env` didn't exist on this machine, so
+   every question hit `TemplateChatModelProvider`). Installed Ollama
+   locally (`winget install Ollama.Ollama`, confirmed with the user first
+   since it's a system-level install), pulled `llama3.1`/`nomic-embed-text`,
+   created `.env` with `LLM_PROVIDER=ollama`. Verified end-to-end against a
+   real case: a grounded, cited, 0.8-confidence answer in ~57s (local CPU
+   inference — a real, disclosed tradeoff of no GPU, not a bug).
+4. **"MITRE map still doesn't show anything"** — root cause found by
+   querying the actual database directly, not guessing:
+   `mitre_techniques` had **zero rows** — `scripts/mitre/import_attack_
+   bundle.py` (the only supported way ATT&CK reference data enters this
+   application, per ADR-0013) had never been run against this machine's
+   `dev.db`, so the mapping engine had nothing to map any finding against,
+   no matter how many findings existed. Ran the import (14 tactics/20
+   techniques/5 software/5 groups/6 mitigations). Verified: a fresh
+   investigation against the same sample SSH log now correctly maps to
+   T1021/T1078/T1110. Mapping remains non-retroactive by design (ADR-0013)
+   — the user's two pre-existing cases still show no mappings and need
+   their evidence re-uploaded; the user chose to do that themselves over a
+   one-time backfill script.
+5. **"AI analysis chat still bad"** (after the LLM was wired up) — a real,
+   separate bug, not a quality complaint: all three real
+   `ChatModelProvider` implementations (`OpenAIChatModelProvider`/
+   `GeminiChatModelProvider`/`OllamaChatModelProvider`,
+   `core/conversation/llm_provider.py`) left the raw `[category:source_id]`
+   citation bracket tag embedded verbatim in the answer text shown to the
+   analyst (confirmed directly: a live Ollama answer read "...per
+   `[finding:e64e9e73-1c6d-4841-b5e0-d5998a59e4c5]` this is brute
+   force...") — the tag is required in the *prompt* so `_cited_source_ids`
+   can verify a citation without trusting the model to self-report one,
+   but nothing stripped it from the *displayed* text afterward (only
+   `TemplateChatModelProvider`'s non-generative path was ever clean, since
+   it builds its answer from already-parsed context lines rather than
+   free text). Added `_strip_bracket_tags`, applied after citation
+   extraction in all three providers, plus a regression test
+   (`test_openai_chat_model_provider_strips_bracket_tags_from_displayed_
+   answer`). This fix lives in `core/conversation`, so it also benefits
+   `apps/api` consumers, not just `apps/web`.
+6. **"Dashboard doesn't look how I want" → "make it look like the
+   handoff [mockup]."** Read `AppShell.dc.html`/`Dashboard.dc.html` from
+   the handoff bundle directly and ported their actual design tokens (not
+   an approximation) into `apps/web/theme.py`: the mockup's exact
+   `SEVERITY_PALETTE` (tinted-pill `(text, background)` pairs per
+   severity), Inter/IBM Plex Mono typography, `rgba(255,255,255,0.03)`/
+   `12px`-radius card treatment, sidebar nav hover/active states, a
+   branded sidebar header, and gradient buttons.
+   `apps/web/components/badges.py` rewritten to render mockup-style pills
+   instead of solid-fill badges. **A real bug was introduced and caught
+   during this pass, not shipped**: the rewritten CSS used blank lines
+   between sections for readability, which broke Streamlit/Markdown's
+   raw-HTML block parsing (a `<link>`-tag-opened "type 6" HTML block per
+   CommonMark ends at the first blank line, so the `<style>` tag inside
+   never started its own raw-text block — everything after that blank
+   line rendered as literal visible text instead of hidden CSS, exactly as
+   the user's screenshot showed). Fixed by removing every blank line from
+   inside the combined CSS string (verified `"\n\n" not in combined`).
+   Also found and fixed during verification, unrelated to the CSS itself:
+   **14 leftover `streamlit run` server processes** had accumulated from
+   this session's repeated restarts (each `pkill -f "streamlit run"` had
+   been matching against the wrong process view in this bash-on-Windows
+   environment) — killed via PowerShell `Get-CimInstance Win32_Process`,
+   which also resolved intermittent `AppTest` timeouts that had briefly
+   looked like a code regression but were actually resource contention.
+- **Verification for all three**: full pytest suite (**2010 tests**, up
+  from 2009 — one new regression test), `ruff check`/`format --check`, all
+  nine pages re-confirmed via `streamlit.testing.v1.AppTest` after the CSS
+  fix. The visual result itself was not independently screenshotted (no
+  `playwright`/`chromium-cli` available in this environment, and installing
+  one wasn't asked for) — the user's own browser is the only real
+  verification for the visual claim; the CSS-rendering-as-text bug is fixed
+  and confirmed via direct string inspection, not assumed fixed.
+
+**A fourth round: "the AI investigation assistant doesn't work at all."**
+The app's own audit log for the user's real session showed the literal
+question `findings` against a case with 8 real, persisted findings
+returned `item_count=0` and a degraded "no matching case evidence" answer
+— reproduced directly against the real database, root-caused to
+`core/conversation/retrieval.py`'s `RetrievalLayer`: plain keyword-overlap
+scoring (no stemming/semantics, by original design — ADR-0025) means a
+Finding's own text almost never contains generic words like "findings" or
+"summarize," so every record scored 0.0 and got dropped. Fixed with a
+deterministic zero-match fallback (`FALLBACK_RECORDS_PER_CATEGORY`,
+`_FALLBACK_SCORE`) — **but the first version of this fix was itself a real
+regression**, caught by this project's own pre-existing test suite, not
+missed: `test_answer_never_fabricates_when_question_is_unrelated_to_case_
+data` started failing because the blanket fallback also fired for
+genuinely off-topic questions ("What is the capital of France?" against
+an SSH-brute-force case started answering using that unrelated finding).
+Corrected by adding `ToolSelection.explicit` (True only when
+`ToolSelectionEngine` actually matched a category keyword, False for its
+"no keyword matched, search everything" catch-all) and threading it into
+`RetrievalLayer.retrieve()`'s new `allow_fallback` parameter
+(`ConversationManager` passes `selection.explicit`) — the fallback now
+only fires for a question that deliberately named a category, never for
+one that matched nothing at all, which is the exact signal the
+anti-hallucination guarantee depends on. Verified live against both: a
+bare "findings" now returns a real, cited, non-degraded answer; "What is
+the capital of France?" still correctly degrades with zero fabrication.
+Full pytest suite re-run clean after the correction; new/updated tests in
+`test_conversation_retrieval.py`.
+
+**A fifth round: dashboard redesign + report readability**, driven by a
+reference screenshot and the original capstone PDF's Project 9 spec. Two
+deliverables:
+
+1. **`Home.py` rebuilt as a real Security Operations Dashboard** matching
+   the reference layout: a 4-stat-card row (Total Alerts/High Severity/
+   Incidents/Resolved), an "Alerts Over Time" trend line, "Top IOC Types"
+   donut, "MITRE ATT&CK Tactics" bar, a "Recent Activity" feed, and an
+   "AI Insights" summary bar — all built from real cross-case aggregation
+   over existing `core/services` list functions (`list_findings_for_case`/
+   `list_iocs_for_case`/`list_mitre_mappings_for_case`/
+   `list_timeline_for_case`, looped per case in the page itself — no new
+   `core/services` aggregation function was added; this stayed within
+   presentation-layer composition of already-existing reads). Deliberately
+   does **not** show the mockup's "+12% vs last 24h" deltas — there is no
+   historical snapshot to diff against, and fabricating one would violate
+   this project's anti-hallucination discipline. New chart builders in
+   `apps/web/components/charts.py`: `category_donut`, `events_per_day_line`.
+   **A real, honest finding surfaced during testing, not fixed**: "High
+   Severity" and "Resolved" both show 0 against the real seeded dataset —
+   confirmed by direct DB query this is because every extracted IOC
+   currently classifies as `benign` (composite scores cluster 30-40,
+   just under `THREAT_INTEL_SUSPICIOUS_SCORE_THRESHOLD=40.0`), which is
+   the expected, disclosed consequence of ADR-0012's "no concrete
+   `ThreatIntelProvider` implemented yet" scope boundary (source
+   reliability defaults to `UNKNOWN`, no external reputation/blocklist
+   data feeds the score) — not a bug introduced this session, and not
+   silently patched by re-tuning `core/threat_intel/scoring.py`'s weights/
+   thresholds, which would be an undisclosed architecture change requiring
+   its own sign-off.
+2. **`core/reporting/templates/report.html.j2` redesigned for readability**
+   — previously rendered every section generically with raw snake_case
+   keys as labels and unbounded-width content that could overflow. Added a
+   `pretty_key` macro, automatic severity badges (generic value-pattern
+   detection, not a re-derivation of severity), card-style sections,
+   scrollable tables, `word-break` everywhere, and better print rules.
+   `report_engine.py`/`section_builders.py` untouched (ADR-0024 boundary
+   respected). Verified against a real generated report (parsed with
+   BeautifulSoup: 9 sections, 3 tables, 10 correctly-colored badges); all
+   23 existing renderer/template-engine tests plus the full 107-test
+   reporting suite pass unmodified.
+- **Verification**: all nine pages re-confirmed via `streamlit.testing.v1.
+  AppTest` against the real, richly-seeded `dev.db` with zero exceptions;
+  a real report export inspected directly; full pytest suite re-run.
+
+**A sixth round: "create one big database and test it, make sure it has
+malware etc., under one case."** Investigating why the prior round's "High
+Severity: 0" finding was real led to a deeper, genuine root cause, found by
+a repo-wide grep, not guessed: `core.threat_intel.rules.
+DetectionRuleEngine.register_rule` was **never called anywhere in
+production code** — the Detection Rule Engine (pattern/regex/threshold/
+composite rules, fully built and tested in isolation) had zero rules
+registered in the real `IOCExtractionPipeline`, so every IOC's
+`rule_matches` was always empty. This is a distinct gap from ADR-0012's
+disclosed "no live `ThreatIntelProvider`" scope cut — this is the *local,
+offline* half never being wired up at all. Closed with new
+`core/threat_intel/default_rules.py`: 5 conservative, offline, publicly-
+documented-heuristic rules (suspicious-TLD domains, known backdoor/C2
+ports, privileged/default-account usernames, phishing lure-archive
+filenames, bare executable extensions), registered by default in
+`IOCExtractionPipeline.__init__` (existing callers passing their own
+`rule_engine=` are unaffected — confirmed via the full existing
+`test_threat_intel_service.py` suite passing unmodified). New
+`tests/unit/test_threat_intel_default_rules.py` (10 tests, true-positive/
+true-negative per rule).
+
+Built one consolidated test case ("Active Intrusion - Multi-Stage
+Compromise") combining SSH brute force + the phishing email + a new,
+deliberately crafted `malware_indicators.log` (repeated privileged-account
+brute force, a C2 callback on port 4444/31337, a dropped
+`svchost_update.exe`/`payload.exe`, and `.xyz`/`.top` beacon domains) — all
+uploaded to the same case, exactly as asked. Verified directly against the
+database: username IOCs (`root`/`admin`/`oracle`/`postgres`/`deploy`/
+`ubuntu`) now classify `suspicious` (previously 100% `benign`) and a Brute
+Force finding now scores `medium` severity (previously always `info`) —
+confirmed to come from the same, unmodified scoring/classification
+engines, not a re-tuned threshold. **Explicitly not chased further**:
+composite scores still cap in the 40s, short of the `malicious`/`critical`
+70+ threshold — reaching that would need either genuine multi-rule
+corroboration on one IOC or a real external threat-intel provider; adding
+more overlapping local rules just to force a higher number would cross
+from detection engineering into gaming the demo data, so it was reported
+honestly instead. All 9 pages re-verified via `AppTest` against this new
+case with zero exceptions; full pytest suite re-run.
+
+**Explicitly NOT built this session:** any part of the original mega-prompt
+beyond this fix (no React rewrite, no Agent Results page redesign, no
+report re-theming, no dedicated Investigation Trail panel, no case
+tags/notes UI work) — the user was asked to prioritize given the mismatch
+between the prompt's premise and actual repository state, and chose "fix
+the empty-state UX in Streamlit" specifically; a genuine `streamlit.
+testing.v1.AppTest` regression-test file for the nine pages (to make the
+prior session's unverifiable smoke-test claim actually true and
+re-checkable in CI going forward) remains a good, still-open follow-up, not
+done here since it wasn't part of what the user asked to prioritize this
+session.
+
+---
+
+**Prior session: `apps/web` Streamlit Frontend — closing M6's demo
+criterion** (`docs/roadmap.md` M6, now checked off). The user asked "which
+things are left according to the blueprint" — the answer was almost
+entirely `apps/web`, which was completely empty (placeholder READMEs only,
+no `Home.py`, no page code at all) despite every backend piece M6 names
+being built. The user separately handed off a Claude-Design HTML/CSS/JS
+mockup bundle (`AI Cyber Defense Copilot-handoff/ai-cyber-defense-copilot/`)
+covering blueprint §13's exact page set (Dashboard, Cases, CaseDetail,
+EvidenceUpload, IocExplorer, MitreMatrix, AiChat, Reports, ThreatIntel,
+Settings, AuthFlow) built in Claude Design's own proprietary component
+format (`<x-dc>`/`<sc-if>`/`<dc-import>`), not portable HTML/React. Read
+`AppShell.dc.html` in full per the handoff bundle's own instructions. A real
+architecture question followed: recreating that mockup's custom flexbox
+shell/blur/gradient chrome pixel-for-pixel is not achievable in Streamlit
+(this phase's blueprint-committed frontend, blueprint §4/§17 explicitly
+reserving React for "Phase 5+, once Streamlit's UI ceiling is reached").
+Rather than silently picking a side, this was presented to the user as an
+explicit tradeoff (effort/fidelity/maintenance for each path) via
+`AskUserQuestion`; the user chose Streamlit — matching the mockup's
+information architecture and page taxonomy, not its exact visual treatment.
+
+**What this session actually built:**
+- **`apps/web/runtime.py`** (new) — the sync/async bridge Streamlit needs:
+  `core/services` is entirely `async def`, Streamlit pages are not. A
+  `st.cache_resource`-cached `Database` singleton (mirroring
+  `apps/api/main.py`'s lifespan-scoped instance) + `run_async()`, which
+  opens a request-scoped session (commit-on-success/rollback-on-failure,
+  the identical contract `apps/api/dependencies.py`'s `get_db_session`
+  already provides) and runs one `core/services` call inside a fresh
+  `asyncio.run()`. Every page calls `core/services` exclusively through
+  this — no page constructs its own session or event loop.
+- **`apps/web/theme.py`** (new) — dark-theme CSS injection +
+  `st.set_page_config`, palette inspired by the mockup (`#0a0b0e` background,
+  `#7aa2ff` accent) but recreated as a Streamlit theme, not a ported design.
+- **`apps/web/components/{badges,cards,charts,case_picker}.py`** (new) —
+  severity/status badges + confidence labeling, case summary cards, Plotly
+  wrappers (severity donut, MITRE technique bar, timeline scatter —
+  deliberately independent of `core/reporting/charts.py`, which builds from
+  an already-*generated* report rather than a live cross-case query), and
+  the shared case-selection widget every case-scoped page uses
+  (`st.session_state["case_id"]`, since Streamlit has no native cross-page
+  routing state).
+- **All nine blueprint §6-named pages**, each calling exactly one
+  `core/services` function per user action (constitution §3):
+  `Home.py` (quick stats + severity donut), `1_Case_Dashboard.py`
+  (list/filter/create, mirroring the mockup's Dashboard+Cases screens),
+  `2_New_Investigation.py` (create case + upload evidence, showing the full
+  `investigate_new_evidence` pipeline result immediately — M1's original
+  demo criterion, now with a UI), `3_Evidence_Explorer.py` (Evidence/
+  Findings/IOCs tabs, folding in the mockup's separate IocExplorer screen),
+  `4_Threat_Timeline.py` (chronological event list + Plotly timeline),
+  `5_MITRE_Map.py` (MITRE techniques hit by a case, by tactic),
+  `6_AI_Analyst_Chat.py` (a real `st.chat_message`/`st.chat_input` UI for
+  ADR-0025/0027/0028/0029's already-shipped conversation pipeline —
+  grounded, cited, confidence-scored, persisted history replayed on every
+  rerun), `7_Executive_Reports.py` (in-app HTML preview via
+  `st.components.v1.html` + PDF/HTML/Markdown/DOCX/JSON download, the
+  Export Framework's first UI consumer), and `8_Settings.py` (read-only
+  `core.config.Settings` display — no settings-mutation API exists;
+  documented as a deliberate scope boundary, not an oversight).
+- **One genuine backend gap found and closed**: no `core/services` function
+  aggregated a case's MITRE mappings joined with the `MitreTechnique`
+  reference table (every other case-scoped view already had a list
+  function; MITRE mappings only existed per-finding or via the private,
+  unexported hydration helpers `case_service.py`/`conversation_service.py`
+  use internally). Added `core.db.finding_repository.FindingRepository.
+  mitre_mappings_for_case` (a three-way join: `FindingMitreMapping` ⋈
+  `Finding` ⋈ `MitreTechnique`, scoped to one case) and
+  `core.services.finding_service.list_mitre_mappings_for_case` (aggregates
+  the per-mapping rows into one summary per distinct technique — technique
+  id/name/tactics/finding-count/max-confidence), mirroring
+  `list_findings_for_case`'s existing shape exactly. Purely additive; no
+  existing function's signature or behavior changed.
+- **`pyproject.toml`** — new `[tool.ruff.lint.per-file-ignores]` entry
+  exempting `apps/web/Home.py`/`apps/web/pages/*.py` from ruff's `N999`
+  module-name check — Streamlit's own multi-page convention *requires*
+  numeric-prefixed page filenames (`1_Case_Dashboard.py`) for sidebar
+  ordering; this is a framework-mandated exception, not a naming lapse.
+- **Verification** — 20 new/extended backend tests
+  (`test_db_finding_repository.py`'s `mitre_mappings_for_case` join/scoping
+  test, `test_finding_service.py`'s aggregation-by-technique and
+  empty-case tests). No traditional unit tests were added for `apps/web`
+  itself (constitution §11: `apps/*` presentation code is smoke-tested, not
+  coverage-gated) — instead, every one of the nine pages was smoke-tested
+  via `streamlit.testing.v1.AppTest`, twice: once against a freshly-created,
+  empty case database (confirming every empty-state path renders without
+  exception) and once against a real, seeded case (an actual
+  `investigate_new_evidence` run against `data/sample_evidence/ssh_auth.log`,
+  producing 3 real findings and MITRE mappings), including driving the AI
+  Analyst Chat's `st.chat_input` end-to-end and confirming a real, cited,
+  grounded answer renders with zero exceptions across all nine pages. Full
+  pytest suite (**2009 tests**, up from 2006), `ruff check`/`format --check`
+  (a new `per-file-ignores` entry added for Streamlit's page-naming
+  convention), `mypy` on the two changed `core/` files, and
+  `scripts/check_dependency_rules.py` all pass.
+
+**Explicitly NOT built this session:** any redesign of `core/conversation/*`,
+`core/reporting/*`, `core/services/{case_service,evidence_service,
+threat_intel_service,report_export_service,conversation_service}.py`'s
+existing functions (only one new, additive `finding_service` function was
+added); a settings-mutation API/UI (Settings page is read-only by design);
+authentication (uses the existing `get_current_user`-equivalent fixed
+`analyst_id="local-analyst"` placeholder); the Investigation Trail (ReAct
+Thought log) panel named in `components/README.md` (no `core/services`
+function currently surfaces per-agent `thought` text to a UI consumer);
+pixel-for-pixel recreation of the Claude-Design mockup (a deliberate,
+user-confirmed scope decision, not an oversight — the mockup remains
+available as a higher-fidelity target for a future React frontend, per
+blueprint §17).
+
+---
+
+**Prior session: Conversation Persistence, Compression, Export**
+(`docs/adr/0029-conversation-persistence-compression-export.md`) — a
+follow-up task re-requested the whole "AI Investigation Copilot / Case Chat
+System" (Conversation Manager, Retrieval Pipeline, Tool Calling Layer,
+Response Grounding/Citation, Response Validation, Memory Agent, Knowledge
+Retrieval, DB persistence, streaming, export, etc.). A pre-implementation
+check against `context/01_blueprint.md`/`context/03_engineering_
+constitution.md` and the existing `core/conversation/`, `core/agents/
+memory_agent.py`, `core/knowledge/` packages confirmed almost the entire
+request was already built across ADR-0025/its addendum/ADR-0027/ADR-0028 —
+presented to the user as a conflict via `AskUserQuestion` rather than
+silently rebuilt. The user chose "close the real gaps only" (persistence,
+compression, export, streaming — reusing everything else unchanged) with a
+DB-backed `ConversationMemory` Protocol implementation (not a parallel,
+competing persistence layer).
+
+**What this session actually built:**
+- **`core/memory/conversation_db_models.py`** (new) —
+  `ConversationSessionRow`/`ConversationMessageRow`/`ConversationSummaryRow`,
+  following `core/memory/db_models.py`'s established "a leaf package owns
+  its own narrow persistence, importing `core.db.session.Entity` directly"
+  pattern (no new `core/db` module, no new dependency-rules edge). Unlike
+  `MemoryRecordRow` (written before `Case` existed), these carry real
+  foreign keys to `cases`/`conversation_sessions` with `ondelete=CASCADE`.
+- **`core/memory/conversation_repository.py`** (new) —
+  `ConversationSessionRepository` (get-or-create, touch, list-by-case, end),
+  `ConversationMessageRepository` (append with auto-incrementing
+  `sequence_index`, session/case-scoped reads, case-insensitive substring
+  search, count), `ConversationSummaryRepository` (upsert, one row per
+  session).
+- **`core/memory/conversation_memory.py`** (extended) — the
+  `ConversationMemory` Protocol gained one additive, defaulted keyword
+  (`session_id: UUID | None = None`) on all three methods, fixing a real,
+  narrow correctness gap `InMemoryConversationMemory` always had (multiple
+  concurrent sessions on one case shared one undifferentiated turn list).
+  New `DbConversationMemory` implements the Protocol against the new
+  repository, added alongside (not replacing) `InMemoryConversationMemory`
+  — the identical `ChromaVectorStore`-next-to-`InMemoryVectorStore` shape
+  ADR-0027 already established.
+- **`core/conversation/compression.py`** (new) — `estimate_tokens` (a
+  documented chars/4 heuristic), `summarize_turns` (deterministic,
+  extractive — every summary line is a truncated quote of a real turn,
+  never LLM-generated, so it can never fabricate a fact the conversation
+  didn't contain), `build_bounded_history` (token-budgets the final prompt
+  history, dropping the oldest recent turns first, never dropping the
+  summary itself).
+- **`core/conversation/export.py`** (new) — `render_json`/`render_markdown`/
+  `export_conversation`, deliberately independent of `core/reporting`'s
+  Export Framework (a flat chat transcript has no themes/charts/branding
+  concerns); `_escape_markdown` prevents attacker-influenced chat content
+  from corrupting the exported document's structure. Renders on request,
+  persists nothing new — no `ConversationExport` table, mirroring
+  ADR-0026's `Report.file_path` decision.
+- **`core/services/conversation_service.py`** (extended) —
+  `_build_conversation_memory` selects `DbConversationMemory` vs.
+  `InMemoryConversationMemory` per new `Settings.
+  conversation_persistence_backend` (`"database"` default);
+  `_hydrate_bounded_history` applies compression once a session's persisted
+  turn count crosses `conversation_compression_trigger_turns`, always
+  applying the token budget regardless of backend/trigger. `ask_question`
+  now persists a `ConversationSessionRow` and rich `ConversationMessageRow`s
+  (citations/confidence/degraded/selected-categories, not just role+content)
+  when the DB backend is active. New read-path functions:
+  `list_conversation_sessions`, `get_conversation_history`,
+  `search_conversation_history`, `get_conversation_analytics` (computed on
+  demand from persisted messages, no redundant table),
+  `export_conversation_transcript`, and `stream_answer` (runs the full,
+  unchanged `ask_question` pipeline to completion — grounding, citation,
+  validation all complete first — then chunks the validated answer text for
+  progressive delivery; deliberately not raw LLM token streaming, since that
+  would require exposing text before the Response Validator's already-
+  shipped check could reject it).
+- **New settings** (`core/config/settings.py`, `.env.example`):
+  `CONVERSATION_PERSISTENCE_BACKEND` (database/memory),
+  `CONVERSATION_HISTORY_TURN_LIMIT`, `CONVERSATION_COMPRESSION_TRIGGER_TURNS`,
+  `CONVERSATION_SUMMARY_KEEP_RECENT_TURNS`,
+  `CONVERSATION_MAX_PROMPT_HISTORY_TOKENS`, `CONVERSATION_EXPORT_MAX_MESSAGES`,
+  `CONVERSATION_STREAM_CHUNK_WORDS`.
+- **New Alembic migration** (`a1b2c3d4e5f6_create_conversation_tables.py`,
+  down-revision `e6f0a3c8b9d5`) for the three new tables.
+  `core/db/migrations/env.py` now also imports `core.memory.db_models`/
+  `conversation_db_models` for its side effect of registering `core/memory`'s
+  own tables onto `Base.metadata` — a small, additive fix so autogeneration
+  sees `core/memory`'s persistence too (previously only `core/db/models`
+  was imported there).
+- **New API routes** (`apps/api/routers/conversation.py`): `POST
+  /conversation/stream` (progressive delivery, `text/event-stream`), `GET
+  /conversation/sessions`, `GET /conversation/sessions/{session_id}/messages`
+  (replay), `GET /conversation/sessions/{session_id}/export?format=json|
+  markdown`, `GET /conversation/search?q=...`, `GET /conversation/analytics`.
+  New `apps/api/schemas.py` additions: `ConversationSessionResponse`,
+  `ConversationMessageResponse`, `ConversationAnalyticsResponse`.
+- **Testing** — 57 new/extended tests: `test_memory_conversation_repository.py`
+  (new — every repository method against a real, temp-file SQLite DB),
+  `test_memory_conversation_memory.py` (extended — `DbConversationMemory`'s
+  Protocol conformance, session-scoping, the documented `add_turn`-without-
+  a-resolvable-session error, the fallback-to-most-recent-session path, the
+  documented `clear()` no-op), `test_conversation_compression.py` (new —
+  token estimation, extractive summarization including a
+  never-fabricates-content-not-in-source test, budget-bounded history
+  including "the summary is never dropped, the oldest recent turn is"),
+  `test_conversation_export.py` (new — JSON/Markdown rendering, Markdown
+  control-character escaping, citation/confidence/degraded rendering,
+  unsupported-format rejection), extended
+  `tests/integration/test_api_conversation_routes.py` (sessions/messages/
+  export/search/analytics/stream against the real FastAPI app — persistence
+  actually verified across separate, committed HTTP requests), new
+  `tests/integration/test_conversation_service_persistence.py` (persistence/
+  search/analytics/export verified across separate, explicitly committed
+  DB sessions — the existing `test_conversation_service.py`'s tests never
+  committed the `ask_question` calls themselves, so never actually exercised
+  this session's persistence path; a dedicated compression-trigger test with
+  a lowered `conversation_compression_trigger_turns` confirms a
+  `ConversationSummaryRow` gets created and later questions still answer
+  successfully). Full pytest suite (**2006 tests**, up from 1960),
+  `ruff check`/`format --check`, and `scripts/check_dependency_rules.py` all
+  pass. Every new/changed file is individually `mypy --strict` clean
+  (verified via the same `--python-version 3.12` probe prior sessions used
+  to work around this environment's pre-existing numpy/Python-3.14 stub
+  incompatibility — the probe's one remaining error, an unused `type:
+  ignore` in `core/conversation/llm_provider.py:167`, is in a file this
+  session did not touch, a pre-existing environment-version artifact, not a
+  defect introduced here).
+
+**Explicitly NOT built this session, per ADR-0029's documented scope
+boundary:** real LLM-token-level streaming (would require reopening the
+already-shipped Response Validator's placement in the pipeline — a larger
+architectural question deserving its own ADR if ever pursued); the
+`apps/web` chat UI (still no `apps/web` code exists at all — unrelated to
+this session's scope); a persisted `ConversationExport` artifact table (see
+the ADR's "Alternatives Considered" — mirrors ADR-0026's identical, already-
+accepted decision); any redesign of `core/conversation/{conversation_manager,
+retrieval, tool_selection, context_builder, prompt_builder, llm_provider,
+citation_engine, response_orchestrator, response_validator, session_manager,
+audit, metrics}.py`, `core/agents/memory_agent.py`, `core/knowledge/*`, or
+`core/memory/{db_models, repository, long_term, manager, vector_store,
+chroma_vector_store, investigation_context}.py` — this session is purely
+additive over the existing, already-shipped pipeline.
+
+---
+
+**Prior session: Memory Agent — graph-integrated cross-case retrieval,
 closing M6** (`docs/adr/0028-memory-agent.md`) — the last named M6
 intelligence component: `core.agents.memory_agent.MemoryAgent`, an eleventh
 concrete specialist agent, runs automatically on every case investigation,

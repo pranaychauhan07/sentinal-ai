@@ -11,6 +11,331 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once
 ## [Unreleased]
 
 ### Added
+- **`core/threat_intel/default_rules.py` — the Detection Rule Engine's
+  first real, populated rule set.** `core.threat_intel.rules.
+  DetectionRuleEngine` was built with the full pattern/regex/threshold/
+  composite rule model this task requires, but nothing in the real
+  pipeline (`IOCExtractionPipeline`) ever called `register_rule` —
+  confirmed by a repo-wide grep: the only call site was the class's own
+  definition. Every extracted IOC's `rule_matches` was therefore always
+  empty, which — combined with `source_reliability` defaulting to
+  `UNKNOWN` absent a live threat-intel provider (the separate, disclosed
+  ADR-0012 scope cut) — is the root cause behind every IOC in this
+  session's seeded test database classifying `benign` regardless of how
+  suspicious the underlying evidence was. Added 5 conservative, offline,
+  publicly-documented-heuristic default rules (suspicious-TLD domains,
+  known backdoor/C2 ports, privileged/default-account usernames, phishing
+  lure-archive filenames, bare executable extensions), wired in as
+  `IOCExtractionPipeline`'s default `rule_engine` (existing callers that
+  pass their own `rule_engine=` explicitly, e.g. tests exercising one rule
+  in isolation, are unaffected). New `tests/unit/test_threat_intel_default_
+  rules.py` (10 tests: every rule's true-positive and true-negative case).
+  Verified against a real, deliberately multi-stage test case (SSH brute
+  force + phishing email + a crafted malware/C2-indicator log, all
+  uploaded to one case): username IOCs (`root`/`admin`/`oracle`/...) now
+  classify `suspicious` (previously `benign`) and a Brute Force finding now
+  scores `medium` severity (previously `info`) — a real, measurable
+  improvement from the same, unmodified scoring/classification engines,
+  not a re-tuned threshold. Getting to `malicious`/`critical` would need
+  either genuine multi-rule corroboration on the same IOC or a real
+  external threat-intel provider — not attempted here, since forcing it
+  via more overlapping rules would cross from detection engineering into
+  gaming the demo data.
+- **`Home.py` rebuilt as a real Security Operations Dashboard**, matching
+  the reference layout (stat-card row, alerts-over-time trend, threat/MITRE
+  breakdowns, recent-activity feed, an AI-insights bar) — built entirely
+  from real, already-persisted data aggregated across every case via
+  existing `core/services` functions (`list_findings_for_case`,
+  `list_iocs_for_case`, `list_mitre_mappings_for_case`,
+  `list_timeline_for_case`), never a hardcoded/placeholder number.
+  Deliberately does **not** show a "+12% vs last 24h"-style delta the
+  mockup has, since this dashboard has no historical baseline snapshot to
+  diff against yet — inventing one would be fabricated data, which this
+  project's anti-hallucination discipline forbids throughout. New
+  `apps/web/components/charts.py` builders: `category_donut` (generic
+  category breakdown — used here for IOC-type distribution) and
+  `events_per_day_line` (a real daily event-count trend from
+  `TimelineEvent` timestamps).
+- **`core/reporting/templates/report.html.j2` redesigned for human
+  readability** — the template previously rendered every section's dict
+  content generically with raw snake_case keys (`case_id`, `finding_count`)
+  as literal labels, unbounded-width tables/values that could overflow the
+  page, and a flat, low-contrast visual style. Added: a `pretty_key` macro
+  (snake_case → Title Case labels), automatic severity badges when a
+  rendered value is exactly one of critical/high/medium/low/info (a
+  generic, key-agnostic detection — never a re-derivation of the
+  underlying severity, purely a display transform of a value the backend
+  already computed), card-style section backgrounds, scrollable table
+  wrappers and `word-break` on all cell/definition content (no more
+  clipped/overflowing text), better print-media rules (`<details>` content
+  always visible when printed, not collapsed), and general typography/
+  spacing polish (line-height, letter-spacing, zebra-striped tables).
+  `core/reporting/{report_engine,section_builders}.py` are untouched —
+  this is purely the presentation layer over the same generated data,
+  matching ADR-0024's "template renders arbitrary dict content generically"
+  design. Verified against a real generated report (a live Phishing
+  Campaign case's Technical Investigation Report): parsed cleanly with
+  BeautifulSoup, 9 sections/3 tables/10 correctly-colored severity badges
+  render with prettified labels; all 23 existing `test_reporting_html_
+  renderer.py`/`test_reporting_template_engine.py` tests and the full
+  107-test reporting suite still pass unmodified.
+
+### Fixed
+- **AI Analyst Chat reported "no matching case evidence" for on-topic
+  questions against cases with real, substantial data** (e.g. a bare
+  "findings" against a case with 8 real findings) — root cause:
+  `core/conversation/retrieval.py`'s `RetrievalLayer` scores candidate
+  records by plain keyword overlap against the question with no stemming/
+  semantics, so a case's Finding text (which describes the *technique*,
+  e.g. "Brute Force login attempts") essentially never contains the
+  literal word "findings," "summarize," etc. — every record scored 0.0 and
+  was dropped, `ConversationManager` then reported the case had no
+  evidence at all. Fixed with a deterministic fallback: when a category's
+  keyword-scored pass finds nothing but the category has real records,
+  surface up to `FALLBACK_RECORDS_PER_CATEGORY` (3) of them at a small
+  fixed score. **Critically gated**, after an initial version of this fix
+  caused a real regression caught by this project's own test suite
+  (`test_answer_never_fabricates_when_question_is_unrelated_to_case_data`
+  started failing — a genuinely unrelated question like "What is the
+  capital of France?" against an SSH-brute-force case started answering
+  using that unrelated finding instead of correctly reporting insufficient
+  evidence): the fallback now only fires when `ToolSelectionEngine`
+  determined the question *explicitly* named a category by keyword
+  (new `ToolSelection.explicit` field, threaded through
+  `RetrievalLayer.retrieve()`'s new `allow_fallback` parameter, defaulting
+  `False`) — never for its "no keyword matched at all, search everything"
+  catch-all, which is exactly the "is this question even about this case"
+  signal the anti-hallucination guarantee depends on. Verified live
+  against both cases: "findings" → real, cited answer; "What is the
+  capital of France?" → correctly degraded, no fabrication. New/updated
+  regression tests in `tests/unit/test_conversation_retrieval.py`
+  (`test_retrieve_falls_back_to_available_records_when_explicitly_
+  requested`, `test_retrieve_never_falls_back_for_a_genuinely_unrelated_
+  question`, `test_retrieve_prefers_a_real_match_over_the_fallback`).
+- **AI Analyst Chat answers echoed raw internal citation tags inline in the
+  prose** (e.g. "...per `[finding:e64e9e73-1c6d-4841-b5e0-d5998a59e4c5]`
+  this is brute force...") whenever a real LLM provider (OpenAI/Gemini/
+  Ollama) was configured — the `[category:source_id]` bracket tag
+  `PromptBuilder` asks the model to reproduce for citation verification was
+  never stripped from the displayed answer afterward, only from the
+  deterministic `TemplateChatModelProvider`'s output (which never had the
+  tags in the first place). Fixed in `core/conversation/llm_provider.py`:
+  a new `_strip_bracket_tags` helper removes the tags from `answer_text`
+  in all three concrete providers *after* `_cited_source_ids` has already
+  extracted them for the citation list — the UI's separate "Sources:" line
+  (built from `ChatCompletion.used_source_ids`) is unaffected. Regression
+  test added: `test_openai_chat_model_provider_strips_bracket_tags_from_
+  displayed_answer`. Verified live against a real Ollama-backed answer:
+  citation count and confidence unchanged, tag no longer in the visible text.
+- **The Streamlit dark theme's CSS was rendering as literal visible text on
+  the page** after a visual-polish pass ported the handoff mockup's palette/
+  card treatment/severity pills into `apps/web/theme.py`. Root cause: the
+  rewritten `<style>` block used blank lines between sections purely for
+  readability — but Streamlit's Markdown renderer (CommonMark) treats a
+  blank line as the end of a raw-HTML block unless the block is opened by a
+  tag whose *own* raw-text rules ignore blank lines, and this particular
+  block's actual first line was a `<link>` tag (added for Google Fonts),
+  not `<style>` itself — `<link>` is a "type 6" HTML block per CommonMark,
+  which *does* end at the first blank line, so the `<style>` tag inside
+  never got to start its own raw-text block; everything after that first
+  blank line was rendered as an ordinary (escaped, visible) paragraph
+  instead of hidden CSS. Fixed by removing every blank line from inside the
+  combined `_FONTS + _CSS` string (verified via `"\n\n" not in combined`)
+  so Markdown treats it as one uninterrupted raw-HTML block from the first
+  `<link>` tag through the final `</style>`. Verified via
+  `streamlit.testing.v1.AppTest` (all nine pages render without exception)
+  — a real visual check still requires the user's own browser, since
+  AppTest doesn't render CSS.
+- **Local environment was missing two required, one-time setup steps**,
+  causing three symptoms the user reported as app bugs: (1) the MITRE
+  ATT&CK Coverage page was blank/empty for cases with real findings — the
+  `mitre_techniques` reference table had zero rows because
+  `scripts/mitre/import_attack_bundle.py` had never been run against this
+  environment's database, so the mapping engine had nothing to map
+  findings against no matter how many findings existed (fixed by running
+  the import: 14 tactics/20 techniques/5 software/5 groups/6 mitigations
+  imported; verified a fresh investigation against the same sample SSH log
+  now correctly maps to T1021/T1078/T1110); (2) the AI Analyst Chat gave
+  short, templated-feeling answers because no LLM provider was configured
+  (no `.env` existed at all, so `Settings.openai_api_key` was empty and
+  every question fell back to `TemplateChatModelProvider`) — resolved by
+  installing Ollama locally (`winget install Ollama.Ollama`), pulling
+  `llama3.1`/`nomic-embed-text`, and creating `.env` with
+  `LLM_PROVIDER=ollama`; verified with a real end-to-end question against
+  a real case, returning a grounded, cited, confidence-scored (0.8) answer
+  in ~57s (local CPU inference — noticeably slower than the template
+  fallback it replaced, a real tradeoff of running an 8B model without a
+  GPU, not a bug). MITRE mapping remains non-retroactive by design (see
+  `docs/adr/0013-finding-mitre-intelligence-engine-shape.md`): the two
+  pre-existing cases created before the reference-data import still show
+  no MITRE mappings and need their evidence re-uploaded to get mapped
+  findings; this was explicitly left to the user to do rather than a
+  backfill script being written for it.
+- **`New Investigation`'s multi-file upload aborted the entire batch on the
+  first rejected file**, instead of skipping it and continuing with the
+  rest. Also, `.http`/`.har` (used by `core/parsers/http_transaction_parser.py`,
+  which has always declared `supported_extensions = (".http", ".har", ".txt")`)
+  and `.sh`/`.cmd` (used by `core/parsers/linux_command_parser.py`) were
+  never present in `Settings.evidence_allowed_extensions`' upload-validation
+  allowlist — the two allowlists (what a parser accepts vs. what the upload
+  boundary lets through) had drifted out of sync, so a genuinely supported
+  evidence type was rejected before any parser ever got a chance to run.
+  Fixed: `core/config/settings.py`/`.env.example`'s default
+  `EVIDENCE_ALLOWED_EXTENSIONS` now includes `.sh,.cmd,.http,.har`;
+  `apps/web/pages/2_New_Investigation.py`'s per-file loop now catches
+  `core.exceptions.AppError` (the base of `UnsupportedFormatError` and every
+  other parser/validation exception) around each file's
+  `investigate_new_evidence` call, shows a plain-language rejection message
+  for that one file only, and `continue`s to the next file — matching
+  constitution §9's "a failure inside one agent never aborts other
+  independent [work] already scheduled" and "plain language, no stack
+  traces, no internal exception class names" rules. Verified directly
+  against `core.services.case_service.investigate_new_evidence`: a batch of
+  `[bad.foo (rejected extension), good.log]` now reports the rejection for
+  `bad.foo` alone and still successfully processes `good.log` (4 IOCs
+  extracted), where previously the second file was never attempted.
+- **Case-scoped pages looked completely dead on a fresh, empty database.**
+  `apps/web/components/case_picker.py`'s `select_case()` — used by AI
+  Analyst Chat, Evidence Explorer, Threat Timeline, MITRE Map, and Executive
+  Reports — rendered only a bare "no cases yet" info message and returned
+  `None` when the case table was empty, hiding every other control on the
+  page, including AI Chat's `st.chat_input`. On a first run against an
+  empty database, this made every case-scoped page look identical and
+  non-interactive (in particular, the AI Analyst Chat page appeared to have
+  no way to type a question at all). Fixed by rendering an inline
+  "create a case" quick-form plus `st.page_link` navigation to Case
+  Dashboard/New Investigation directly inside the empty-state branch, so
+  any case-scoped page is now a valid starting point. `Home.py`'s empty
+  "Recent cases" state got the same navigation links. Verified via
+  `streamlit.testing.v1.AppTest` against a freshly-migrated, genuinely
+  empty SQLite database (not a mock): all nine pages render without
+  exception with zero cases; creating a case inline on the AI Chat page
+  makes `chat_input` appear on the same page; asking a question through it
+  returns a real, cited, confidence-scored answer via the existing
+  `conversation_service.ask_question` pipeline. No `core/services` or other
+  business-logic module changed.
+
+### Added
+- **`apps/web` visual design pass ported from the handoff mockup.**
+  `apps/web/theme.py`'s CSS was rewritten to copy `Dashboard.dc.html`'s/
+  `AppShell.dc.html`'s actual design tokens rather than approximate them:
+  `SEVERITY_PALETTE` (a `(text, background)` tinted-pill pair per severity,
+  copied from the mockup's `SEV_COLOR` map — Critical `#ff6b6b`, High
+  `#ff9f5b`, Medium `#f5c451`, Low `#7dd3fc`), Inter for UI text and IBM
+  Plex Mono for numeric/id/timestamp content (loaded via Google Fonts,
+  matching the mockup's own font choices), the exact card treatment
+  (`rgba(255,255,255,0.03)` fill, `1px solid rgba(255,255,255,0.07)`
+  border, `12px` radius), sidebar nav hover/active states (`a[aria-current
+  ="page"]` highlighted with an accent-tinted background, matching the
+  mockup's `.nav-item.active`), a branded sidebar header (gradient logo
+  mark + "Sentinel Copilot" title, rendered once per page from
+  `apply_page_config` itself so no per-page changes were needed), and
+  gradient-accented buttons. `apps/web/components/badges.py`'s
+  `severity_badge`/`status_badge` were rewritten to render mockup-style
+  pills (colored text on a tinted background) instead of a solid-fill
+  badge with hardcoded dark text. `apps/web/components/charts.py` picks up
+  the new palette automatically via the existing `SEVERITY_COLORS` import.
+  Still a restyle of Streamlit's own layout model, not a port of the
+  mockup's custom flexbox shell (see `theme.py`'s module docstring for why).
+- **`apps/web` Streamlit frontend — closing M6's demo criterion.** The
+  entire frontend layer (previously placeholder READMEs only) is now built:
+  nine pages (`Home.py`, `1_Case_Dashboard.py` through `8_Settings.py`)
+  covering every blueprint §13-named screen, backed by `core/services`
+  only (no business logic in the UI layer). A Claude-Design mockup handed
+  off for this build informed the information architecture; Streamlit
+  (this phase's blueprint-committed frontend) was chosen over recreating
+  the mockup's custom visual chrome in React, after presenting the
+  tradeoff to the user.
+  - `apps/web/runtime.py` (new) — the sync/async bridge: a cached
+    `Database` singleton + `run_async()`, mirroring `apps/api/main.py`'s
+    lifespan/session-provider pattern for Streamlit's non-`async def` pages.
+  - `apps/web/theme.py` (new) — dark-theme CSS injection, palette inspired
+    by the mockup.
+  - `apps/web/components/{badges,cards,charts,case_picker}.py` (new) —
+    severity/status badges, case cards, Plotly wrappers (severity donut,
+    MITRE bar, timeline scatter), and the shared case-selection widget
+    every case-scoped page uses (`st.session_state["case_id"]`).
+  - `core/services/finding_service.py` gained `list_mitre_mappings_for_case`
+    (+ `core/db/finding_repository.py`'s `mitre_mappings_for_case` join
+    query) — the one genuine read-path gap this build found: every other
+    case-scoped view already had a corresponding `core/services` list
+    function, but nothing aggregated a case's MITRE mappings joined with
+    the `MitreTechnique` reference table for the MITRE Map page.
+  - `pyproject.toml` gained a `per-file-ignores` entry exempting
+    `apps/web/{Home.py,pages/*.py}` from ruff's `N999` module-name rule —
+    Streamlit's own multi-page convention requires numeric-prefixed
+    filenames.
+  - Smoke-tested via `streamlit.testing.v1.AppTest` against both an empty
+    database and a real seeded case (SSH-brute-force evidence through the
+    full pipeline, then a live AI Analyst Chat round-trip) — all nine pages
+    render with zero exceptions. 20 new/extended backend tests for the new
+    `finding_service`/`finding_repository` functions. Full pytest suite now
+    2009 tests (up from 2006); `ruff check`/`format --check`, `mypy` on the
+    two changed `core/` files, and `scripts/check_dependency_rules.py` all
+    pass.
+- **Conversation Persistence, Compression, Export** (`docs/adr/0029-conversation-
+  persistence-compression-export.md`) — closes the genuine, previously-
+  documented gaps in the already-shipped AI Investigation Assistant
+  (ADR-0025/0027): a follow-up task re-requested the whole Copilot/Chat
+  system; a pre-implementation check confirmed nearly all of it already
+  existed and was presented to the user as a conflict via `AskUserQuestion`
+  rather than silently rebuilt. Scope closed:
+  - **Durable conversation history.** `core/memory/conversation_db_models.py`
+    (new — `ConversationSessionRow`/`ConversationMessageRow`/
+    `ConversationSummaryRow`, real foreign keys to `cases`) and
+    `core/memory/conversation_repository.py` (new — their repositories),
+    following the exact `core/memory`-owns-its-own-persistence pattern
+    `db_models.py`/`repository.py` already established for `MemoryRecord`.
+    `core.memory.conversation_memory.DbConversationMemory` (new) implements
+    the existing `ConversationMemory` Protocol (extended additively with an
+    optional `session_id` keyword) alongside `InMemoryConversationMemory`,
+    selected by default via new `Settings.conversation_persistence_backend`
+    (`"database"` default, `"memory"` opt-out). New Alembic migration
+    (`a1b2c3d4e5f6`) for the three tables; `core/db/migrations/env.py` now
+    also imports `core.memory.db_models`/`conversation_db_models` so
+    `core/memory`'s own tables are captured by autogeneration.
+  - **Compression / context-window management.**
+    `core/conversation/compression.py` (new) — deterministic (never
+    LLM-generated) `estimate_tokens`/`summarize_turns`/
+    `build_bounded_history`: once a session's persisted turn count exceeds
+    `Settings.conversation_compression_trigger_turns`, older turns are
+    reduced to an extractive, never-fabricated bullet summary (persisted as
+    a `ConversationSummaryRow`, upserted) while the most recent
+    `conversation_summary_keep_recent_turns` stay verbatim; a token budget
+    (`conversation_max_prompt_history_tokens`) bounds the final prompt
+    history on every request regardless of backend.
+  - **Conversation export.** `core/conversation/export.py` (new) —
+    `render_json`/`render_markdown`/`export_conversation`, a transcript
+    exporter deliberately separate from `core/reporting`'s Export Framework
+    (no themes/charts apply to a flat chat transcript); renders on request,
+    persists nothing new (mirrors ADR-0026's `Report.file_path` decision).
+  - **New read paths** in `core/services/conversation_service.py`: session
+    listing, full transcript replay, deterministic keyword search, and
+    usage analytics (sessions/messages/degraded-answer/prompt-injection-flag
+    counts, category-usage histogram) — all computed on demand from
+    persisted messages, no redundant new tables.
+  - **Progressive answer delivery.** `POST /cases/{case_id}/conversation/
+    stream` — the full, unchanged `ask_question` pipeline (retrieval,
+    grounding, citation, validation) runs to completion first, then the
+    validated `answer_text` streams back word-chunked over
+    `text/event-stream`. Documented honestly as progressive delivery of an
+    already-validated answer, not raw LLM token streaming — real token
+    streaming would require reopening the already-shipped Response
+    Validator's placement in the pipeline (see the ADR's Decision 6).
+  - New API routes: `GET /conversation/sessions`,
+    `GET /conversation/sessions/{session_id}/messages`,
+    `GET /conversation/sessions/{session_id}/export`,
+    `GET /conversation/search`, `GET /conversation/analytics`,
+    `POST /conversation/stream`.
+  - 57 new tests across `test_memory_conversation_repository.py` (new),
+    `test_memory_conversation_memory.py` (extended — `DbConversationMemory`),
+    `test_conversation_compression.py` (new), `test_conversation_export.py`
+    (new), `test_conversation_service_persistence.py` (new integration —
+    persistence/search/analytics/export/compression across real committed
+    sessions), and `test_api_conversation_routes.py` (extended — sessions/
+    messages/export/search/analytics/stream via the real FastAPI app). Full
+    pytest suite now 2006 tests (up from 1960); `ruff check`/`format --check`,
+    `scripts/check_dependency_rules.py` all pass.
 - **Memory Agent — graph-integrated cross-case retrieval, closing M6**
   (`docs/adr/0028-memory-agent.md`) — the last named M6 intelligence
   component: an eleventh concrete specialist agent
